@@ -4,6 +4,9 @@ import { useUi } from "../store/ui";
 const MINI = { w: 440, h: 120 };
 const MINI_POS_KEY = "resonance.miniPos";
 const MARGIN = 16;
+// Mini mode lives in page state, but the window keeps its mini size if the page reloads
+// (WebView2 can do that on its own). Remember it for the session so the UI matches.
+const SESSION_KEY = "resonance.miniSession";
 
 type Rect = { x: number; y: number; w: number; h: number };
 let restore: (Rect & { maximized: boolean }) | null = null;
@@ -54,6 +57,19 @@ function saveMiniPos(p: { x: number; y: number }) {
   }
 }
 
+/** After a page reload, goes back to the mini layout if the window is still the mini player. */
+export function resumeMiniAfterReload() {
+  try {
+    const r = JSON.parse(sessionStorage.getItem(SESSION_KEY) ?? "null");
+    if (r && typeof r.w === "number") {
+      restore = r;
+      useUi.getState().setMini(true);
+    }
+  } catch {
+    // ignore
+  }
+}
+
 /**
  * Switch between the full window and a compact always-on-top mini player. The mini player
  * opens where it was last left (bottom-right corner the first time); the full window comes
@@ -69,6 +85,11 @@ export async function toggleMiniPlayer() {
     const size = (await win.innerSize()).toLogical(sf);
     const pos = (await win.innerPosition()).toLogical(sf);
     restore = { x: pos.x, y: pos.y, w: size.width, h: size.height, maximized };
+    try {
+      sessionStorage.setItem(SESSION_KEY, JSON.stringify(restore));
+    } catch {
+      // Without it, a reload while mini shows the full layout until Ctrl+M.
+    }
     ui.setNowPlaying(false);
     ui.setMini(true);
     await win.setResizable(false);
@@ -85,6 +106,11 @@ export async function toggleMiniPlayer() {
     const sf = await win.scaleFactor();
     const pos = (await win.innerPosition()).toLogical(sf);
     saveMiniPos({ x: pos.x, y: pos.y });
+    try {
+      sessionStorage.removeItem(SESSION_KEY);
+    } catch {
+      // ignore
+    }
     const area = await workArea();
     ui.setMini(false);
     await win.setAlwaysOnTop(false);

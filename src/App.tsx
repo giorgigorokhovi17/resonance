@@ -28,7 +28,7 @@ import { ReviewView } from "./views/ReviewView";
 import { EqView } from "./views/EqView";
 import { NowPlaying } from "./views/NowPlaying";
 import { MiniPlayer } from "./views/MiniPlayer";
-import { toggleMiniPlayer } from "./lib/window";
+import { resumeMiniAfterReload, toggleMiniPlayer } from "./lib/window";
 import { useShortcuts } from "./hooks/useShortcuts";
 import { useCoverColor } from "./hooks/useCoverColor";
 import { useAppearance } from "./hooks/useAppearance";
@@ -111,6 +111,7 @@ export default function App() {
     initLibrary().catch((e) => usePlayer.getState().pushToast("error", `Library failed to load: ${e}`));
     initPlaylists().catch((e) => console.error(e));
     initUpdater();
+    resumeMiniAfterReload();
     // Files dropped from Explorer start playing.
     const un = getCurrentWebview().onDragDropEvent((e) => {
       if (e.payload.type === "drop" && e.payload.paths.length) {
