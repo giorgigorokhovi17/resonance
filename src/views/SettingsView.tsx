@@ -219,6 +219,9 @@ export function SettingsView() {
               <Row label="Close button minimizes to tray">
                 <Toggle label="Close to tray" checked={settings.closeToTray} onChange={(v) => patch({ closeToTray: v })} />
               </Row>
+              <Row label="Minimize to mini player">
+                <Toggle label="Minimize to mini player" checked={settings.minimizeToMini} onChange={(v) => patch({ minimizeToMini: v })} />
+              </Row>
               <Row label="Watch library folders for changes">
                 <Toggle label="Watch folders" checked={settings.watchFolders} onChange={(v) => patch({ watchFolders: v })} />
               </Row>

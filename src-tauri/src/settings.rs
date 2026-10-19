@@ -20,6 +20,8 @@ pub struct Settings {
     pub theme: String,
     pub close_to_tray: bool,
     pub watch_folders: bool,
+    /// The minimize button switches to the mini player instead of hiding the window.
+    pub minimize_to_mini: bool,
     pub eq: EqSettings,
     pub appearance: Appearance,
 }
@@ -102,6 +104,7 @@ impl Default for Settings {
             theme: "dark".into(),
             close_to_tray: false,
             watch_folders: true,
+            minimize_to_mini: false,
             eq: EqSettings::default(),
             appearance: Appearance::default(),
         }
@@ -163,6 +166,7 @@ mod tests {
         assert_eq!(s.theme, "light");
         assert!(s.close_to_tray);
         assert_eq!(s.appearance, Appearance::default());
+        assert!(!s.minimize_to_mini);
     }
 
     #[test]

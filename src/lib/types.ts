@@ -126,6 +126,7 @@ export interface Settings {
   theme: "dark" | "light" | "system";
   closeToTray: boolean;
   watchFolders: boolean;
+  minimizeToMini: boolean;
   eq: EqSettings;
   appearance: Appearance;
 }

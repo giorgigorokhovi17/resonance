@@ -339,6 +339,7 @@ pub struct SettingsPatch {
     pub theme: Option<String>,
     pub close_to_tray: Option<bool>,
     pub watch_folders: Option<bool>,
+    pub minimize_to_mini: Option<bool>,
     pub replay_gain: Option<ReplayGainMode>,
     pub replay_gain_preamp: Option<f64>,
     pub appearance: Option<crate::settings::Appearance>,
@@ -356,6 +357,9 @@ pub fn update_settings(app: AppHandle, state: State<'_, AppState>, patch: Settin
         }
         if let Some(v) = patch.watch_folders {
             s.watch_folders = v;
+        }
+        if let Some(v) = patch.minimize_to_mini {
+            s.minimize_to_mini = v;
         }
         if let Some(v) = patch.replay_gain {
             s.replay_gain = v;

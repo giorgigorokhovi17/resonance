@@ -40,6 +40,23 @@ fn serve_cover(app: &AppHandle, uri: &tauri::http::Uri) -> Option<Vec<u8>> {
     std::fs::read(path).ok()
 }
 
+/// Shrinks the window to fit the screen's work area and centres it there. On small or scaled
+/// screens the configured size can be taller than the space above the taskbar.
+fn fit_to_work_area(w: &tauri::WebviewWindow) {
+    let (Ok(Some(monitor)), Ok(size)) = (w.current_monitor(), w.inner_size()) else { return };
+    let (Ok(outer), Ok(inner)) = (w.outer_position(), w.inner_position()) else { return };
+    let area = monitor.work_area();
+    let width = size.width.min(area.size.width);
+    let height = size.height.min(area.size.height);
+    if (width, height) != (size.width, size.height) {
+        let _ = w.set_size(tauri::PhysicalSize::new(width, height));
+    }
+    // The outer frame includes invisible resize borders; place the visible part.
+    let x = area.position.x + ((area.size.width - width) / 2) as i32 - (inner.x - outer.x);
+    let y = area.position.y + ((area.size.height - height) / 2) as i32 - (inner.y - outer.y);
+    let _ = w.set_position(tauri::PhysicalPosition::new(x, y));
+}
+
 fn show_main(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.show();
@@ -242,6 +259,7 @@ pub fn run() {
 
             // Media overlay + hardware media keys (System Media Transport Controls).
             if let Some(window) = app.get_webview_window("main") {
+                fit_to_work_area(&window);
                 if let Ok(hwnd) = window.hwnd() {
                     let raise_handle = app.handle().clone();
                     let tx = smtc::start(hwnd.0 as isize, engine.clone(), move || show_main(&raise_handle));
