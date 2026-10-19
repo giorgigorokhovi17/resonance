@@ -1,0 +1,58 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Resonance",
+  "version": "0.1.0",
+  "identifier": "app.resonance.player",
+  "build": {
+    "beforeDevCommand": "corepack pnpm dev",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": "corepack pnpm build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Resonance",
+        "width": 1280,
+        "height": 820,
+        "minWidth": 360,
+        "minHeight": 120,
+        "decorations": false,
+        "transparent": false,
+        "center": true,
+        "visible": true,
+        "dragDropEnabled": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self' ipc: http://ipc.localhost; img-src 'self' data: blob: cover: http://cover.localhost; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' ipc: http://ipc.localhost; font-src 'self' data:",
+      "assetProtocol": { "enable": false }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEE4NkFBQjJCNEVBRjM0MjgKUldRb05LOU9LNnRxcUlTSzI2N1FIUlNTQUJmRkRkZnc0Y2g0ZUNwVy9VM0NkZjBweGp2K0RuSHgK",
+      "endpoints": ["https://github.com/YOUR_GITHUB_USERNAME/resonance/releases/latest/download/latest.json"],
+      "windows": { "installMode": "passive" }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "createUpdaterArtifacts": true,
+    "targets": ["msi", "nsis"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico"
+    ],
+    "category": "Music",
+    "shortDescription": "Local-only high-fidelity music player",
+    "longDescription": "A personal, offline music player with bit-perfect WASAPI exclusive output, parametric EQ and a fast local library.",
+    "windows": {
+      "webviewInstallMode": { "type": "embedBootstrapper" }
+    }
+  }
+}

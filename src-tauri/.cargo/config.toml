@@ -1,0 +1,5 @@
+# libopus (Opus decoding) is built from source with CMake. Visual Studio Build Tools ships a
+# CMake binary that is not on PATH by default; point the `cmake` crate at it unless the user
+# already set CMAKE themselves (force = false keeps an existing value).
+[env]
+CMAKE = { value = "C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\CMake\\bin\\cmake.exe", force = false }

@@ -1,0 +1,351 @@
+﻿pub mod audio;
+pub mod backup;
+pub mod commands;
+pub mod library;
+pub mod persist;
+pub mod queue;
+pub mod settings;
+pub mod smtc;
+
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::time::Instant;
+
+use crossbeam_channel::Sender;
+use parking_lot::Mutex;
+use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::{AppHandle, Emitter, Manager, WindowEvent};
+
+use audio::engine::{Command, Engine, EngineConfig, EngineEvent};
+use audio::types::PlayState;
+use library::{Library, LibraryEvent};
+use settings::SettingsStore;
+use smtc::SmtcUpdate;
+
+pub struct AppState {
+    pub engine: Arc<Engine>,
+    pub settings: SettingsStore,
+    pub library: Arc<Library>,
+    pub queue_dirty: Arc<AtomicBool>,
+    pub queue_file: PathBuf,
+}
+
+fn serve_cover(app: &AppHandle, uri: &tauri::http::Uri) -> Option<Vec<u8>> {
+    let id = uri.path().trim_start_matches('/');
+    let full = uri.query().map(|q| q.contains("s=full")).unwrap_or(false);
+    let state = app.try_state::<AppState>()?;
+    let path = state.library.covers.file(id, full)?;
+    std::fs::read(path).ok()
+}
+
+fn show_main(app: &AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.show();
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+    }
+}
+
+/// Audio files/folders passed on the command line ("Open with", drag onto the .exe).
+fn path_args(args: &[String]) -> Vec<String> {
+    args.iter()
+        .skip(1)
+        .filter(|a| !a.starts_with('-'))
+        .filter(|a| {
+            let p = std::path::Path::new(a);
+            p.is_dir() || library::model::is_audio_file(p)
+        })
+        .cloned()
+        .collect()
+}
+
+fn build_tray(app: &AppHandle) -> tauri::Result<()> {
+    let toggle = MenuItem::with_id(app, "toggle", "Play / Pause", true, None::<&str>)?;
+    let prev = MenuItem::with_id(app, "prev", "Previous", true, None::<&str>)?;
+    let next = MenuItem::with_id(app, "next", "Next", true, None::<&str>)?;
+    let show = MenuItem::with_id(app, "show", "Show Resonance", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+    let sep = PredefinedMenuItem::separator(app)?;
+    let sep2 = PredefinedMenuItem::separator(app)?;
+    let menu = Menu::with_items(app, &[&toggle, &prev, &next, &sep, &show, &sep2, &quit])?;
+    let mut builder = TrayIconBuilder::with_id("main")
+        .tooltip("Resonance")
+        .menu(&menu)
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app, event| {
+            let state = app.try_state::<AppState>();
+            match event.id.as_ref() {
+                "toggle" => state.map(|s| s.engine.send(Command::Toggle)).unwrap_or_default(),
+                "prev" => state.map(|s| s.engine.send(Command::Previous)).unwrap_or_default(),
+                "next" => state.map(|s| s.engine.send(Command::Next)).unwrap_or_default(),
+                "show" => show_main(app),
+                "quit" => app.exit(0),
+                _ => {}
+            }
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
+                show_main(tray.app_handle());
+            }
+        });
+    if let Some(icon) = app.default_window_icon() {
+        builder = builder.icon(icon.clone());
+    }
+    builder.build(app)?;
+    Ok(())
+}
+
+pub fn run() {
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info,symphonia=warn,lofty=error"))
+        .init();
+
+    tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            show_main(app);
+            let paths = path_args(&args);
+            if !paths.is_empty() {
+                commands::open_external(app, paths);
+            }
+        }))
+        .plugin(tauri_plugin_dialog::init())
+        // Signed auto-updates from the GitHub Releases feed in tauri.conf.json.
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
+        // Album art is served from the local cache through a custom protocol (no network).
+        .register_asynchronous_uri_scheme_protocol("cover", |ctx, request, responder| {
+            let app = ctx.app_handle().clone();
+            let uri = request.uri().clone();
+            std::thread::spawn(move || {
+                let resp = match serve_cover(&app, &uri) {
+                    Some(bytes) => tauri::http::Response::builder()
+                        .header("Content-Type", "image/jpeg")
+                        .header("Cache-Control", "max-age=31536000, immutable")
+                        .header("Access-Control-Allow-Origin", "*")
+                        .body(bytes),
+                    None => tauri::http::Response::builder().status(404).body(Vec::new()),
+                };
+                if let Ok(r) = resp {
+                    responder.respond(r);
+                }
+            });
+        })
+        .on_window_event(|window, event| {
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                let to_tray = window
+                    .app_handle()
+                    .try_state::<AppState>()
+                    .map(|s| s.settings.get().close_to_tray)
+                    .unwrap_or(false);
+                if to_tray {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+        })
+        .setup(|app| {
+            let config_dir = app.path().app_config_dir()?;
+            let data_dir = app.path().app_data_dir()?;
+            let cache_dir = app.path().app_cache_dir()?;
+            for d in [&config_dir, &data_dir, &cache_dir] {
+                std::fs::create_dir_all(d)?;
+            }
+            let settings = SettingsStore::load(config_dir.join("settings.json"));
+            let s = settings.get();
+
+            let lib_handle = app.handle().clone();
+            let library = Library::open(
+                &data_dir.join("library.db"),
+                cache_dir.join("covers"),
+                Arc::new(move |ev| match ev {
+                    LibraryEvent::Progress(p) => {
+                        let _ = lib_handle.emit("library:progress", p);
+                    }
+                    LibraryEvent::ScanStarted => {
+                        let _ = lib_handle.emit("library:scan-started", ());
+                    }
+                    LibraryEvent::Finished(summary) => {
+                        let _ = lib_handle.emit("library:changed", summary);
+                    }
+                }),
+            )
+            .map_err(|e| format!("cannot open library database: {e}"))?;
+            library.set_watching(s.watch_folders);
+            // Quick incremental rescan on startup picks up changes made while the app was closed.
+            library.request_scan(library::ScanRequest::All { force: false });
+
+            // Restore last session's queue (playback resumes at the saved position on Play).
+            let queue_file = data_dir.join("queue.json");
+            let (queue, resume_pos) = persist::load_queue(&queue_file, &library);
+            let resume_uid = queue.current_uid();
+
+            // Engine events fan out to the UI, the Windows media overlay and the tray tooltip.
+            let smtc_tx: Arc<Mutex<Option<Sender<SmtcUpdate>>>> = Arc::new(Mutex::new(None));
+            let last_playback = Mutex::new((PlayState::Stopped, 0.0f64, Instant::now()));
+            let handle = app.handle().clone();
+            let smtc_slot = smtc_tx.clone();
+            let engine = Engine::new(
+                EngineConfig {
+                    mode: s.output_mode,
+                    device_id: s.device_id.clone(),
+                    volume: s.volume,
+                    eq: s.eq.clone(),
+                    rg_mode: s.replay_gain,
+                    rg_preamp: s.replay_gain_preamp,
+                },
+                queue,
+                move |ev| match ev {
+                    EngineEvent::Status(st) => {
+                        if let Some(tx) = smtc_slot.lock().as_ref() {
+                            let mut last = last_playback.lock();
+                            let expected = last.1
+                                + if last.0 == PlayState::Playing { last.2.elapsed().as_secs_f64() } else { 0.0 };
+                            // Only state changes and seeks need to reach the overlay.
+                            if st.state != last.0 || (st.position - expected).abs() > 1.5 {
+                                let _ = tx.send(SmtcUpdate::Playback { state: st.state, position: st.position });
+                            }
+                            *last = (st.state, st.position, Instant::now());
+                        }
+                        let _ = handle.emit("player:status", st);
+                    }
+                    EngineEvent::TrackChanged(item) => {
+                        if let Some(item) = &item {
+                            let t = &item.track;
+                            let artist = if t.artist.is_empty() { t.album_artist.clone() } else { t.artist.clone() };
+                            if let Some(tray) = handle.tray_by_id("main") {
+                                let _ = tray.set_tooltip(Some(format!("{} — {}", t.title, artist)));
+                            }
+                            if let Some(tx) = smtc_slot.lock().as_ref() {
+                                let cover = t.cover_id.as_deref().and_then(|id| {
+                                    handle.try_state::<AppState>().and_then(|s| s.library.covers.file(id, true))
+                                });
+                                let _ = tx.send(SmtcUpdate::Track {
+                                    title: t.title.clone(),
+                                    artist,
+                                    album: t.album.clone(),
+                                    cover,
+                                    duration: t.duration,
+                                });
+                            }
+                        }
+                        let _ = handle.emit("player:track", item);
+                    }
+                    EngineEvent::Error(msg) => {
+                        let _ = handle.emit("player:error", msg);
+                    }
+                },
+            );
+            if let (Some(uid), Some(position)) = (resume_uid, resume_pos) {
+                engine.send(Command::SetResume { uid, position });
+            }
+
+            // Media overlay + hardware media keys (System Media Transport Controls).
+            if let Some(window) = app.get_webview_window("main") {
+                if let Ok(hwnd) = window.hwnd() {
+                    let raise_handle = app.handle().clone();
+                    let tx = smtc::start(hwnd.0 as isize, engine.clone(), move || show_main(&raise_handle));
+                    *smtc_tx.lock() = tx;
+                }
+            }
+
+            if let Err(e) = build_tray(app.handle()) {
+                log::warn!("system tray unavailable: {e}");
+            }
+
+            // Persist the queue periodically when it changed (and on exit).
+            let queue_dirty = Arc::new(AtomicBool::new(false));
+            {
+                let engine = engine.clone();
+                let dirty = queue_dirty.clone();
+                let file = queue_file.clone();
+                std::thread::Builder::new().name("queue-saver".into()).spawn(move || loop {
+                    std::thread::sleep(std::time::Duration::from_secs(5));
+                    let playing = engine.status().state == PlayState::Playing;
+                    if dirty.swap(false, Ordering::Relaxed) || playing {
+                        persist::save_queue(&file, &engine);
+                    }
+                })?;
+            }
+
+            app.manage(AppState { engine, settings, library, queue_dirty, queue_file });
+
+            // Files passed on the command line start playing right away.
+            let args: Vec<String> = std::env::args().collect();
+            let paths = path_args(&args);
+            if !paths.is_empty() {
+                commands::open_external(app.handle(), paths);
+            }
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            commands::get_status,
+            commands::play_files,
+            commands::toggle_play,
+            commands::play,
+            commands::pause,
+            commands::stop,
+            commands::next_track,
+            commands::previous_track,
+            commands::seek,
+            commands::set_volume,
+            commands::set_muted,
+            commands::list_devices,
+            commands::set_output,
+            commands::get_queue,
+            commands::set_shuffle,
+            commands::set_repeat,
+            commands::get_settings,
+            commands::update_settings,
+            commands::get_library_folders,
+            commands::add_library_folder,
+            commands::remove_library_folder,
+            commands::rescan_library,
+            commands::is_scanning,
+            commands::get_tracks,
+            commands::play_tracks,
+            commands::enqueue_tracks,
+            commands::play_paths,
+            commands::play_queue_item,
+            commands::remove_from_queue,
+            commands::move_queue_item,
+            commands::clear_queue,
+            commands::get_playlists,
+            commands::create_playlist,
+            commands::rename_playlist,
+            commands::delete_playlist,
+            commands::get_playlist,
+            commands::add_to_playlist,
+            commands::set_playlist_paths,
+            commands::import_playlist,
+            commands::export_playlist,
+            commands::export_unmatched_report,
+            commands::get_playlist_review,
+            commands::decide_match,
+            commands::save_queue_as_playlist,
+            commands::set_eq,
+            commands::get_eq_presets,
+            commands::save_eq_preset,
+            commands::delete_eq_preset,
+            commands::import_autoeq,
+            commands::open_url,
+            commands::quit_app,
+            commands::update_playlist,
+            commands::set_playlist_cover,
+            commands::import_cover_image,
+            commands::set_tracks_cover_hidden,
+            commands::set_tracks_cover,
+            commands::export_backup,
+            commands::import_backup,
+        ])
+        .build(tauri::generate_context!())
+        .expect("error while building Resonance")
+        .run(|app, event| {
+            if let tauri::RunEvent::Exit = event {
+                if let Some(state) = app.try_state::<AppState>() {
+                    persist::save_queue(&state.queue_file, &state.engine);
+                    state.engine.shutdown();
+                }
+            }
+        });
+}

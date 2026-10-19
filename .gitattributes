@@ -1,0 +1,7 @@
+# Keep LF line endings in the repo and in every checkout (Windows, and Linux cloud agents).
+* text=auto eol=lf
+
+# Binary assets
+*.png binary
+*.ico binary
+*.icns binary

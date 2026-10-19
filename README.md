@@ -1,0 +1,174 @@
+# Resonance
+
+A personal, **local-only** music player for Windows. No accounts, no network access, no telemetry.
+
+Built with **Tauri 2** (Rust backend) and **React + TypeScript + Tailwind** (frontend).
+
+## Features
+
+**Audio engine (Rust)**
+- Decoding with `symphonia`: FLAC, WAV, AIFF, ALAC and AAC (`.m4a`), MP3, Ogg Vorbis. Opus is decoded through libopus (`symphonia-adapter-libopus`). Supports up to 32-bit / 384 kHz.
+- Two output modes, switchable live in **Settings → Audio output**:
+  - **Shared** (default): WASAPI shared mode via `cpal`, going through the Windows mixer, so Equalizer APO and other system effects still apply. If the file's sample rate differs from the device's mix rate, it is converted once with a high-quality 64-bit sinc resampler (`rubato`).
+  - **Exclusive**: raw WASAPI exclusive mode (event-driven, via the `wasapi` crate, because `cpal` has no exclusive mode). The device is opened at each file's **native sample rate and bit depth**: no mixer and no resampling. 24-bit audio is sent packed or in a 32-bit container, whichever the device accepts. 16-bit audio is zero-padded into wider containers, which is lossless. If a device cannot do a rate in exclusive mode, that track falls back to shared mode and the app shows a notice.
+- **Gapless playback**: the next track is decoded ahead into the same stream, and encoder delay/padding is trimmed. Tracks that need a different device format in exclusive mode trigger a device reopen (a short, unavoidable gap).
+- **Sample-accurate seeking** and 64-bit float processing throughout. Samples are scaled by exact powers of two, so with volume at 100% and the EQ bypassed, exclusive mode is **bit-perfect**. A "Bit-perfect" badge confirms it live.
+- **10-band parametric EQ + preamp** (RBJ biquads in f64): peak, low/high shelf, low/high-pass. Bypass toggle, built-in and saved presets, and **AutoEQ `ParametricEQ.txt` import**. *Auto headroom* lowers the preamp by the EQ's peak boost so boosts can never clip.
+- **ReplayGain** (track/album) with pre-amp. Gain is limited by the stored peak so it never clips.
+- Volume uses a smooth perceptual taper with de-click ramps. TPDF dither is applied only when the signal was actually processed.
+
+**Library**
+- Add one or more music folders. They're scanned recursively and in parallel; tags and properties are read with `lofty`. Album art comes from embedded pictures or folder images (`cover.jpg`, `folder.png`, …), cached as thumbnails.
+- Stored in local SQLite (WAL). Rescans are incremental: only new or changed files are re-read.
+- Folders are watched for changes, which triggers an automatic incremental rescan.
+- Views: **Albums** (cover grid), **Artists**, **Tracks** (sortable table), **Folders**, **Search**. All lists are virtualized.
+
+**Playback UI**
+- Dark (default) and light themes. Large **Now Playing** view with album art over a blurred-art background.
+- **Queue** (drag to reorder, remove, save as playlist) as a full view and a slide-over panel.
+- **Playlists**: create, rename, delete, reorder. **Import M3U/M3U8, PLS, XSPF and WPL**: importing the same file again updates its playlist instead of adding a copy. **Export to M3U8, XSPF, or CSV with ISRC** (for spreadsheets; cells are guarded against formula injection). ISRCs and MusicBrainz recording ids are read from tags (invalid values, such as barcodes in the ISRC field, are ignored).
+- **Playlist matcher**: every imported entry is matched to a local file by path, folder + file name, ISRC, MusicBrainz id, then fuzzy title/artist/version/duration (SQLite FTS5 narrows candidates). Only unambiguous, fully confirmed matches are accepted automatically. A remix, slowed or extended version is never taken for the original. **Export unmatched report…** on an imported playlist lists what wasn't matched and why.
+- Shuffle, repeat one/all, and the queue plus position are restored on the next launch.
+- Live format info: codec, sample rate, bit depth, bitrate, output mode and bit depth, device, bit-perfect / resampled / EQ / ReplayGain badges.
+- Output device picker, **media keys + Windows media overlay (SMTC)**, **system tray** (with optional close-to-tray), **mini-player** (Ctrl+M), and keyboard shortcuts.
+- Drag files or folders onto the window, or open audio files with Resonance from Explorer.
+
+## Measured performance
+
+With a generated 20,009-track library (1,000 albums), on the development machine:
+
+| | |
+|---|---|
+| Cold scan, release build (tags + 1,000 album covers) | 11.6 s |
+| Incremental rescan (nothing changed) | 0.31 s |
+| Load whole library from SQLite | 26 ms |
+| Track table scrolling | 11.9 ms avg frame, 44 rows in the DOM |
+| Search / sort 20k tracks | ~27 ms / ~26 ms |
+
+## Prerequisites
+
+1. **Visual Studio 2022 Build Tools** with **Desktop development with C++**. That includes MSVC, the **Windows 11 SDK** and **C++ CMake tools for Windows**. CMake is needed to build libopus.
+   ```powershell
+   winget install Microsoft.VisualStudio.2022.BuildTools --override "--passive --wait --add Microsoft.VisualStudio.Workload.VCTools --add Microsoft.VisualStudio.Component.Windows11SDK.22621 --add Microsoft.VisualStudio.Component.VC.CMake.Project --includeRecommended"
+   ```
+2. **Rust** (stable, MSVC toolchain), from https://rustup.rs. Version 1.90 or newer.
+3. **Node.js 20+**. The project uses **pnpm through Corepack**, which ships with Node, so nothing extra needs installing.
+4. **WebView2 Runtime**. It's preinstalled on Windows 11, and the installer bootstraps it if missing.
+
+> `src-tauri/.cargo/config.toml` points the build at the CMake that ships with VS 2022 Build Tools. If yours is installed elsewhere, set the `CMAKE` environment variable to your `cmake.exe`. An existing `CMAKE` value always wins.
+
+## Run in development
+
+```powershell
+corepack pnpm install
+corepack pnpm tauri dev
+```
+
+## Build the installer / .exe
+
+Release builds are signed for the auto-updater, so build through the release script (it points Tauri at the signing key):
+
+```powershell
+corepack pnpm install
+powershell -ExecutionPolicy Bypass -File scripts/release.ps1 -Notes "What's new in this version"
+```
+
+A plain `corepack pnpm tauri build` stops with a missing-signing-key error unless `TAURI_SIGNING_PRIVATE_KEY` is set to the key file below.
+
+Outputs:
+
+- `src-tauri/target/release/resonance.exe`: the app itself (portable)
+- `src-tauri/target/release/bundle/msi/Resonance_0.1.0_x64_en-US.msi`
+- `src-tauri/target/release/bundle/nsis/Resonance_0.1.0_x64-setup.exe`
+
+The first `tauri build` downloads the WiX and NSIS bundler tools; later builds don't need them again.
+
+### Publishing an update
+
+Installed copies check `https://github.com/<user>/resonance/releases/latest/download/latest.json` on startup (set the real user/repo in `src-tauri/tauri.conf.json` → `plugins.updater.endpoints`), then offer **Update and restart**.
+
+1. Bump `version` in `src-tauri/tauri.conf.json`, `package.json` and `src-tauri/Cargo.toml`.
+2. Run `scripts/release.ps1` as above. It builds, signs and writes `bundle/latest.json`.
+3. On GitHub, create a release tagged `v<version>` (e.g. `v0.2.0`) and upload the `-setup.exe` and `latest.json` it lists.
+
+The private signing key is `%USERPROFILE%\.tauri\resonance-updater.key` (no password). **Back it up and never share or commit it.** If it's lost, existing installs can't verify new versions and people must reinstall manually. The update check is the app's only network request; everything else runs offline.
+
+## Tests and dev tools
+
+```powershell
+cd src-tauri
+cargo test --lib                                          # EQ math, AutoEQ parser, bit-exact output encoding,
+                                                          # renderer bit-transparency, queue logic, playlist
+                                                          # parsers + proptest round-trips (PROPTEST_CASES=3000 for more)
+cargo run --release --example scan  -- "D:\Music"         # library scan benchmark (temp DB)
+cargo run --example id_audit -- "D:\Music"                # count ISRC / MusicBrainz ids / durations in tags
+cargo run --example playlist_export_check -- "D:\Music" out   # export M3U8/M3U/XSPF/CSV, read back, verify paths + ids
+cargo run --release --example match_bench                 # matcher speed on a generated 50k-track library
+cargo run --release --example play  -- exclusive 15 a.flac b.flac   # headless playback through the real device
+cargo run --release --example probe -- song.flac          # decode a file and print its format
+```
+
+## Using it
+
+- **Settings → Library folders → Add folder** to build the library. Use **Rescan** after big changes, though folder watching usually handles it.
+- **Settings → Audio output** picks Shared/Exclusive and the device. For bit-perfect playback, choose Exclusive, set volume to 100% and bypass the EQ. The player bar and Now Playing view show **Bit-perfect** when the whole chain is transparent.
+- **Equalizer → Import AutoEQ** loads a `ParametricEQ.txt` (Equalizer APO format) from the AutoEQ project and saves it as a preset. Drag the numbered points on the response graph, scroll over a point to change its Q, and double-click a slider to reset it.
+- Right-click any track, album, folder or playlist for **Play next / Add to queue / Add to playlist / Go to album**. **Set artwork…** gives songs your own picture (kept in the app, files untouched); it shows everywhere, including playlists and the player.
+- **Settings → Backup & restore** saves playlists, EQ presets, custom artwork, library folders and settings to a `.resonance-backup` file. Restoring it on another PC relinks playlists even if the music is on a different drive or folder.
+
+### Keyboard shortcuts
+
+| Key | Action |
+|---|---|
+| Space | Play / pause |
+| Ctrl+→ / Ctrl+← | Next / previous track |
+| → / ← | Seek ±5 s (Shift: ±30 s) |
+| ↑ / ↓ | Volume |
+| M | Mute |
+| S / R | Shuffle / cycle repeat |
+| F | Now Playing view |
+| Q | Queue panel |
+| Ctrl+F | Search |
+| Ctrl+M | Mini player |
+| Alt+← / Alt+→ | Back / forward |
+
+Hardware media keys work through Windows' media controls, even when the window is hidden.
+
+## Where data lives
+
+| | |
+|---|---|
+| Settings, EQ presets | `%APPDATA%\app.resonance.player\settings.json`, `eq_presets.json` |
+| Library database, saved queue | `%APPDATA%\app.resonance.player\library.db`, `queue.json` |
+| Album-art cache | `%LOCALAPPDATA%\app.resonance.player\covers\` |
+
+Music files are only ever read, never modified.
+
+## Architecture
+
+```
+src-tauri/src
+├─ audio/
+│  ├─ decoder.rs    symphonia (+ libopus) → interleaved f64, sample-accurate seek
+│  ├─ resample.rs   rubato sinc resampler (shared mode only, when rates differ)
+│  ├─ engine.rs     player thread: gapless lookahead, segments, seek/flush, device (re)open, status
+│  ├─ dsp.rs        real-time renderer: lock-free ring → EQ → gain/fades → identity (bit-perfect) flag
+│  ├─ eq.rs         RBJ biquads, auto headroom, AutoEQ parser
+│  └─ output.rs     cpal shared stream / WASAPI exclusive stream + format negotiation + PCM packing
+├─ library/        SQLite schema, parallel incremental scanner, cover cache, folder watcher,
+│                  playlist interchange (interchange.rs model + m3u/pls/xspf/wpl/csv),
+│                  matcher/ (normalize.rs rules, tiers, FTS5 candidates, decisions)
+├─ queue.rs        queue, shuffle, repeat
+├─ smtc.rs         Windows media overlay / media keys (souvlaki)
+├─ persist.rs      queue persistence
+└─ commands.rs     Tauri command API
+src/               React UI (zustand stores, virtualized views)
+```
+
+The decoder thread fills a lock-free SPSC ring buffer (`rtrb`). The output callback never blocks: EQ parameter changes are picked up with `try_lock`, and flushes use a generation/ack handshake. Track boundaries are tracked by frame counters, which is what makes gapless transitions and accurate position reporting work.
+
+## Known limitations
+
+- In exclusive mode, consecutive tracks with different sample rates or bit depths need a device reopen, which causes a short gap. Same-format albums are fully gapless.
+- WavPack, APE, DSD and MQA are not supported by the decoder stack.
+- Multichannel files are downmixed to stereo when the device only takes 2 channels.

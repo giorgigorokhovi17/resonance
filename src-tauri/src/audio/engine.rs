@@ -1,0 +1,974 @@
+//! The player thread: decodes ahead into a lock-free ring buffer, tracks segment boundaries for
+//! gapless playback, handles seeking and (re)opens the output device when the format requires it.
+
+use std::collections::VecDeque;
+use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
+
+use anyhow::Result;
+use crossbeam_channel::{unbounded, Receiver, RecvTimeoutError, Sender};
+use parking_lot::Mutex;
+use rtrb::Producer;
+use serde::Serialize;
+
+use super::decoder::Decoder;
+use super::dsp::{slider_to_gain, EngineShared};
+use super::eq::EqSettings;
+use super::output::{self, ExclusiveUnsupported, OutputHandle};
+use super::resample::StreamResampler;
+use super::types::{OutputFormat, OutputMode, PlayState, ReplayGainMode, SourceFormat};
+use crate::library::model::Track;
+use crate::queue::{PlayQueue, QueueItem};
+
+pub enum Command {
+    /// Start playing a queue item (by uid) at `start` seconds.
+    PlayItem { uid: u64, start: f64, paused: bool },
+    Play,
+    Pause,
+    Toggle,
+    Stop,
+    Seek(f64),
+    Next,
+    Previous,
+    /// The queue was edited; re-validate any track decoded ahead of time.
+    QueueChanged,
+    SetOutput { mode: OutputMode, device_id: Option<String> },
+    SetReplayGain { mode: ReplayGainMode, preamp_db: f64 },
+    /// Remember where to resume a restored queue item when playback is next started.
+    SetResume { uid: u64, position: f64 },
+    Shutdown,
+}
+
+pub enum EngineEvent {
+    Status(PlayerStatus),
+    TrackChanged(Option<QueueItem>),
+    Error(String),
+}
+
+#[derive(Serialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct PlayerStatus {
+    pub state: PlayState,
+    pub position: f64,
+    pub duration: f64,
+    pub current_uid: Option<u64>,
+    pub track: Option<Track>,
+    pub source: Option<SourceFormat>,
+    pub output: Option<OutputFormat>,
+    pub output_mode: OutputMode,
+    pub bit_perfect: bool,
+    pub resampled: bool,
+    pub volume: f64,
+    pub muted: bool,
+    pub replay_gain_db: Option<f64>,
+    pub eq_active: bool,
+    pub underruns: u64,
+}
+
+pub struct EngineConfig {
+    pub mode: OutputMode,
+    pub device_id: Option<String>,
+    pub volume: f64,
+    pub eq: EqSettings,
+    pub rg_mode: ReplayGainMode,
+    pub rg_preamp: f64,
+}
+
+pub struct Engine {
+    tx: Sender<Command>,
+    pub shared: Arc<EngineShared>,
+    pub queue: Arc<Mutex<PlayQueue>>,
+    status: Arc<Mutex<PlayerStatus>>,
+    volume_slider: Arc<AtomicU64>,
+    thread: Mutex<Option<JoinHandle<()>>>,
+}
+
+impl Engine {
+    pub fn new(
+        cfg: EngineConfig,
+        queue: PlayQueue,
+        emit: impl Fn(EngineEvent) + Send + 'static,
+    ) -> Arc<Engine> {
+        let shared = Arc::new(EngineShared::new(slider_to_gain(cfg.volume), cfg.eq.clone()));
+        let queue = Arc::new(Mutex::new(queue));
+        let status = Arc::new(Mutex::new(PlayerStatus {
+            volume: cfg.volume,
+            output_mode: cfg.mode,
+            ..Default::default()
+        }));
+        let volume_slider = Arc::new(AtomicU64::new(cfg.volume.to_bits()));
+        let (tx, rx) = unbounded();
+        let player = Player {
+            rx,
+            shared: shared.clone(),
+            queue: queue.clone(),
+            status: status.clone(),
+            volume_slider: volume_slider.clone(),
+            emit: Box::new(emit),
+            mode: cfg.mode,
+            device_id: cfg.device_id,
+            rg_mode: cfg.rg_mode,
+            rg_preamp: cfg.rg_preamp,
+            out: None,
+            prod: None,
+            dec: None,
+            reopen: None,
+            segments: VecDeque::new(),
+            produced: 0,
+            pending: Vec::with_capacity(1 << 16),
+            pending_pos: 0,
+            scratch: Vec::with_capacity(1 << 15),
+            state: PlayState::Stopped,
+            eos: false,
+            last_emit: Instant::now(),
+            recover_attempts: 0,
+            resume: None,
+        };
+        let thread = std::thread::Builder::new()
+            .name("audio-player".into())
+            .spawn(move || player.run())
+            .expect("spawn player thread");
+        Arc::new(Engine {
+            tx,
+            shared,
+            queue,
+            status,
+            volume_slider,
+            thread: Mutex::new(Some(thread)),
+        })
+    }
+
+    pub fn send(&self, cmd: Command) {
+        let _ = self.tx.send(cmd);
+    }
+
+    pub fn status(&self) -> PlayerStatus {
+        let mut s = self.status.lock().clone();
+        s.volume = self.volume();
+        s.muted = self.shared.muted.load(Ordering::Relaxed);
+        s
+    }
+
+    pub fn volume(&self) -> f64 {
+        f64::from_bits(self.volume_slider.load(Ordering::Relaxed))
+    }
+
+    pub fn set_volume(&self, slider: f64) {
+        let v = slider.clamp(0.0, 1.0);
+        self.volume_slider.store(v.to_bits(), Ordering::Relaxed);
+        self.shared.set_volume(slider_to_gain(v));
+    }
+
+    pub fn set_muted(&self, muted: bool) {
+        self.shared.muted.store(muted, Ordering::Relaxed);
+    }
+
+    pub fn set_eq(&self, eq: EqSettings) {
+        *self.shared.eq.lock() = eq;
+        self.shared.eq_gen.fetch_add(1, Ordering::AcqRel);
+    }
+
+    pub fn shutdown(&self) {
+        let _ = self.tx.send(Command::Shutdown);
+        if let Some(t) = self.thread.lock().take() {
+            let _ = t.join();
+        }
+    }
+}
+
+struct Decoding {
+    item: QueueItem,
+    decoder: Decoder,
+    resampler: Option<StreamResampler>,
+    out_channels: usize,
+    rg_gain: f64,
+}
+
+struct Segment {
+    item: QueueItem,
+    /// Value of the `produced` counter where this track's first frame sits.
+    start: u64,
+    base_secs: f64,
+    rate: u32,
+    source: SourceFormat,
+    duration: f64,
+    resampled: bool,
+    rg_db: Option<f64>,
+}
+
+struct Player {
+    rx: Receiver<Command>,
+    shared: Arc<EngineShared>,
+    queue: Arc<Mutex<PlayQueue>>,
+    status: Arc<Mutex<PlayerStatus>>,
+    volume_slider: Arc<AtomicU64>,
+    emit: Box<dyn Fn(EngineEvent) + Send>,
+    mode: OutputMode,
+    device_id: Option<String>,
+    rg_mode: ReplayGainMode,
+    rg_preamp: f64,
+    out: Option<OutputHandle>,
+    prod: Option<Producer<f64>>,
+    dec: Option<Decoding>,
+    /// Next track already opened but needing a different device format; started after drain.
+    reopen: Option<(QueueItem, Decoder)>,
+    segments: VecDeque<Segment>,
+    /// Total frames handed to the output path (ring + pending), comparable with frames_played.
+    produced: u64,
+    pending: Vec<f64>,
+    pending_pos: usize,
+    scratch: Vec<f64>,
+    state: PlayState,
+    /// Decoding finished and nothing follows in the queue.
+    eos: bool,
+    last_emit: Instant,
+    recover_attempts: u32,
+    resume: Option<(u64, f64)>,
+}
+
+fn rg_gain(track: &Track, mode: ReplayGainMode, preamp: f64) -> (f64, Option<f64>) {
+    let (gain, peak) = match mode {
+        ReplayGainMode::Off => return (1.0, None),
+        ReplayGainMode::Track => (track.rg_track_gain, track.rg_track_peak),
+        ReplayGainMode::Album => (
+            track.rg_album_gain.or(track.rg_track_gain),
+            track.rg_album_peak.or(track.rg_track_peak),
+        ),
+    };
+    let Some(g) = gain else { return (1.0, None) };
+    let mut lin = 10f64.powf((g + preamp) / 20.0);
+    // Never let ReplayGain push the track's peak above full scale.
+    if let Some(p) = peak {
+        if p > 0.0 && lin * p > 1.0 {
+            lin = 1.0 / p;
+        }
+    }
+    (lin, Some(20.0 * lin.log10()))
+}
+
+fn map_channels(input: &[f64], in_ch: usize, out_ch: usize, dst: &mut Vec<f64>) {
+    dst.clear();
+    if in_ch == out_ch {
+        dst.extend_from_slice(input);
+        return;
+    }
+    let frames = input.len() / in_ch;
+    dst.reserve(frames * out_ch);
+    let k = std::f64::consts::FRAC_1_SQRT_2;
+    for f in 0..frames {
+        let s = &input[f * in_ch..(f + 1) * in_ch];
+        if in_ch == 1 {
+            for c in 0..out_ch {
+                dst.push(if c < 2 { s[0] } else { 0.0 });
+            }
+        } else if out_ch == 1 {
+            dst.push(s.iter().sum::<f64>() / in_ch as f64);
+        } else if out_ch == 2 {
+            // Downmix (WAVE order: FL FR FC LFE BL BR SL SR); LFE dropped.
+            let (mut l, mut r) = (s[0], s[1]);
+            let mut extra = 0.0;
+            for (i, v) in s.iter().enumerate().skip(2) {
+                match i {
+                    2 => {
+                        l += v * k;
+                        r += v * k;
+                        extra += k;
+                    }
+                    3 => {}
+                    _ if i % 2 == 0 => {
+                        l += v * k;
+                        extra += k / 2.0;
+                    }
+                    _ => {
+                        r += v * k;
+                        extra += k / 2.0;
+                    }
+                }
+            }
+            let norm = 1.0 / (1.0 + extra);
+            dst.push(l * norm);
+            dst.push(r * norm);
+        } else {
+            for c in 0..out_ch {
+                dst.push(if c < in_ch { s[c] } else { 0.0 });
+            }
+        }
+    }
+}
+
+impl Player {
+    fn run(mut self) {
+        loop {
+            let ring_has_room = self.prod.as_ref().map(|p| p.slots() > 4096).unwrap_or(false);
+            let busy = self.state != PlayState::Stopped
+                && ring_has_room
+                && (self.dec.is_some() || self.pending_pos < self.pending.len());
+            let timeout = if busy { Duration::from_millis(1) } else { Duration::from_millis(15) };
+            match self.rx.recv_timeout(timeout) {
+                Ok(cmd) => {
+                    if !self.handle(cmd) {
+                        break;
+                    }
+                    let mut stop = false;
+                    while let Ok(c) = self.rx.try_recv() {
+                        if !self.handle(c) {
+                            stop = true;
+                            break;
+                        }
+                    }
+                    if stop {
+                        break;
+                    }
+                }
+                Err(RecvTimeoutError::Timeout) => {}
+                Err(RecvTimeoutError::Disconnected) => break,
+            }
+            if self.state != PlayState::Stopped {
+                self.pump();
+            }
+            self.check_progress();
+            if self.state == PlayState::Playing && self.last_emit.elapsed() >= Duration::from_millis(200) {
+                self.emit_status();
+            }
+        }
+        self.hard_stop();
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Commands
+    // -----------------------------------------------------------------------------------------
+
+    fn handle(&mut self, cmd: Command) -> bool {
+        match cmd {
+            Command::PlayItem { uid, start, paused } => {
+                let item = self.queue.lock().get(uid).cloned();
+                if let Some(item) = item {
+                    self.start_item_or_skip(item, start, !paused);
+                }
+            }
+            Command::Play => match self.state {
+                PlayState::Paused => {
+                    self.shared.paused.store(false, Ordering::Relaxed);
+                    self.state = PlayState::Playing;
+                    if self.out.is_none() {
+                        self.resume_from_current(true);
+                    }
+                    self.emit_status();
+                }
+                PlayState::Stopped => self.resume_from_current(true),
+                PlayState::Playing => {}
+            },
+            Command::Pause => {
+                if self.state == PlayState::Playing {
+                    self.shared.paused.store(true, Ordering::Relaxed);
+                    self.state = PlayState::Paused;
+                    self.emit_status();
+                }
+            }
+            Command::Toggle => {
+                let cmd = if self.state == PlayState::Playing { Command::Pause } else { Command::Play };
+                return self.handle(cmd);
+            }
+            Command::Stop => {
+                self.hard_stop();
+                self.emit_status();
+            }
+            Command::Seek(secs) => self.seek(secs),
+            Command::Next => {
+                let cur = self.playing_uid();
+                let next = self.queue.lock().next_after(cur, false);
+                match next {
+                    Some(item) => {
+                        let play = self.state != PlayState::Paused;
+                        self.start_item_or_skip(item, 0.0, play);
+                    }
+                    None => {
+                        self.hard_stop();
+                        self.emit_status();
+                    }
+                }
+            }
+            Command::Previous => {
+                if self.position() > 3.0 {
+                    self.seek(0.0);
+                } else {
+                    let cur = self.playing_uid();
+                    let prev = self.queue.lock().prev_before(cur);
+                    if let Some(item) = prev {
+                        let play = self.state != PlayState::Paused;
+                        self.start_item_or_skip(item, 0.0, play);
+                    } else {
+                        self.seek(0.0);
+                    }
+                }
+            }
+            Command::QueueChanged => self.on_queue_changed(),
+            Command::SetOutput { mode, device_id } => {
+                self.mode = mode;
+                self.device_id = device_id;
+                self.status.lock().output_mode = mode;
+                if let Some(seg) = self.segments.front() {
+                    let item = seg.item.clone();
+                    let pos = self.position();
+                    let play = self.state == PlayState::Playing;
+                    self.close_output();
+                    self.start_item(item, pos, play);
+                } else {
+                    self.close_output();
+                }
+                self.emit_status();
+            }
+            Command::SetReplayGain { mode, preamp_db } => {
+                self.rg_mode = mode;
+                self.rg_preamp = preamp_db;
+                if !self.segments.is_empty() {
+                    let pos = self.position();
+                    self.seek(pos);
+                }
+            }
+            Command::SetResume { uid, position } => self.resume = Some((uid, position)),
+            Command::Shutdown => return false,
+        }
+        true
+    }
+
+    fn playing_uid(&self) -> Option<u64> {
+        self.segments
+            .front()
+            .map(|s| s.item.uid)
+            .or_else(|| self.queue.lock().current_uid())
+    }
+
+    fn resume_from_current(&mut self, play: bool) {
+        let item = {
+            let q = self.queue.lock();
+            q.current().cloned().or_else(|| q.next_after(None, false))
+        };
+        if let Some(item) = item {
+            let resume = self.resume.take().filter(|(uid, _)| *uid == item.uid).map(|(_, p)| p);
+            let pos = if self.segments.front().map(|s| s.item.uid) == Some(item.uid) {
+                self.position()
+            } else {
+                resume.unwrap_or(0.0)
+            };
+            self.start_item_or_skip(item, pos, play);
+        }
+    }
+
+    /// Start `item`; if it cannot be opened, report and try the following items.
+    fn start_item_or_skip(&mut self, item: QueueItem, start: f64, play: bool) {
+        let mut candidate = Some(item);
+        let max = self.queue.lock().len().max(1);
+        for _ in 0..max {
+            let Some(item) = candidate.take() else { break };
+            let uid = item.uid;
+            if self.start_item(item, start, play) {
+                return;
+            }
+            candidate = self.queue.lock().next_after(Some(uid), false);
+        }
+        self.hard_stop();
+        self.emit_status();
+    }
+
+    fn start_item(&mut self, item: QueueItem, start: f64, play: bool) -> bool {
+        self.flush();
+        self.dec = None;
+        self.reopen = None;
+        self.segments.clear();
+        self.eos = false;
+
+        let mut decoder = match Decoder::open(Path::new(&item.track.path)) {
+            Ok(d) => d,
+            Err(e) => {
+                self.error(format!("Cannot play \"{}\": {e}", item.track.title));
+                return false;
+            }
+        };
+        let mut base = 0.0;
+        if start > 0.05 {
+            match decoder.seek(start) {
+                Ok(b) => base = b,
+                Err(e) => log::warn!("seek on open failed: {e}"),
+            }
+        }
+        self.shared.paused.store(!play, Ordering::Relaxed);
+        if let Err(e) = self.ensure_output(&decoder.source) {
+            self.error(format!("Cannot open audio output: {e}"));
+            return false;
+        }
+        let d = match self.make_decoding(item.clone(), decoder) {
+            Ok(d) => d,
+            Err(e) => {
+                self.error(format!("Cannot play \"{}\": {e}", item.track.title));
+                return false;
+            }
+        };
+        self.push_segment(&d, base);
+        self.dec = Some(d);
+        self.state = if play { PlayState::Playing } else { PlayState::Paused };
+        self.recover_attempts = 0;
+        self.queue.lock().set_current(Some(item.uid));
+        (self.emit)(EngineEvent::TrackChanged(Some(item)));
+        self.emit_status();
+        true
+    }
+
+    fn push_segment(&mut self, d: &Decoding, base: f64) {
+        let fmt = &self.out.as_ref().expect("output open").format;
+        let (_, rg_db) = rg_gain(&d.item.track, self.rg_mode, self.rg_preamp);
+        let duration = d
+            .decoder
+            .duration_secs
+            .filter(|v| *v > 0.0)
+            .unwrap_or(d.item.track.duration);
+        self.segments.push_back(Segment {
+            item: d.item.clone(),
+            // `produced` already counts samples still waiting in `pending`.
+            start: self.produced,
+            base_secs: base,
+            rate: fmt.sample_rate,
+            source: d.decoder.source.clone(),
+            duration,
+            resampled: d.resampler.is_some(),
+            rg_db,
+        });
+    }
+
+    fn make_decoding(&self, item: QueueItem, decoder: Decoder) -> Result<Decoding> {
+        let fmt = &self.out.as_ref().expect("output open").format;
+        let resampler = if decoder.sample_rate() != fmt.sample_rate {
+            Some(StreamResampler::new(decoder.sample_rate(), fmt.sample_rate, fmt.channels)?)
+        } else {
+            None
+        };
+        let (rg, _) = rg_gain(&item.track, self.rg_mode, self.rg_preamp);
+        Ok(Decoding { item, decoder, resampler, out_channels: fmt.channels, rg_gain: rg })
+    }
+
+    fn seek(&mut self, secs: f64) {
+        let Some(seg) = self.segments.front() else { return };
+        let item = seg.item.clone();
+        let secs = secs.clamp(0.0, (seg.duration - 0.05).max(0.0));
+        // Reuse the decoder when it is still on the playing track; otherwise reopen it.
+        let decoder = match self.dec.take() {
+            Some(d) if d.item.uid == item.uid => Some(d.decoder),
+            _ => None,
+        };
+        let mut decoder = match decoder {
+            Some(d) => d,
+            None => match Decoder::open(Path::new(&item.track.path)) {
+                Ok(d) => d,
+                Err(e) => {
+                    self.error(format!("Seek failed: {e}"));
+                    return;
+                }
+            },
+        };
+        self.flush();
+        self.reopen = None;
+        self.eos = false;
+        let base = match decoder.seek(secs) {
+            Ok(b) => b,
+            Err(e) => {
+                self.error(format!("Seek failed: {e}"));
+                0.0
+            }
+        };
+        if self.out.is_none() {
+            if let Err(e) = self.ensure_output(&decoder.source) {
+                self.error(format!("Cannot open audio output: {e}"));
+                return;
+            }
+        }
+        match self.make_decoding(item, decoder) {
+            Ok(d) => {
+                self.segments.clear();
+                self.push_segment(&d, base);
+                self.dec = Some(d);
+            }
+            Err(e) => self.error(format!("Seek failed: {e}")),
+        }
+        self.emit_status();
+    }
+
+    fn on_queue_changed(&mut self) {
+        let playing = self.segments.front().map(|s| s.item.uid);
+        let Some(playing) = playing else { return };
+        let expected = self.queue.lock().next_after(Some(playing), true).map(|i| i.uid);
+        let ahead = if self.segments.len() > 1 {
+            Some(self.segments.back().map(|s| s.item.uid))
+        } else if let Some((item, _)) = &self.reopen {
+            Some(Some(item.uid))
+        } else if self.eos {
+            Some(None)
+        } else {
+            None
+        };
+        if let Some(ahead) = ahead {
+            if ahead != expected {
+                // Whatever was decoded ahead is stale: re-seek the current track in place.
+                let pos = self.position();
+                self.seek(pos);
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Output management
+    // -----------------------------------------------------------------------------------------
+
+    fn output_compatible(&self, src: &SourceFormat) -> bool {
+        let Some(out) = &self.out else { return false };
+        match self.mode {
+            OutputMode::Shared => {
+                out.format.mode == OutputMode::Shared
+                    && (self.device_id.is_none() || self.device_id == out.format.device_id)
+            }
+            OutputMode::Exclusive => {
+                out.format.mode == OutputMode::Exclusive
+                    && out.negotiated_for == Some((src.sample_rate, src.bits_per_sample, src.float, src.channels))
+            }
+        }
+    }
+
+    fn ensure_output(&mut self, src: &SourceFormat) -> Result<()> {
+        if self.output_compatible(src) {
+            return Ok(());
+        }
+        // Exclusive mode falls back to shared mode for formats the device can't take.
+        let fallback_from_exclusive = self.mode == OutputMode::Exclusive
+            && self.out.as_ref().map(|o| o.format.mode == OutputMode::Shared).unwrap_or(false);
+        self.close_output();
+        match output::open(self.mode, self.device_id.clone(), src, self.shared.clone()) {
+            Ok((h, p)) => {
+                self.out = Some(h);
+                self.prod = Some(p);
+                Ok(())
+            }
+            Err(e) if self.mode == OutputMode::Exclusive => {
+                let reason = if e.downcast_ref::<ExclusiveUnsupported>().is_some() {
+                    format!("{e}. Using shared mode for this track.")
+                } else {
+                    format!("Exclusive mode unavailable: {e}. Using shared mode.")
+                };
+                if !fallback_from_exclusive {
+                    self.error(reason);
+                }
+                let (h, p) = output::open(OutputMode::Shared, self.device_id.clone(), src, self.shared.clone())?;
+                self.out = Some(h);
+                self.prod = Some(p);
+                Ok(())
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    fn close_output(&mut self) {
+        self.shared.expect_data.store(false, Ordering::Relaxed);
+        self.prod = None;
+        self.out = None; // Drop joins the output thread and releases the device.
+        self.pending.clear();
+        self.pending_pos = 0;
+        self.produced = self.shared.frames_played.load(Ordering::Acquire);
+    }
+
+    /// Discard everything buffered between the decoder and the speakers.
+    fn flush(&mut self) {
+        self.shared.expect_data.store(false, Ordering::Relaxed);
+        self.pending.clear();
+        self.pending_pos = 0;
+        if self.out.is_some() {
+            let g = self.shared.flush_gen.fetch_add(1, Ordering::AcqRel) + 1;
+            let t0 = Instant::now();
+            while self.shared.flush_ack.load(Ordering::Acquire) < g && t0.elapsed() < Duration::from_millis(400) {
+                std::thread::sleep(Duration::from_millis(1));
+            }
+        }
+        self.produced = self.shared.frames_played.load(Ordering::Acquire);
+    }
+
+    fn hard_stop(&mut self) {
+        self.flush();
+        self.dec = None;
+        self.reopen = None;
+        self.segments.clear();
+        self.eos = false;
+        self.close_output();
+        self.state = PlayState::Stopped;
+        self.shared.paused.store(true, Ordering::Relaxed);
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Decoding
+    // -----------------------------------------------------------------------------------------
+
+    /// Push pending samples to the ring. Returns true when everything pending was written.
+    fn drain_pending(&mut self) -> bool {
+        if self.dec.is_none() {
+            self.shared.expect_data.store(false, Ordering::Relaxed);
+        }
+        let Some(prod) = self.prod.as_mut() else { return false };
+        let remaining = self.pending.len() - self.pending_pos;
+        if remaining == 0 {
+            return true;
+        }
+        let n = remaining.min(prod.slots());
+        if n > 0 {
+            if let Ok(mut chunk) = prod.write_chunk(n) {
+                let (a, b) = chunk.as_mut_slices();
+                let src = &self.pending[self.pending_pos..self.pending_pos + n];
+                a.copy_from_slice(&src[..a.len()]);
+                b.copy_from_slice(&src[a.len()..]);
+                chunk.commit_all();
+                self.pending_pos += n;
+            }
+            // Only arm glitch detection once the ring holds a healthy amount of audio.
+            let armed = self.dec.is_some() && prod.slots() < prod.buffer().capacity() / 2;
+            if armed {
+                self.shared.expect_data.store(true, Ordering::Relaxed);
+            }
+        }
+        if self.pending_pos >= self.pending.len() {
+            self.pending.clear();
+            self.pending_pos = 0;
+            true
+        } else {
+            false
+        }
+    }
+
+    fn pump(&mut self) {
+        let t0 = Instant::now();
+        loop {
+            if !self.drain_pending() {
+                return;
+            }
+            if t0.elapsed() > Duration::from_millis(20) {
+                return;
+            }
+            let Some(dec) = self.dec.as_mut() else { return };
+            let ch_out = dec.out_channels;
+            let ch_in = dec.decoder.channels();
+            let before = self.pending.len();
+            let mut finished = false;
+            match dec.decoder.next_chunk() {
+                Ok(Some(chunk)) => {
+                    map_channels(chunk, ch_in, ch_out, &mut self.scratch);
+                    match dec.resampler.as_mut() {
+                        Some(r) => {
+                            if let Err(e) = r.process(&self.scratch, &mut self.pending) {
+                                log::error!("{e}");
+                                finished = true;
+                            }
+                        }
+                        None => self.pending.extend_from_slice(&self.scratch),
+                    }
+                }
+                Ok(None) => finished = true,
+                Err(e) => {
+                    let title = dec.item.track.title.clone();
+                    self.error(format!("Error while decoding \"{title}\": {e}"));
+                    finished = true;
+                }
+            }
+            let dec = self.dec.as_mut().expect("decoder present");
+            if finished {
+                if let Some(r) = dec.resampler.as_mut() {
+                    let _ = r.finish(&mut self.pending);
+                }
+            }
+            if dec.rg_gain != 1.0 {
+                let g = dec.rg_gain;
+                for s in &mut self.pending[before..] {
+                    *s *= g;
+                }
+            }
+            self.produced += ((self.pending.len() - before) / ch_out) as u64;
+            if finished {
+                let done = self.dec.take().expect("decoder present");
+                self.advance_decoder(done.item.uid);
+            }
+        }
+    }
+
+    /// Current track fully decoded: open the next one for gapless continuation.
+    fn advance_decoder(&mut self, finished_uid: u64) {
+        let mut after = finished_uid;
+        let max = self.queue.lock().len().max(1);
+        for _ in 0..max {
+            let next = self.queue.lock().next_after(Some(after), true);
+            let Some(item) = next else {
+                self.eos = true;
+                return;
+            };
+            match Decoder::open(Path::new(&item.track.path)) {
+                Ok(decoder) => {
+                    if self.output_compatible(&decoder.source) {
+                        match self.make_decoding(item.clone(), decoder) {
+                            Ok(d) => {
+                                self.push_segment(&d, 0.0);
+                                self.dec = Some(d);
+                                return;
+                            }
+                            Err(e) => self.error(format!("Cannot play \"{}\": {e}", item.track.title)),
+                        }
+                    } else {
+                        self.reopen = Some((item, decoder));
+                        return;
+                    }
+                }
+                Err(e) => {
+                    self.error(format!("Cannot play \"{}\": {e}", item.track.title));
+                }
+            }
+            if item.uid == after {
+                break; // repeat-one on a broken file
+            }
+            after = item.uid;
+        }
+        self.eos = true;
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Progress
+    // -----------------------------------------------------------------------------------------
+
+    fn position(&self) -> f64 {
+        let Some(seg) = self.segments.front() else { return 0.0 };
+        let played = self.shared.frames_played.load(Ordering::Acquire);
+        let rel = played.saturating_sub(seg.start);
+        (seg.base_secs + rel as f64 / seg.rate as f64).min(seg.duration.max(0.0))
+    }
+
+    fn check_progress(&mut self) {
+        let played = self.shared.frames_played.load(Ordering::Acquire);
+
+        // Gapless boundary crossed?
+        let mut changed = false;
+        while self.segments.len() > 1 && played >= self.segments[1].start {
+            self.segments.pop_front();
+            changed = true;
+        }
+        if changed {
+            let item = self.segments.front().map(|s| s.item.clone());
+            self.queue.lock().set_current(item.as_ref().map(|i| i.uid));
+            (self.emit)(EngineEvent::TrackChanged(item));
+            self.emit_status();
+        }
+
+        // Device failure (unplugged, invalidated, ...): try to resume on the current device.
+        if let Some(err) = self.out.as_ref().and_then(|o| o.take_error()) {
+            self.error(err);
+            self.recover_output();
+            return;
+        }
+
+        let drained = self.pending_pos >= self.pending.len() && played >= self.produced;
+        if !drained || self.state == PlayState::Stopped {
+            return;
+        }
+        if let Some((item, decoder)) = self.reopen.take() {
+            // Next track needs a different device format (exclusive mode): reopen now that the
+            // previous track has fully played.
+            self.close_output();
+            if let Err(e) = self.ensure_output(&decoder.source) {
+                self.error(format!("Cannot open audio output: {e}"));
+                self.hard_stop();
+                self.emit_status();
+                return;
+            }
+            match self.make_decoding(item.clone(), decoder) {
+                Ok(d) => {
+                    self.segments.clear();
+                    self.push_segment(&d, 0.0);
+                    self.dec = Some(d);
+                    self.queue.lock().set_current(Some(item.uid));
+                    (self.emit)(EngineEvent::TrackChanged(Some(item)));
+                    self.emit_status();
+                }
+                Err(e) => {
+                    self.error(format!("Cannot play \"{}\": {e}", item.track.title));
+                    self.advance_decoder(item.uid);
+                }
+            }
+        } else if self.eos && self.dec.is_none() {
+            // End of the queue.
+            self.hard_stop();
+            self.emit_status();
+        }
+    }
+
+    fn recover_output(&mut self) {
+        self.recover_attempts += 1;
+        let Some(seg) = self.segments.front() else {
+            self.hard_stop();
+            return;
+        };
+        let item = seg.item.clone();
+        let pos = self.position();
+        let play = self.state == PlayState::Playing;
+        self.close_output();
+        if self.recover_attempts > 3 {
+            self.hard_stop();
+            self.emit_status();
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(300));
+        if !self.start_item(item, pos, play) {
+            self.hard_stop();
+            self.emit_status();
+        }
+    }
+
+    fn error(&self, msg: String) {
+        log::warn!("{msg}");
+        (self.emit)(EngineEvent::Error(msg));
+    }
+
+    fn emit_status(&mut self) {
+        self.last_emit = Instant::now();
+        let seg = self.segments.front();
+        let out = self.out.as_ref().map(|o| o.format.clone());
+        let identity = self.shared.identity.load(Ordering::Relaxed);
+        let bit_perfect = match (seg, &out) {
+            (Some(seg), Some(o)) => {
+                o.mode == OutputMode::Exclusive
+                    && !seg.resampled
+                    && !seg.source.float
+                    && !o.float
+                    && seg.rg_db.map(|d| d.abs() < 1e-9).unwrap_or(true)
+                    && seg.source.channels == o.channels
+                    && seg.source.bits_per_sample.map(|b| b <= o.bits).unwrap_or(false)
+                    && (identity || self.state != PlayState::Playing && !self.shared.eq.lock().is_active() && self.volume_is_unity())
+            }
+            _ => false,
+        };
+        let status = PlayerStatus {
+            state: self.state,
+            position: self.position(),
+            duration: seg.map(|s| s.duration).unwrap_or(0.0),
+            current_uid: seg.map(|s| s.item.uid),
+            track: seg.map(|s| s.item.track.clone()),
+            source: seg.map(|s| s.source.clone()),
+            output: out,
+            output_mode: self.mode,
+            bit_perfect,
+            resampled: seg.map(|s| s.resampled).unwrap_or(false),
+            volume: f64::from_bits(self.volume_slider.load(Ordering::Relaxed)),
+            muted: self.shared.muted.load(Ordering::Relaxed),
+            replay_gain_db: seg.and_then(|s| s.rg_db),
+            eq_active: self.shared.eq.lock().is_active(),
+            underruns: self.shared.underruns.load(Ordering::Relaxed),
+        };
+        *self.status.lock() = status.clone();
+        (self.emit)(EngineEvent::Status(status));
+    }
+
+    fn volume_is_unity(&self) -> bool {
+        self.shared.volume() == 1.0 && !self.shared.muted.load(Ordering::Relaxed)
+    }
+}

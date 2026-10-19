@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 98397ddadddb82b2dc0252fc87f21abb1ed7eac950d84c72ec5a03af7221b669 # shrinks to pl = Playlist { name: "%", source: "csv", source_id: None, items: [PlaylistItem { track: TrackRef { title: ";", artists: [], album: "=", duration_ms: None, isrc: None, mbid: None, service_ids: {}, location: Some("C:\\Music\\М.flac") }, added_at: None }] }
