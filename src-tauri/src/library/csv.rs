@@ -190,7 +190,7 @@ pub fn parse_str(text: &str, default_name: &str) -> Result<Playlist> {
         bail!("Exportify CSV files can't be imported yet (that importer waits for a real sample file)");
     }
     let (Some(title_c), Some(loc_c)) = (col("Title"), col("Location")) else {
-        bail!("not a Resonance playlist CSV (needs Title and Location columns)");
+        bail!("not a Undertone playlist CSV (needs Title and Location columns)");
     };
     let (artist_c, album_c, dur_c, isrc_c, mbid_c, added_c) =
         (col("Artist"), col("Album"), col("Duration (ms)"), col("ISRC"), col("MusicBrainz Recording ID"), col("Added At"));

@@ -1,6 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
+import logo from "./assets/logo.png";
 import "./index.css";
 
 // Block the WebView's default context menu and reload shortcuts in production builds.
@@ -28,8 +29,8 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
       <App />
     ) : (
       <div className="flex h-full flex-col items-center justify-center gap-3 px-8 text-center">
-        <div className="accent-gradient h-10 w-10 rounded-full" />
-        <h1 className="font-display text-[22px] font-semibold">Resonance runs inside its desktop shell</h1>
+        <img src={logo} alt="" className="h-12 w-12" />
+        <h1 className="font-display text-[22px] font-semibold">Undertone runs inside its desktop shell</h1>
         <p className="max-w-md text-[13px] leading-relaxed text-muted">
           This is the frontend dev server only. Start the full app (audio engine, library, window) with{" "}
           <code className="rounded bg-panel px-1.5 py-0.5 text-fg ring-1 ring-line">corepack pnpm tauri dev</code>.

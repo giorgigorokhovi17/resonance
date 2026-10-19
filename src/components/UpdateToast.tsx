@@ -11,7 +11,7 @@ export function UpdateToast() {
       <div className="flex items-start gap-3">
         <Download size={16} className="mt-px shrink-0 text-accent" />
         <div className="min-w-0 flex-1 leading-snug">
-          <div className="font-medium">Resonance {update.version} is available</div>
+          <div className="font-medium">Undertone {update.version} is available</div>
           {update.body && <div className="mt-0.5 line-clamp-3 text-muted">{update.body}</div>}
         </div>
         {!busy && (
@@ -26,7 +26,7 @@ export function UpdateToast() {
             <Loader2 size={14} className="animate-spin text-accent" />
             <span className="text-muted">
               {phase === "installing"
-                ? "Installing… Resonance will restart."
+                ? "Installing… Undertone will restart."
                 : `Downloading${progress !== null ? ` ${Math.round(progress * 100)}%` : "…"}`}
             </span>
           </>

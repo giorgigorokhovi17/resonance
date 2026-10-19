@@ -120,7 +120,7 @@ export function SongsView() {
       <EmptyState
         icon={<Music2 size={28} strokeWidth={1.4} />}
         title="Your library is empty"
-        body="Add the folders where your music lives. Resonance scans them, reads tags and artwork, and keeps watching for changes."
+        body="Add the folders where your music lives. Undertone scans them, reads tags and artwork, and keeps watching for changes."
         action={
           <PrimaryButton onClick={() => useUi.getState().setView({ kind: "settings" })}>
             <FolderPlus size={16} /> Add music folder

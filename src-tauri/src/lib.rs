@@ -82,13 +82,13 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let toggle = MenuItem::with_id(app, "toggle", "Play / Pause", true, None::<&str>)?;
     let prev = MenuItem::with_id(app, "prev", "Previous", true, None::<&str>)?;
     let next = MenuItem::with_id(app, "next", "Next", true, None::<&str>)?;
-    let show = MenuItem::with_id(app, "show", "Show Resonance", true, None::<&str>)?;
+    let show = MenuItem::with_id(app, "show", "Show Undertone", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let sep = PredefinedMenuItem::separator(app)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
     let menu = Menu::with_items(app, &[&toggle, &prev, &next, &sep, &show, &sep2, &quit])?;
     let mut builder = TrayIconBuilder::with_id("main")
-        .tooltip("Resonance")
+        .tooltip("Undertone")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| {
@@ -357,7 +357,7 @@ pub fn run() {
             commands::import_backup,
         ])
         .build(tauri::generate_context!())
-        .expect("error while building Resonance")
+        .expect("error while building Undertone")
         .run(|app, event| {
             if let tauri::RunEvent::Exit = event {
                 if let Some(state) = app.try_state::<AppState>() {

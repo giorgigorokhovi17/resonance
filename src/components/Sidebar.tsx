@@ -81,7 +81,7 @@ export function Sidebar() {
         <NavItem icon={<Settings2 size={18} />} label="Settings" view={{ kind: "settings" }} match={["settings"]} />
         <button
           onClick={() => api.openUrl(DONATE_URL).catch((e) => usePlayer.getState().pushToast("error", String(e)))}
-          title={`Support Resonance (${DONATE_URL.replace("https://", "")})`}
+          title={`Support Undertone (${DONATE_URL.replace("https://", "")})`}
           className="group mt-1 flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[13.5px] text-muted ring-1 ring-line/70 transition-colors duration-200 hover:bg-hover hover:text-fg"
         >
           <Heart size={18} className="text-[#ef5b8a] transition-transform duration-200 group-hover:scale-110" />

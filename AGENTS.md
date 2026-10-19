@@ -1,4 +1,4 @@
-# Resonance: notes for AI coding agents
+# Undertone (formerly Resonance): notes for AI coding agents
 
 Shared by every agent on this repo (Claude Code, Codex, Antigravity). `CLAUDE.md` imports this
 file; keep project rules here so they stay in one place.

@@ -43,9 +43,9 @@ export function BackupSection() {
   const doExport = async () => {
     const date = new Date().toISOString().slice(0, 10);
     const path = await save({
-      title: "Save Resonance backup",
-      defaultPath: `Resonance ${date}.${EXT}`,
-      filters: [{ name: "Resonance backup", extensions: [EXT] }],
+      title: "Save Undertone backup",
+      defaultPath: `Undertone ${date}.${EXT}`,
+      filters: [{ name: "Undertone backup", extensions: [EXT] }],
     });
     if (!path) return;
     setBusy("export");
@@ -65,8 +65,8 @@ export function BackupSection() {
   const doImport = async () => {
     const path = await open({
       multiple: false,
-      title: "Restore Resonance backup",
-      filters: [{ name: "Resonance backup", extensions: [EXT, "json"] }],
+      title: "Restore Undertone backup",
+      filters: [{ name: "Undertone backup", extensions: [EXT, "json"] }],
     });
     if (!path || Array.isArray(path)) return;
     const ok = await confirmDialog(

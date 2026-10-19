@@ -33,7 +33,7 @@ pub fn start(hwnd: isize, engine: Arc<Engine>, on_raise: impl Fn() + Send + 'sta
         .name("smtc".into())
         .spawn(move || {
             let config = PlatformConfig {
-                display_name: "Resonance",
+                display_name: "Undertone",
                 dbus_name: "resonance",
                 hwnd: Some(hwnd as *mut c_void),
             };

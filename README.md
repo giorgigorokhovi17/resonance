@@ -1,6 +1,9 @@
-# Resonance
+# Undertone
 
 A personal, **local-only** music player for Windows. No accounts, no network access, no telemetry.
+
+Formerly called Resonance. The installer name, data folder (`app.resonance.player`) and backup
+file format still use the old name so existing installs, libraries and backups keep working.
 
 Built with **Tauri 2** (Rust backend) and **React + TypeScript + Tailwind** (frontend).
 
@@ -31,7 +34,7 @@ Built with **Tauri 2** (Rust backend) and **React + TypeScript + Tailwind** (fro
 - Shuffle, repeat one/all, and the queue plus position are restored on the next launch.
 - Live format info: codec, sample rate, bit depth, bitrate, output mode and bit depth, device, bit-perfect / resampled / EQ / ReplayGain badges.
 - Output device picker, **media keys + Windows media overlay (SMTC)**, **system tray** (with optional close-to-tray), **mini-player** (Ctrl+M), and keyboard shortcuts.
-- Drag files or folders onto the window, or open audio files with Resonance from Explorer.
+- Drag files or folders onto the window, or open audio files with Undertone from Explorer.
 
 ## Measured performance
 

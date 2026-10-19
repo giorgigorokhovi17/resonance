@@ -137,7 +137,7 @@ export function PlaylistEditorHost() {
           </div>
         </div>
         <div className="mt-5 flex items-center justify-between">
-          <p className="text-[11px] text-faint">Photos are copied into Resonance; the original file isn't needed afterwards.</p>
+          <p className="text-[11px] text-faint">Photos are copied into Undertone; the original file isn't needed afterwards.</p>
           <button
             onClick={save}
             disabled={!name.trim() || busy}

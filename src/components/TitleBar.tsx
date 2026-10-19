@@ -1,6 +1,7 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Minus, Square, X, Copy } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
+import logo from "../assets/logo.png";
 import { toggleMiniPlayer } from "../lib/window";
 import { usePlayer } from "../store/player";
 
@@ -24,9 +25,9 @@ export function TitleBar({ children }: { children?: ReactNode }) {
   return (
     <div data-tauri-drag-region className="flex h-11 shrink-0 select-none items-center">
       <div data-tauri-drag-region className="flex h-full min-w-0 flex-1 items-center gap-2.5 pl-4">
-        <div data-tauri-drag-region className="accent-gradient h-3.5 w-3.5 shrink-0 rounded-full" />
+        <img data-tauri-drag-region src={logo} alt="" draggable={false} className="h-[18px] w-[18px] shrink-0" />
         <span data-tauri-drag-region className="text-[12.5px] font-semibold tracking-wide text-muted">
-          Resonance
+          Undertone
         </span>
         <div data-tauri-drag-region className="flex h-full min-w-0 flex-1 items-center pl-6">
           {children}

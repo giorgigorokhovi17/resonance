@@ -21,13 +21,13 @@ export function UpdatesSection() {
       status = `Downloading ${update?.version}${progress !== null ? ` (${Math.round(progress * 100)}%)` : "…"}`;
       break;
     case "installing":
-      status = "Installing… Resonance will restart.";
+      status = "Installing… Undertone will restart.";
       break;
     case "error":
       status = `Couldn't check for updates: ${error}`;
       break;
     default:
-      status = "Resonance checks for updates automatically when it starts.";
+      status = "Undertone checks for updates automatically when it starts.";
   }
   return (
     <Section title="Updates" description={`Version ${current || "?"}. Updates are signed and installed in place; your library and settings are kept.`}>

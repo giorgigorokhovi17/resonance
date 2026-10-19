@@ -235,7 +235,7 @@ export function SettingsView() {
       )}
 
       <p className="pb-6 text-center text-[11.5px] text-faint">
-        Resonance runs locally. No accounts, no telemetry; the only network request is the update check.
+        Undertone runs locally. No accounts, no telemetry; the only network request is the update check.
       </p>
     </div>
   );

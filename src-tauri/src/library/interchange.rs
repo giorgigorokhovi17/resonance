@@ -155,7 +155,7 @@ pub fn import_into_db(conn: &mut rusqlite::Connection, pl: &Playlist, base: &Pat
     }
     if items.is_empty() {
         anyhow::bail!(if skipped > 0 {
-            "The playlist only has streams or web links, which Resonance can't play."
+            "The playlist only has streams or web links, which Undertone can't play."
         } else {
             "The playlist file has no entries."
         });

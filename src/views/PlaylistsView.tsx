@@ -18,7 +18,7 @@ export async function importPlaylist() {
     title: "Import playlist",
     filters: [
       { name: "Playlists (M3U, PLS, XSPF, WPL)", extensions: ["m3u", "m3u8", "pls", "xspf", "wpl"] },
-      { name: "Resonance CSV export", extensions: ["csv"] },
+      { name: "Undertone CSV export", extensions: ["csv"] },
     ],
   });
   if (!picked) return;

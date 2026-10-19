@@ -141,12 +141,12 @@ pub fn export(lib: &Library, settings: Settings, eq_presets: Vec<EqPreset>, ui: 
 
 pub fn read(file: &Path) -> Result<Backup, String> {
     let bytes = std::fs::read(file).map_err(|e| format!("Cannot read {}: {e}", file.display()))?;
-    let b: Backup = serde_json::from_slice(&bytes).map_err(|_| "That file isn't a Resonance backup.".to_string())?;
+    let b: Backup = serde_json::from_slice(&bytes).map_err(|_| "That file isn't a Undertone backup.".to_string())?;
     if b.format != FORMAT {
-        return Err("That file isn't a Resonance backup.".into());
+        return Err("That file isn't a Undertone backup.".into());
     }
     if b.version > VERSION {
-        return Err("This backup was made by a newer version of Resonance. Update the app first.".into());
+        return Err("This backup was made by a newer version of Undertone. Update the app first.".into());
     }
     Ok(b)
 }
