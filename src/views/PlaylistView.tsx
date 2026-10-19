@@ -224,7 +224,7 @@ export function PlaylistView({ id }: { id: number }) {
           aria-label={isPlayingThis && playing ? "Pause" : "Play"}
           disabled={!playable.length}
           onClick={() => (isPlayingThis ? api.togglePlay() : playPlaylist(id, 0, false))}
-          className="flex h-14 w-14 items-center justify-center rounded-full bg-accent text-black shadow-lg transition-transform duration-150 hover:scale-105 active:scale-95 disabled:opacity-40"
+          className="flex h-14 w-14 items-center justify-center rounded-full bg-accent text-on-accent shadow-lg transition-transform duration-150 hover:scale-105 active:scale-95 disabled:opacity-40"
         >
           {isPlayingThis && playing ? (
             <Pause size={24} fill="currentColor" strokeWidth={0} />

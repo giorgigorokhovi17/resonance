@@ -15,7 +15,7 @@ export function PrimaryButton({ children, onClick }: { children: ReactNode; onCl
   return (
     <button
       onClick={onClick}
-      className="accent-gradient inline-flex items-center gap-2 rounded-full px-5 py-2 text-[13px] font-semibold text-white shadow-md transition-transform hover:scale-[1.03] active:scale-[0.98]"
+      className="accent-gradient inline-flex items-center gap-2 rounded-full px-5 py-2 text-[13px] font-semibold text-on-accent shadow-md transition-transform hover:scale-[1.03] active:scale-[0.98]"
     >
       {children}
     </button>

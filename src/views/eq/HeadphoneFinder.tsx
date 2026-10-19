@@ -368,7 +368,7 @@ export function HeadphoneFinder({ onApply }: { onApply: (eq: EqSettings) => Prom
             <div className="flex flex-wrap items-center gap-2">
               <button
                 onClick={apply}
-                className="accent-gradient inline-flex items-center gap-2 rounded-full px-5 py-2 text-[13px] font-semibold text-white shadow-md transition-transform hover:scale-[1.03] active:scale-[0.98]"
+                className="accent-gradient inline-flex items-center gap-2 rounded-full px-5 py-2 text-[13px] font-semibold text-on-accent shadow-md transition-transform hover:scale-[1.03] active:scale-[0.98]"
               >
                 {applied ? <Check size={16} /> : <Headphones size={16} />} {applied ? "Applied" : "Apply recommended EQ"}
               </button>

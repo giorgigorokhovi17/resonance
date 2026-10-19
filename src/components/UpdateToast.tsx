@@ -34,7 +34,7 @@ export function UpdateToast() {
           <>
             <button
               onClick={install}
-              className="accent-gradient rounded-full px-3.5 py-1 text-[12px] font-semibold text-white shadow transition-transform hover:scale-[1.03]"
+              className="accent-gradient rounded-full px-3.5 py-1 text-[12px] font-semibold text-on-accent shadow transition-transform hover:scale-[1.03]"
             >
               Update and restart
             </button>

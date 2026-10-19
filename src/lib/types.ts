@@ -127,6 +127,20 @@ export interface Settings {
   closeToTray: boolean;
   watchFolders: boolean;
   eq: EqSettings;
+  appearance: Appearance;
+}
+
+export interface Appearance {
+  preset: string;
+  accent: string | null;
+  accent2: string | null;
+  coverAccent: boolean;
+  pureBlack: boolean;
+  ambient: boolean;
+  ambientIntensity: number;
+  backdropBlur: number;
+  corners: "sharp" | "default" | "round";
+  uiScale: number;
 }
 
 export interface LibraryFolder {

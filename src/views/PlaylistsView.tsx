@@ -59,7 +59,7 @@ function PlaylistCard({ p }: { p: Playlist }) {
             e.stopPropagation();
             playPlaylist(p.id, 0, false);
           }}
-          className="absolute bottom-2 right-2 flex h-11 w-11 translate-y-1.5 items-center justify-center rounded-full bg-accent text-black opacity-0 shadow-lg transition-all duration-200 hover:scale-105 group-hover:translate-y-0 group-hover:opacity-100"
+          className="absolute bottom-2 right-2 flex h-11 w-11 translate-y-1.5 items-center justify-center rounded-full bg-accent text-on-accent opacity-0 shadow-lg transition-all duration-200 hover:scale-105 group-hover:translate-y-0 group-hover:opacity-100"
         >
           <Play size={18} fill="currentColor" strokeWidth={0} className="translate-x-px" />
         </button>

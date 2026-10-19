@@ -341,6 +341,7 @@ pub struct SettingsPatch {
     pub watch_folders: Option<bool>,
     pub replay_gain: Option<ReplayGainMode>,
     pub replay_gain_preamp: Option<f64>,
+    pub appearance: Option<crate::settings::Appearance>,
 }
 
 #[tauri::command]
@@ -361,6 +362,9 @@ pub fn update_settings(app: AppHandle, state: State<'_, AppState>, patch: Settin
         }
         if let Some(v) = patch.replay_gain_preamp {
             s.replay_gain_preamp = v.clamp(-15.0, 15.0);
+        }
+        if let Some(v) = patch.appearance {
+            s.appearance = v.normalized();
         }
     });
     if rg_changed {

@@ -7,6 +7,11 @@ import { FormatBadge } from "../components/FormatBadge";
 import { BackupSection } from "./settings/Backup";
 import { LibraryFoldersSection } from "./settings/LibraryFolders";
 import { UpdatesSection } from "./settings/Updates";
+import { VisualSettings } from "./settings/Visual";
+
+type Tab = "general" | "visual";
+// Remembered while the app runs, so leaving Settings and coming back keeps the tab.
+let lastTab: Tab = "general";
 
 export function Section({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
   return (
@@ -67,6 +72,11 @@ export function SettingsView() {
   const hasSource = usePlayer((s) => !!s.status?.source);
   const [devices, setDevices] = useState<DeviceInfo[]>([]);
   const [loadingDevices, setLoadingDevices] = useState(false);
+  const [tab, setTabState] = useState<Tab>(lastTab);
+  const setTab = (t: Tab) => {
+    lastTab = t;
+    setTabState(t);
+  };
 
   const refreshDevices = async () => {
     setLoadingDevices(true);
@@ -94,127 +104,132 @@ export function SettingsView() {
 
   return (
     <div className="mx-auto max-w-3xl space-y-5 px-8 py-6 animate-in">
-      <h1 className="font-display text-[28px] font-semibold">Settings</h1>
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <h1 className="font-display text-[28px] font-semibold">Settings</h1>
+        <Segmented<Tab>
+          value={tab}
+          onChange={setTab}
+          options={[
+            { value: "general", label: "General" },
+            { value: "visual", label: "Visual" },
+          ]}
+        />
+      </div>
 
-      <Section
-        title="Audio output"
-        description="Shared mode plays through the Windows mixer, so system-wide effects such as Equalizer APO still apply. Exclusive mode takes over the device and opens it at each file's native sample rate and bit depth: no mixer, no resampling. With volume at 100% and the EQ off, the signal is bit-perfect."
-      >
-        <div className="space-y-5">
-          <Segmented<OutputMode>
-            value={settings.outputMode}
-            onChange={(m) => setOutput(m, settings.deviceId)}
-            options={[
-              { value: "shared", label: "Shared (WASAPI)" },
-              { value: "exclusive", label: "Exclusive (bit-perfect)" },
-            ]}
-          />
-
-          <div>
-            <div className="mb-2 flex items-center justify-between">
-              <span className="text-[12.5px] font-medium text-muted">Output device</span>
-              <button
-                onClick={refreshDevices}
-                className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[12px] text-muted hover:bg-hover hover:text-fg"
-              >
-                <RefreshCw size={13} className={loadingDevices ? "animate-spin" : ""} /> Refresh
-              </button>
-            </div>
-            <div className="overflow-hidden rounded-lg ring-1 ring-line">
-              <DeviceRow
-                name="System default"
-                hint="Follows the Windows default output device"
-                selected={!settings.deviceId}
-                onClick={() => setOutput(settings.outputMode, null)}
+      {tab === "visual" ? (
+        <VisualSettings settings={settings} />
+      ) : (
+        <>
+          <Section
+            title="Audio output"
+            description="Shared mode plays through the Windows mixer, so system-wide effects such as Equalizer APO still apply. Exclusive mode takes over the device and opens it at each file's native sample rate and bit depth: no mixer, no resampling. With volume at 100% and the EQ off, the signal is bit-perfect."
+          >
+            <div className="space-y-5">
+              <Segmented<OutputMode>
+                value={settings.outputMode}
+                onChange={(m) => setOutput(m, settings.deviceId)}
+                options={[
+                  { value: "shared", label: "Shared (WASAPI)" },
+                  { value: "exclusive", label: "Exclusive (bit-perfect)" },
+                ]}
               />
-              {devices.map((d) => (
-                <DeviceRow
-                  key={d.id}
-                  name={d.name}
-                  hint={d.isDefault ? "Current Windows default" : undefined}
-                  selected={settings.deviceId === d.id}
-                  onClick={() => setOutput(settings.outputMode, d.id)}
-                />
-              ))}
+
+              <div>
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="text-[12.5px] font-medium text-muted">Output device</span>
+                  <button
+                    onClick={refreshDevices}
+                    className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[12px] text-muted hover:bg-hover hover:text-fg"
+                  >
+                    <RefreshCw size={13} className={loadingDevices ? "animate-spin" : ""} /> Refresh
+                  </button>
+                </div>
+                <div className="overflow-hidden rounded-lg ring-1 ring-line">
+                  <DeviceRow
+                    name="System default"
+                    hint="Follows the Windows default output device"
+                    selected={!settings.deviceId}
+                    onClick={() => setOutput(settings.outputMode, null)}
+                  />
+                  {devices.map((d) => (
+                    <DeviceRow
+                      key={d.id}
+                      name={d.name}
+                      hint={d.isDefault ? "Current Windows default" : undefined}
+                      selected={settings.deviceId === d.id}
+                      onClick={() => setOutput(settings.outputMode, d.id)}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-lg bg-bg p-4 ring-1 ring-line">
+                <div className="mb-2 text-[12px] font-medium uppercase tracking-wider text-faint">Signal path</div>
+                {hasSource ? (
+                  <FormatBadge detailed />
+                ) : (
+                  <div className="text-[12.5px] text-muted">Start playback to see the live format.</div>
+                )}
+              </div>
             </div>
-          </div>
+          </Section>
 
-          <div className="rounded-lg bg-bg p-4 ring-1 ring-line">
-            <div className="mb-2 text-[12px] font-medium uppercase tracking-wider text-faint">Signal path</div>
-            {hasSource ? (
-              <FormatBadge detailed />
-            ) : (
-              <div className="text-[12.5px] text-muted">Start playback to see the live format.</div>
-            )}
-          </div>
-        </div>
-      </Section>
+          <Section
+            title="ReplayGain"
+            description="Normalizes loudness using ReplayGain tags. Gain is limited by the stored peak so it never clips. Turning it on means the output is no longer bit-perfect."
+          >
+            <div className="flex flex-wrap items-center gap-6">
+              <Segmented
+                value={settings.replayGain}
+                onChange={(v) => patch({ replayGain: v })}
+                options={[
+                  { value: "off", label: "Off" },
+                  { value: "track", label: "Track" },
+                  { value: "album", label: "Album" },
+                ]}
+              />
+              <label className="flex items-center gap-3 text-[12.5px] text-muted">
+                Pre-amp
+                <input
+                  type="range"
+                  min={-15}
+                  max={15}
+                  step={0.5}
+                  value={settings.replayGainPreamp}
+                  className="slider w-40"
+                  style={{ ["--fill" as string]: `${((settings.replayGainPreamp + 15) / 30) * 100}%` }}
+                  onChange={(e) => patch({ replayGainPreamp: parseFloat(e.target.value) })}
+                />
+                <span className="tabular w-14 text-fg">
+                  {settings.replayGainPreamp > 0 ? "+" : ""}
+                  {settings.replayGainPreamp.toFixed(1)} dB
+                </span>
+              </label>
+            </div>
+          </Section>
 
-      <Section
-        title="ReplayGain"
-        description="Normalizes loudness using ReplayGain tags. Gain is limited by the stored peak so it never clips. Turning it on means the output is no longer bit-perfect."
-      >
-        <div className="flex flex-wrap items-center gap-6">
-          <Segmented
-            value={settings.replayGain}
-            onChange={(v) => patch({ replayGain: v })}
-            options={[
-              { value: "off", label: "Off" },
-              { value: "track", label: "Track" },
-              { value: "album", label: "Album" },
-            ]}
-          />
-          <label className="flex items-center gap-3 text-[12.5px] text-muted">
-            Pre-amp
-            <input
-              type="range"
-              min={-15}
-              max={15}
-              step={0.5}
-              value={settings.replayGainPreamp}
-              className="slider w-40"
-              style={{ ["--fill" as string]: `${((settings.replayGainPreamp + 15) / 30) * 100}%` }}
-              onChange={(e) => patch({ replayGainPreamp: parseFloat(e.target.value) })}
-            />
-            <span className="tabular w-14 text-fg">
-              {settings.replayGainPreamp > 0 ? "+" : ""}
-              {settings.replayGainPreamp.toFixed(1)} dB
-            </span>
-          </label>
-        </div>
-      </Section>
+          <LibraryFoldersSection />
 
-      <LibraryFoldersSection />
+          <BackupSection />
 
-      <BackupSection />
+          <UpdatesSection />
 
-      <UpdatesSection />
+          <Section title="Behavior" description="Theme, colours and layout are on the Visual tab.">
+            <div className="space-y-4">
+              <Row label="Close button minimizes to tray">
+                <Toggle label="Close to tray" checked={settings.closeToTray} onChange={(v) => patch({ closeToTray: v })} />
+              </Row>
+              <Row label="Watch library folders for changes">
+                <Toggle label="Watch folders" checked={settings.watchFolders} onChange={(v) => patch({ watchFolders: v })} />
+              </Row>
+            </div>
+          </Section>
 
-      <Section title="Appearance & behavior">
-        <div className="space-y-4">
-          <Row label="Theme">
-            <Segmented
-              value={settings.theme}
-              onChange={(v) => patch({ theme: v })}
-              options={[
-                { value: "dark", label: "Dark" },
-                { value: "light", label: "Light" },
-                { value: "system", label: "System" },
-              ]}
-            />
-          </Row>
-          <Row label="Close button minimizes to tray">
-            <Toggle label="Close to tray" checked={settings.closeToTray} onChange={(v) => patch({ closeToTray: v })} />
-          </Row>
-          <Row label="Watch library folders for changes">
-            <Toggle label="Watch folders" checked={settings.watchFolders} onChange={(v) => patch({ watchFolders: v })} />
-          </Row>
-        </div>
-      </Section>
-
-      <Section title="Keyboard shortcuts">
-        <ShortcutList />
-      </Section>
+          <Section title="Keyboard shortcuts">
+            <ShortcutList />
+          </Section>
+        </>
+      )}
 
       <p className="pb-6 text-center text-[11.5px] text-faint">
         Resonance runs locally. No accounts, no telemetry; the only network request is the update check.

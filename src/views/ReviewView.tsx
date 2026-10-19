@@ -113,7 +113,7 @@ function CandidateRow({
       <button
         onClick={onUse}
         disabled={busy}
-        className="inline-flex shrink-0 items-center gap-1 rounded-full bg-accent px-3 py-1 text-[12px] font-semibold text-black transition-transform hover:scale-[1.03] active:scale-[0.98] disabled:opacity-40"
+        className="inline-flex shrink-0 items-center gap-1 rounded-full bg-accent px-3 py-1 text-[12px] font-semibold text-on-accent transition-transform hover:scale-[1.03] active:scale-[0.98] disabled:opacity-40"
       >
         <Check size={13} strokeWidth={2.5} /> Use this
       </button>

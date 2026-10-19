@@ -64,7 +64,7 @@ export const SongCard = memo(function SongCard({
             }}
             className={`absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full ring-2 backdrop-blur transition-opacity duration-150 ${
               selected
-                ? "bg-accent text-black opacity-100 ring-accent"
+                ? "bg-accent text-on-accent opacity-100 ring-accent"
                 : `bg-black/45 text-transparent ring-white/80 hover:bg-black/60 ${selecting ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`
             }`}
           >
@@ -72,7 +72,7 @@ export const SongCard = memo(function SongCard({
           </button>
         )}
         <span
-          className={`absolute bottom-2 right-2 flex h-11 w-11 items-center justify-center rounded-full bg-accent text-black shadow-lg transition-all duration-200 hover:scale-105 ${
+          className={`absolute bottom-2 right-2 flex h-11 w-11 items-center justify-center rounded-full bg-accent text-on-accent shadow-lg transition-all duration-200 hover:scale-105 ${
             isCurrent ? "translate-y-0 opacity-100" : "translate-y-1.5 opacity-0 group-hover:translate-y-0 group-hover:opacity-100"
           }`}
         >

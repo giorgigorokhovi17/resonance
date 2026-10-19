@@ -85,7 +85,7 @@ export function DialogHost() {
           <button
             autoFocus={!open.input}
             onClick={submit}
-            className={`rounded-full px-4 py-1.5 text-[12.5px] font-semibold text-white ${open.danger ? "bg-[#d64545] hover:bg-[#c43b3b]" : "accent-gradient"}`}
+            className={`rounded-full px-4 py-1.5 text-[12.5px] font-semibold ${open.danger ? "bg-[#d64545] text-white hover:bg-[#c43b3b]" : "accent-gradient text-on-accent"}`}
           >
             {open.confirm}
           </button>

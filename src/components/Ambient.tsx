@@ -6,7 +6,7 @@ export function Ambient({ color }: { color: string | null }) {
   return (
     <div
       aria-hidden
-      className="pointer-events-none absolute inset-x-0 top-0 h-[460px] opacity-45 transition-[background-color] duration-[900ms] ease-out dark:opacity-100"
+      className="ambient-wash pointer-events-none absolute inset-x-0 top-0 h-[460px] transition-[background-color] duration-[900ms] ease-out"
       style={{
         backgroundColor: color ?? "transparent",
         maskImage: "linear-gradient(to bottom, rgba(0,0,0,0.5) 0%, rgba(0,0,0,0.2) 45%, transparent 100%)",

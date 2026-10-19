@@ -31,6 +31,7 @@ import { MiniPlayer } from "./views/MiniPlayer";
 import { toggleMiniPlayer } from "./lib/window";
 import { useShortcuts } from "./hooks/useShortcuts";
 import { useCoverColor } from "./hooks/useCoverColor";
+import { useAppearance } from "./hooks/useAppearance";
 
 const AUDIO_EXT = ["flac", "wav", "wave", "mp3", "m4a", "mp4", "aac", "ogg", "oga", "opus", "aif", "aiff", "aifc", "caf", "mka"];
 
@@ -49,22 +50,11 @@ export async function openFiles() {
   }
 }
 
-function useTheme() {
-  const theme = usePlayer((s) => s.settings?.theme ?? "dark");
-  useEffect(() => {
-    const mq = window.matchMedia("(prefers-color-scheme: dark)");
-    const apply = () => {
-      const dark = theme === "dark" || (theme === "system" && mq.matches);
-      document.documentElement.classList.toggle("dark", dark);
-    };
-    apply();
-    mq.addEventListener("change", apply);
-    return () => mq.removeEventListener("change", apply);
-  }, [theme]);
-}
-
-/** Color for the ambient backdrop: the open playlist's cover, otherwise the playing song's. */
-function useAmbientColor() {
+/**
+ * Colors taken from artwork: `ambient` for the backdrop (the open playlist's cover, otherwise
+ * the playing song's) and `playing` for the album-art accent option.
+ */
+function useArtColors() {
   const view = useUi((s) => s.view);
   const playlists = usePlaylists((s) => s.playlists);
   const track = usePlayer(
@@ -76,7 +66,7 @@ function useAmbientColor() {
     const p = playlists.find((x) => x.id === view.id);
     coverId = p?.coverId ?? p?.previewCovers[0] ?? playingCover;
   }
-  return useCoverColor(coverId);
+  return { ambient: useCoverColor(coverId), playing: useCoverColor(playingCover) };
 }
 
 function MainView() {
@@ -112,8 +102,9 @@ function MainView() {
 export default function App() {
   const searchRef = useRef<HTMLInputElement>(null);
   const viewKey = useUi((s) => JSON.stringify(s.view));
-  const ambient = useAmbientColor();
-  useTheme();
+  const art = useArtColors();
+  useAppearance(art.playing);
+  const showAmbient = usePlayer((s) => s.settings?.appearance.ambient ?? true);
 
   useEffect(() => {
     initPlayer().catch((e) => console.error(e));
@@ -157,7 +148,7 @@ export default function App() {
       <div className="relative flex min-h-0 flex-1 gap-2 px-2">
         <Sidebar />
         <main className="relative min-w-0 flex-1 overflow-hidden rounded-xl bg-elev">
-          <Ambient color={ambient} />
+          <Ambient color={showAmbient ? art.ambient : null} />
           <div key={viewKey} className="relative h-full animate-in">
             <MainView />
           </div>

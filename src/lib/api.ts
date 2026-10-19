@@ -101,6 +101,6 @@ export const api = {
 
   // settings
   getSettings: () => invoke<Settings>("get_settings"),
-  updateSettings: (patch: Partial<Pick<Settings, "theme" | "closeToTray" | "watchFolders" | "replayGain" | "replayGainPreamp">>) =>
+  updateSettings: (patch: Partial<Pick<Settings, "theme" | "closeToTray" | "watchFolders" | "replayGain" | "replayGainPreamp" | "appearance">>) =>
     invoke<Settings>("update_settings", { patch }),
 };

@@ -15,6 +15,13 @@
   --color-accent2: var(--c-accent2);
   --color-ok: var(--c-ok);
   --color-warn: var(--c-warn);
+  --color-on-accent: var(--c-on-accent);
+  /* Scaled by the corner-style setting (--r on the root element). */
+  --radius-sm: calc(0.25rem * var(--r, 1));
+  --radius-md: calc(0.375rem * var(--r, 1));
+  --radius-lg: calc(0.5rem * var(--r, 1));
+  --radius-xl: calc(0.75rem * var(--r, 1));
+  --radius-2xl: calc(1rem * var(--r, 1));
   --font-sans: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
   --font-display: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
 }
@@ -28,10 +35,11 @@
   --c-fg: #15171d;
   --c-muted: #626879;
   --c-faint: #9a9fae;
-  --c-accent: #d4682a;
-  --c-accent2: #c94f74;
+  --c-accent: #bb5c25;
+  --c-accent2: #c6466d;
   --c-ok: #2f9e6a;
   --c-warn: #c27b12;
+  --c-on-accent: #ffffff;
   color-scheme: light;
 }
 
@@ -48,6 +56,7 @@
   --c-accent2: #eb6f92;
   --c-ok: #4cc38a;
   --c-warn: #e8b04a;
+  --c-on-accent: #111114;
   color-scheme: dark;
 }
 
@@ -99,6 +108,14 @@ textarea,
 button,
 [role="button"] {
   -webkit-tap-highlight-color: transparent;
+}
+
+/* Album-art colour wash; --ambient is the intensity setting (0..1). */
+.ambient-wash {
+  opacity: calc(0.45 * var(--ambient, 1));
+}
+.dark .ambient-wash {
+  opacity: var(--ambient, 1);
 }
 
 .tabular {

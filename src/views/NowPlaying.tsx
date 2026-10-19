@@ -21,6 +21,7 @@ export function NowPlaying() {
   const track = status?.track ?? queue.items.find((i) => i.uid === queue.currentUid)?.track ?? null;
   const coverId = useLiveCover(track);
   const color = useCoverColor(coverId);
+  const tint = usePlayer((s) => s.settings?.appearance.ambientIntensity ?? 1);
 
   const upNext = useMemo(() => {
     const idx = queue.items.findIndex((i) => i.uid === queue.currentUid);
@@ -33,16 +34,18 @@ export function NowPlaying() {
   return (
     <div
       className="absolute inset-0 z-40 overflow-hidden bg-bg transition-colors duration-700 animate-in"
-      style={{ backgroundColor: color ? `color-mix(in srgb, ${color} 38%, var(--c-bg))` : undefined }}
+      style={{ backgroundColor: color ? `color-mix(in srgb, ${color} ${Math.round(38 * tint)}%, var(--c-bg))` : undefined }}
       role="dialog"
       aria-label="Now playing"
     >
       {/* Blurred album-art backdrop */}
       {bg && (
-        <div
-          className="absolute -inset-24 scale-110 bg-cover bg-center opacity-70 blur-[90px] saturate-150 dark:opacity-55"
-          style={{ backgroundImage: `url("${bg}")` }}
-        />
+        <div className="absolute inset-0" style={{ opacity: tint }}>
+          <div
+            className="absolute -inset-24 scale-110 bg-cover bg-center opacity-70 dark:opacity-55"
+            style={{ backgroundImage: `url("${bg}")`, filter: "blur(var(--np-blur, 90px)) saturate(1.5)" }}
+          />
+        </div>
       )}
       <div className="absolute inset-0 bg-gradient-to-b from-bg/30 via-bg/55 to-bg/90" />
 
