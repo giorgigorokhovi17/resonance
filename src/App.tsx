@@ -26,6 +26,7 @@ import { PlaylistsView } from "./views/PlaylistsView";
 import { PlaylistView } from "./views/PlaylistView";
 import { ReviewView } from "./views/ReviewView";
 import { EqView } from "./views/EqView";
+import { SourcesView } from "./views/SourcesView";
 import { NowPlaying } from "./views/NowPlaying";
 import { MiniPlayer } from "./views/MiniPlayer";
 import { resumeMiniAfterReload, toggleMiniPlayer } from "./lib/window";
@@ -90,6 +91,8 @@ function MainView() {
       return <ReviewView id={view.id} />;
     case "eq":
       return <EqView />;
+    case "sources":
+      return <SourcesView />;
     case "settings":
       return (
         <div className="h-full overflow-y-auto">

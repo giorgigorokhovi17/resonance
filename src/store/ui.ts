@@ -10,6 +10,7 @@ export type View =
   | { kind: "search"; q: string }
   | { kind: "queue" }
   | { kind: "eq" }
+  | { kind: "sources" }
   | { kind: "settings" };
 
 interface UiStore {

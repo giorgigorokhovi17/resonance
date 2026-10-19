@@ -35,7 +35,9 @@ Before saying a change works, run the tests and the typecheck, and report the ac
 
 - **Never commit** `fixtures/` (personal playlist exports) or the updater signing key
   (`%USERPROFILE%\.tauri\resonance-updater.key`).
-- Never download or stream audio from any service.
+- Never download or stream audio from any service. **Exception (owner's decision, 2026-10-19):**
+  Soulseek downloading is planned (placeholder in `src/views/SourcesView.tsx`). Spotify, YouTube
+  Music and SoundCloud stay playlist imports that match against local files, never downloads.
 - **Database:** SQLite at `%APPDATA%\app.resonance.player\library.db`, migrated in
   `src-tauri/src/library/db.rs` (`migrate`). Schema changes are additive (`add_column` /
   `CREATE ... IF NOT EXISTS`), never destructive. Add a test for each migration.
