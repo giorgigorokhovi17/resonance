@@ -1,6 +1,6 @@
 # Resonance
 
-A personal, **local-only** music player for Windows. No accounts, no network access, no telemetry.
+A personal, **local-only** music player for Windows. No telemetry. The only network use is the update check and, once you sign in, Soulseek.
 
 Built with **Tauri 2** (Rust backend) and **React + TypeScript + Tailwind** (frontend).
 
@@ -32,6 +32,10 @@ Built with **Tauri 2** (Rust backend) and **React + TypeScript + Tailwind** (fro
 - Live format info: codec, sample rate, bit depth, bitrate, output mode and bit depth, device, bit-perfect / resampled / EQ / ReplayGain badges.
 - Output device picker, **media keys + Windows media overlay (SMTC)**, **system tray** (with optional close-to-tray), **mini-player** (Ctrl+M), and keyboard shortcuts.
 - Drag files or folders onto the window, or open audio files with Resonance from Explorer.
+
+**Sources**
+- **Soulseek**: sign in, search (results grouped by user and folder, with format, bitrate or bit depth/sample rate, length and size), and download single files or whole folders. A queue shows progress, with cancel and retry. Downloads go to a `Soulseek` folder in your first library folder (or a folder you pick), are marked read-only, and appear in the library through the folder watcher. Nothing is shared or uploaded. See `docs/soulseek-design.md`.
+- Spotify, YouTube Music and SoundCloud playlist imports are planned (they will match against your files, never download).
 
 ## Measured performance
 
@@ -91,7 +95,7 @@ Installed copies check `https://github.com/<user>/resonance/releases/latest/down
 2. Run `scripts/release.ps1` as above. It builds, signs and writes `bundle/latest.json`.
 3. On GitHub, create a release tagged `v<version>` (e.g. `v0.2.0`) and upload the `-setup.exe` and `latest.json` it lists.
 
-The private signing key is `%USERPROFILE%\.tauri\resonance-updater.key` (no password). **Back it up and never share or commit it.** If it's lost, existing installs can't verify new versions and people must reinstall manually. The update check is the app's only network request; everything else runs offline.
+The private signing key is `%USERPROFILE%\.tauri\resonance-updater.key` (no password). **Back it up and never share or commit it.** If it's lost, existing installs can't verify new versions and people must reinstall manually. Apart from Soulseek (only after you sign in), the update check is the app's only network request; everything else runs offline.
 
 ## Tests and dev tools
 
@@ -141,8 +145,9 @@ Hardware media keys work through Windows' media controls, even when the window i
 | Settings, EQ presets | `%APPDATA%\app.resonance.player\settings.json`, `eq_presets.json` |
 | Library database, saved queue | `%APPDATA%\app.resonance.player\library.db`, `queue.json` |
 | Album-art cache | `%LOCALAPPDATA%\app.resonance.player\covers\` |
+| Soulseek sign-in | Windows Credential Manager, generic credential `Resonance/Soulseek` |
 
-Music files are only ever read, never modified.
+Music files are only ever read, never modified. Soulseek downloads are new files, saved once and then marked read-only.
 
 ## Architecture
 
@@ -159,6 +164,7 @@ src-tauri/src
 │                  playlist interchange (interchange.rs model + m3u/pls/xspf/wpl/csv),
 │                  matcher/ (normalize.rs rules, tiers, FTS5 candidates, decisions)
 ├─ queue.rs        queue, shuffle, repeat
+├─ sources/       Soulseek: wrapper around soulseek-rs-lib, Credential Manager, result grouping
 ├─ smtc.rs         Windows media overlay / media keys (souvlaki)
 ├─ persist.rs      queue persistence
 └─ commands.rs     Tauri command API

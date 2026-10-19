@@ -30,7 +30,7 @@ symphonia-adapter-libopus = "0.3"
 cpal = "0.18"
 wasapi = "0.26"
 rtrb = "0.4"
-windows = { version = "0.62", features = ["Win32_Foundation", "Win32_System_Threading"] }
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_Security_Credentials"] }
 rubato = "5"
 
 # library
@@ -53,6 +53,9 @@ souvlaki = "0.8"
 base64 = "0.22"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+
+# soulseek downloads. Pinned exactly: upstream ships breaking releases often (docs/soulseek-design.md).
+soulseek-rs-lib = "=19.1.0"
 
 [dev-dependencies]
 proptest = "1"

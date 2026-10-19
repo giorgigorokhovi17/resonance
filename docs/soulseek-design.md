@@ -1,6 +1,9 @@
 # Soulseek downloads: design note
 
-Status: **proposal, waiting for the owner's go-ahead** (2026-10-19). Nothing below is built yet.
+Status: **built** (2026-10-19, branch `feat/soulseek`) as described below, after the owner
+approved this note.
+**Not yet tested against the live network**: the owner skipped the sign-in step of the dev-app
+test, so search and download have only been checked with unit tests and sample data in the UI.
 
 Soulseek is the one download source Resonance allows (owner's decision, recorded in `AGENTS.md`).
 This note covers what we build on, what the network needs, and where the password lives.
@@ -56,7 +59,7 @@ The crate does the wire parsing and has its own tests. We add tests for the pars
 
 How Soulseek connects people:
 
-1. We keep one TCP connection to the server (`server.slsknet.org:2242`). Login and searches go
+1. We keep one TCP connection to the server (`server.slsknet.org:2416`, the crate's default). Login and searches go
    over it. This is outgoing and works anywhere.
 2. Search results and files come **from other users' computers**. A peer with results tries to
    connect *to us* on our listening port (default 2234).
@@ -84,8 +87,9 @@ What that means for the user:
   `windows` crate; this only adds the `Win32_Security_Credentials` feature, no new crate. The
   credential is per Windows user and encrypted with their login (DPAPI). It is never written to
   `settings.json`, logs or the frontend after sign-in.
-- **Username, download folder, listen port, "sign in on start":** `settings.json`, as additive
-  serde-default fields like the rest.
+- **Username:** stored with the password in the same credential (no copy in settings).
+- **Download folder, listening on/off, listen port:** `settings.json` (`soulseek`), as additive
+  serde-default fields like the rest. With a saved sign-in the app signs in on start.
 - Sign out deletes the stored credential.
 - Under the test identifier (`app.resonance.player.visualtest`) the credential target gets the
   identifier as a suffix, so test runs never touch the real account entry.
@@ -108,10 +112,23 @@ the UI says so on the sign-in form: "Use a password you don't use anywhere else.
 
 ## Layout
 
-- `src-tauri/src/sources/soulseek/`: wrapper (`client.rs`), credentials (`credentials.rs`),
-  pure helpers with tests (`model.rs`: attributes, grouping, safe names, queue state).
-- `commands.rs`: `slsk_status`, `slsk_sign_in`, `slsk_sign_out`, `slsk_search`, `slsk_download`,
-  `slsk_cancel`, `slsk_retry`, `slsk_clear_finished`. Progress goes to the frontend as a
-  `slsk://downloads` event.
-- `src/views/SourcesView.tsx`: the Soulseek card becomes a sign-in form, then search + results +
-  queue. The playlist-import cards stay "Coming soon".
+- `src-tauri/src/sources/soulseek/`: the wrapper (`mod.rs`: sign-in, search, queue),
+  credentials (`credentials.rs`), pure helpers with tests (`model.rs`: attributes, grouping, safe
+  names, queue state).
+- `src-tauri/src/sources/commands.rs`: `slsk_status`, `slsk_sign_in`, `slsk_sign_out`,
+  `slsk_search`, `slsk_stop_search`, `slsk_download`, `slsk_cancel`, `slsk_retry`,
+  `slsk_clear_finished`, `slsk_settings`, `slsk_update_settings`. Events: `slsk:status`,
+  `slsk:search` (results so far, grouped), `slsk:downloads` (the queue).
+- `src/views/SoulseekPanel.tsx` + `src/store/soulseek.ts`: sign-in form, then search, results and
+  queue inside the Soulseek card. The playlist-import cards stay "Coming soon".
+
+### Safety details found while building
+
+- The crate joins the download folder with the remote file name as-is. A name like `..` or
+  `C:x.flac` would escape the folder on Windows, so we refuse any remote name that isn't a safe
+  single path component (`model::is_safe_component`) before asking for the file. Folder names are
+  sanitised instead (`model::sanitize_component`).
+- If a file with the same name is already in the target folder, the download is refused rather
+  than overwritten.
+- Transfers stream into `<name>.part` (the crate resumes from it on retry). "Clear finished"
+  removes the `.part` files of failed and cancelled downloads.

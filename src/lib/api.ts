@@ -17,6 +17,11 @@ import type {
   RepeatMode,
   RestoreSummary,
   Settings,
+  SlskDownloadRequest,
+  SlskJob,
+  SlskSettingsView,
+  SlskStatus,
+  SoulseekSettings,
   Track,
 } from "./types";
 
@@ -95,6 +100,21 @@ export const api = {
   // backup
   exportBackup: (path: string, ui: Record<string, string>) => invoke<ExportSummary>("export_backup", { path, ui }),
   importBackup: (path: string) => invoke<RestoreSummary>("import_backup", { path }),
+
+  // soulseek
+  slskStatus: () => invoke<SlskStatus>("slsk_status"),
+  slskSignIn: (username: string, password: string, remember: boolean) =>
+    invoke<SlskStatus>("slsk_sign_in", { username, password, remember }),
+  slskSignOut: (forget: boolean) => invoke<void>("slsk_sign_out", { forget }),
+  slskSearch: (query: string) => invoke<number>("slsk_search", { query }),
+  slskStopSearch: () => invoke<void>("slsk_stop_search"),
+  slskDownloads: () => invoke<SlskJob[]>("slsk_downloads"),
+  slskDownload: (items: SlskDownloadRequest[]) => invoke<number>("slsk_download", { items }),
+  slskCancel: (id: number) => invoke<void>("slsk_cancel", { id }),
+  slskRetry: (id: number) => invoke<void>("slsk_retry", { id }),
+  slskClearFinished: () => invoke<void>("slsk_clear_finished"),
+  slskSettings: () => invoke<SlskSettingsView>("slsk_settings"),
+  slskUpdateSettings: (settings: SoulseekSettings) => invoke<SlskSettingsView>("slsk_update_settings", { settings }),
 
   // misc
   openUrl: (url: string) => invoke<void>("open_url", { url }),

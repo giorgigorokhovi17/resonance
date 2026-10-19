@@ -6,6 +6,7 @@ pub mod persist;
 pub mod queue;
 pub mod settings;
 pub mod smtc;
+pub mod sources;
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -30,6 +31,7 @@ pub struct AppState {
     pub library: Arc<Library>,
     pub queue_dirty: Arc<AtomicBool>,
     pub queue_file: PathBuf,
+    pub soulseek: Arc<sources::soulseek::Soulseek>,
 }
 
 fn serve_cover(app: &AppHandle, uri: &tauri::http::Uri) -> Option<Vec<u8>> {
@@ -286,7 +288,11 @@ pub fn run() {
                 })?;
             }
 
-            app.manage(AppState { engine, settings, library, queue_dirty, queue_file });
+            // Soulseek stays offline until the user signs in (or saved a sign-in earlier).
+            let soulseek = sources::soulseek::Soulseek::new(app.handle().clone(), &app.config().identifier);
+            soulseek.sign_in_saved(s.soulseek.clone());
+
+            app.manage(AppState { engine, settings, library, queue_dirty, queue_file, soulseek });
 
             // Files passed on the command line start playing right away.
             let args: Vec<String> = std::env::args().collect();
@@ -355,6 +361,18 @@ pub fn run() {
             commands::set_tracks_cover,
             commands::export_backup,
             commands::import_backup,
+            sources::commands::slsk_status,
+            sources::commands::slsk_sign_in,
+            sources::commands::slsk_sign_out,
+            sources::commands::slsk_search,
+            sources::commands::slsk_stop_search,
+            sources::commands::slsk_downloads,
+            sources::commands::slsk_download,
+            sources::commands::slsk_cancel,
+            sources::commands::slsk_retry,
+            sources::commands::slsk_clear_finished,
+            sources::commands::slsk_settings,
+            sources::commands::slsk_update_settings,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Resonance")
