@@ -1,4 +1,4 @@
-import { Download, FolderTree, Heart, LayoutGrid, ListMusic, ListOrdered, Music2, Plus, Settings2, SlidersHorizontal } from "lucide-react";
+import { ArrowDownToLine, Download, FolderTree, Heart, LayoutGrid, ListMusic, ListOrdered, Music2, Plus, Settings2, SlidersHorizontal } from "lucide-react";
 import type { ReactNode } from "react";
 import { api } from "../lib/api";
 import { usePlayer } from "../store/player";
@@ -8,6 +8,7 @@ import { useUi, type View } from "../store/ui";
 export const DONATE_URL = "https://kisa.ge";
 import { openPlaylistEditor } from "./PlaylistEditor";
 import { PlaylistNav } from "./PlaylistNav";
+import { useDownloadsBadge } from "./DownloadsPanel";
 
 function NavItem({
   icon,
@@ -36,6 +37,33 @@ function NavItem({
       <span className={`transition-colors duration-200 ${active ? "text-accent" : ""}`}>{icon}</span>
       <span className="flex-1">{label}</span>
       {trailing}
+    </div>
+  );
+}
+
+/** Opens the Downloads panel (Soulseek searches and downloads), with a count of active work. */
+function DownloadsItem() {
+  const open = useUi((s) => s.downloadsOpen);
+  const toggle = useUi((s) => s.toggleDownloads);
+  const badge = useDownloadsBadge();
+  return (
+    <div
+      onClick={toggle}
+      role="button"
+      aria-pressed={open}
+      className={`group flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-[13.5px] transition-colors duration-200 ${
+        open ? "bg-hover font-semibold text-fg" : "text-muted hover:text-fg"
+      }`}
+    >
+      <span className={`transition-colors duration-200 ${open ? "text-accent" : ""}`}>
+        <ArrowDownToLine size={18} />
+      </span>
+      <span className="flex-1">Downloads</span>
+      {badge > 0 && (
+        <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-accent px-1.5 text-[11px] font-bold text-black">
+          {badge > 99 ? "99+" : badge}
+        </span>
+      )}
     </div>
   );
 }
@@ -76,6 +104,7 @@ export function Sidebar() {
       </div>
 
       <div className="flex flex-col gap-0.5 border-t border-line/60 px-2 py-2">
+        <DownloadsItem />
         <NavItem icon={<ListOrdered size={18} />} label="Queue" view={{ kind: "queue" }} match={["queue"]} />
         <NavItem icon={<SlidersHorizontal size={18} />} label="Equalizer" view={{ kind: "eq" }} match={["eq"]} />
         <NavItem icon={<Settings2 size={18} />} label="Settings" view={{ kind: "settings" }} match={["settings"]} />
