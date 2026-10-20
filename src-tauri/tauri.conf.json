@@ -1,7 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Resonance",
-  "version": "0.2.3",
+  "productName": "Undertone",
+  "mainBinaryName": "Undertone",
+  "version": "0.3.0",
   "identifier": "app.resonance.player",
   "build": {
     "beforeDevCommand": "corepack pnpm dev",

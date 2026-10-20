@@ -1,6 +1,6 @@
 [package]
 name = "resonance"
-version = "0.2.3"
+version = "0.3.0"
 description = "Local-only high-fidelity music player"
 edition = "2021"
 rust-version = "1.90"
