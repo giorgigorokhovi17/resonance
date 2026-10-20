@@ -394,6 +394,7 @@ pub fn run() {
             sources::commands::import_link,
             sources::commands::find_missing,
             sources::commands::stop_find,
+            sources::commands::skip_find,
             sources::commands::find_results,
             sources::commands::download_found,
         ])

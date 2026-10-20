@@ -1,20 +1,19 @@
-import { listen } from "@tauri-apps/api/event";
 import { Check, Download, Loader2, RotateCw, Search, Square, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api";
 import { fmtTime } from "../lib/format";
-import type { FindProgress, FindResult, FoundFile, ReviewItem, SlskJob } from "../lib/types";
+import type { FoundFile, ReviewItem, SlskJob } from "../lib/types";
 import { usePlayer } from "../store/player";
 import { useSoulseek } from "../store/soulseek";
 import { useUi } from "../store/ui";
 
 const toastErr = (e: unknown) => usePlayer.getState().pushToast("error", String(e));
 
-function mb(bytes: number) {
+export function mb(bytes: number) {
   return `${(bytes / 1_048_576).toFixed(bytes < 10_485_760 ? 1 : 0)} MB`;
 }
 
-function FormatBadge({ f }: { f: FoundFile }) {
+export function FormatBadge({ f }: { f: FoundFile }) {
   const lossless = f.format === "FLAC";
   const label = lossless ? (f.bitDepth && f.sampleRate ? `FLAC ${f.bitDepth}/${f.sampleRate / 1000}` : "FLAC") : `MP3 ${f.bitrate ?? 320}`;
   return (
@@ -26,11 +25,26 @@ function FormatBadge({ f }: { f: FoundFile }) {
   );
 }
 
-function JobStatus({ job }: { job: SlskJob }) {
-  if (job.state === "done") return <span className="inline-flex items-center gap-1 text-[12px] text-ok"><Check size={13} /> In the playlist</span>;
+function Tag({ children, tone }: { children: string; tone: "accent" | "muted" }) {
+  return (
+    <span
+      className={`shrink-0 rounded-full px-2 py-0.5 text-[10.5px] font-semibold ${tone === "accent" ? "bg-accent/15 text-accent ring-1 ring-accent/30" : "bg-hover text-muted ring-1 ring-line"}`}
+    >
+      {children}
+    </span>
+  );
+}
+
+export function JobStatus({ job }: { job: SlskJob }) {
+  if (job.state === "done")
+    return (
+      <span className="inline-flex shrink-0 items-center gap-1 text-[12px] text-ok">
+        <Check size={13} /> {job.linkKey ? "In the playlist" : "Done"}
+      </span>
+    );
   if (job.state === "failed" || job.state === "cancelled")
     return (
-      <span className="inline-flex items-center gap-2 text-[12px] text-warn" title={job.error ?? undefined}>
+      <span className="inline-flex shrink-0 items-center gap-2 text-[12px] text-warn" title={job.error ?? undefined}>
         {job.state === "failed" ? "Failed" : "Cancelled"}
         <button onClick={() => api.slskRetry(job.id).catch(toastErr)} className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-fg ring-1 ring-line hover:bg-hover">
           <RotateCw size={11} /> Retry
@@ -39,12 +53,12 @@ function JobStatus({ job }: { job: SlskJob }) {
     );
   const pct = job.size > 0 ? Math.round((job.bytes / job.size) * 100) : 0;
   return (
-    <span className="inline-flex items-center gap-2 text-[12px] text-muted">
+    <span className="inline-flex shrink-0 items-center gap-2 text-[12px] text-muted">
       <span className="h-1 w-20 overflow-hidden rounded-full bg-hover">
-        <span className="block h-full bg-accent" style={{ width: `${job.state === "queued" ? 0 : pct}%` }} />
+        <span className="block h-full bg-accent transition-[width]" style={{ width: `${job.state === "queued" ? 0 : pct}%` }} />
       </span>
-      {job.state === "queued" ? "Waiting for the user…" : `${pct}%`}
-      <button aria-label="Cancel download" onClick={() => api.slskCancel(job.id).catch(toastErr)} className="rounded p-0.5 text-faint hover:text-fg">
+      <span className="tabular w-[110px]">{job.state === "queued" ? "Waiting for the user…" : `${pct}% · ${mb(job.speed)}/s`}</span>
+      <button aria-label="Cancel download" title="Cancel" onClick={() => api.slskCancel(job.id).catch(toastErr)} className="rounded p-0.5 text-faint hover:text-fg">
         <X size={12} />
       </button>
     </span>
@@ -53,62 +67,47 @@ function JobStatus({ job }: { job: SlskJob }) {
 
 /**
  * Songs an imported playlist is missing, found on Soulseek. Searching is automatic; downloading
- * is not: you tick the files to get. A finished download replaces its missing entry.
+ * is not: you choose a file per song (or none). A finished download replaces its missing entry.
  */
 export function SoulseekMissing({ playlistId, items }: { playlistId: number; items: ReviewItem[] }) {
   const status = useSoulseek((s) => s.status);
   const jobs = useSoulseek((s) => s.jobs);
+  const finds = useSoulseek((s) => s.finds);
+  const run = useSoulseek((s) => s.findRuns[playlistId]);
   const setView = useUi((s) => s.setView);
-  const [results, setResults] = useState<Record<string, FindResult>>({});
-  const [running, setRunning] = useState(false);
-  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
-  /** Chosen file per entry (path), or "" for none. */
+  /** Chosen file per song: a path, "" for none. Unset = the recommended one. */
   const [pick, setPick] = useState<Record<string, string>>({});
   const keys = useMemo(() => items.map((i) => i.result.refKey), [items]);
   const keysSig = keys.join("|");
 
-  // Results found earlier in this session, and live progress.
+  // Results found earlier in this session (the store only has ones seen since the app started).
   useEffect(() => {
-    let alive = true;
     api
       .findResults(playlistId, keys)
-      .then((r) => {
-        if (!alive) return;
-        setRunning(r.running);
-        setResults(Object.fromEntries(r.results.map((x) => [x.refKey, x])));
-      })
+      .then((r) =>
+        useSoulseek.setState((s) => ({
+          finds: { ...Object.fromEntries(r.results.map((x) => [x.refKey, { ...x, playlistId }])), ...s.finds },
+          findRuns: s.findRuns[playlistId] || !r.running ? s.findRuns : { ...s.findRuns, [playlistId]: { done: 0, total: keys.length, running: true } },
+        })),
+      )
       .catch(() => {});
-    const unsub = [
-      listen<FindProgress>("slsk:find", (e) => {
-        if (e.payload.playlistId !== playlistId) return;
-        setRunning(e.payload.running);
-        setProgress({ done: e.payload.done, total: e.payload.total });
-        setResults((r) => ({ ...r, [e.payload.result.refKey]: e.payload.result }));
-      }),
-      listen<number>("slsk:find-done", (e) => e.payload === playlistId && setRunning(false)),
-    ];
-    return () => {
-      alive = false;
-      unsub.forEach((p) => p.then((f) => f()));
-    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playlistId, keysSig]);
 
+  const running = !!run?.running;
   const jobFor = (key: string) => [...jobs].reverse().find((j) => j.linkKey === key);
   const chosen = (key: string): FoundFile | undefined => {
-    const files = results[key]?.files ?? [];
+    const files = finds[key]?.files ?? [];
     const p = pick[key];
     if (p === "") return undefined;
     return files.find((f) => f.path === p) ?? files[0];
   };
-  const selected = items
-    .map((i) => i.result.refKey)
-    .filter((k) => results[k]?.state === "found" && !jobFor(k) && chosen(k));
+  const selected = keys.filter((k) => finds[k]?.state === "found" && !jobFor(k) && chosen(k));
 
   const find = async () => {
     try {
-      setProgress({ done: 0, total: await api.findMissing(playlistId) });
-      setRunning(true);
+      const total = await api.findMissing(playlistId);
+      useSoulseek.setState((s) => ({ findRuns: { ...s.findRuns, [playlistId]: { done: 0, total, running: true } } }));
     } catch (e) {
       toastErr(e);
     }
@@ -120,7 +119,7 @@ export function SoulseekMissing({ playlistId, items }: { playlistId: number; ite
     });
     try {
       const n = await api.downloadFound(reqs);
-      usePlayer.getState().pushToast("info", `Downloading ${n} song${n === 1 ? "" : "s"} from Soulseek. Each one goes into the playlist when it finishes.`);
+      usePlayer.getState().pushToast("info", `Downloading ${n} song${n === 1 ? "" : "s"}. Follow them with the Downloads button; each goes into the playlist when it finishes.`);
     } catch (e) {
       toastErr(e);
     }
@@ -128,7 +127,8 @@ export function SoulseekMissing({ playlistId, items }: { playlistId: number; ite
 
   if (!items.length) return null;
   const signedIn = status.state === "signedIn";
-  const found = keys.filter((k) => results[k]?.state === "found").length;
+  const found = keys.filter((k) => finds[k]?.state === "found").length;
+  const searched = keys.some((k) => finds[k]);
 
   return (
     <section className="rounded-xl bg-panel/70 ring-1 ring-line animate-in" aria-label="Missing songs on Soulseek">
@@ -137,7 +137,7 @@ export function SoulseekMissing({ playlistId, items }: { playlistId: number; ite
           <div className="text-[14.5px] font-semibold">Get missing songs from Soulseek</div>
           <div className="text-[12px] text-muted">
             {items.length} song{items.length === 1 ? "" : "s"} not in your library.
-            {Object.keys(results).length > 0 && ` ${found} found.`} FLAC first, otherwise MP3 at 320 kbps. Nothing downloads until you choose.
+            {searched && ` ${found} found.`} FLAC first, otherwise MP3 at 320 kbps. Nothing downloads until you choose.
           </div>
         </div>
         {!signedIn ? (
@@ -148,22 +148,19 @@ export function SoulseekMissing({ playlistId, items }: { playlistId: number; ite
           <>
             <span className="inline-flex items-center gap-1.5 text-[12.5px] text-muted">
               <Loader2 size={14} className="animate-spin" />
-              Searching {progress ? `${Math.min(progress.done + 1, progress.total)} of ${progress.total}` : "…"}
+              Searching {run ? `${Math.min(run.done + 1, run.total)} of ${run.total}` : "…"}
             </span>
             <button onClick={() => api.stopFind(playlistId)} className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12.5px] font-medium ring-1 ring-line hover:bg-hover">
-              <Square size={12} /> Stop
+              <Square size={12} /> Stop all
             </button>
           </>
         ) : (
           <button onClick={find} className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12.5px] font-medium ring-1 ring-line hover:bg-hover">
-            <Search size={14} /> {Object.keys(results).length ? "Search again" : "Find on Soulseek"}
+            <Search size={14} /> {searched ? "Search again" : "Find on Soulseek"}
           </button>
         )}
         {selected.length > 0 && (
-          <button
-            onClick={download}
-            className="accent-gradient text-on-accent inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-[12.5px] font-semibold"
-          >
+          <button onClick={download} className="accent-gradient text-on-accent inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-[12.5px] font-semibold">
             <Download size={14} /> Download {selected.length}
           </button>
         )}
@@ -171,25 +168,40 @@ export function SoulseekMissing({ playlistId, items }: { playlistId: number; ite
       <ul className="divide-y divide-line">
         {items.map((item) => {
           const k = item.result.refKey;
-          const res = results[k];
+          const res = finds[k];
           const job = jobFor(k);
           const f = chosen(k);
           const r = item.reference;
+          const files = res?.files ?? [];
+          const smallest = files.length > 1 ? files.reduce((a, b) => (b.size < a.size ? b : a)) : undefined;
+          const cancellable = running && (res?.state === "waiting" || res?.state === "searching");
           return (
             <li key={k} className="flex items-start gap-3 px-4 py-2.5">
               <input
                 type="checkbox"
                 aria-label={`Download ${r.title}`}
+                title={f ? "Untick to get none of these" : "Tick to get the recommended file"}
                 disabled={res?.state !== "found" || !!job}
                 checked={!!f && res?.state === "found" && !job}
-                onChange={(e) => setPick((p) => ({ ...p, [k]: e.target.checked ? (res?.files[0]?.path ?? "") : "" }))}
+                onChange={(e) => setPick((p) => ({ ...p, [k]: e.target.checked ? (files[0]?.path ?? "") : "" }))}
                 className="mt-1 accent-[var(--c-accent)]"
               />
               <div className="min-w-0 flex-1">
-                <div className="truncate text-[13px]">
-                  {r.title || "(no title)"}
-                  <span className="text-muted"> · {r.artists.join(", ") || "Unknown artist"}</span>
-                  {r.durationMs != null && <span className="tabular text-faint"> · {fmtTime(r.durationMs / 1000)}</span>}
+                <div className="flex items-center gap-2">
+                  <div className="min-w-0 truncate text-[13px]">
+                    {r.title || "(no title)"}
+                    <span className="text-muted"> · {r.artists.join(", ") || "Unknown artist"}</span>
+                    {r.durationMs != null && <span className="tabular text-faint"> · {fmtTime(r.durationMs / 1000)}</span>}
+                  </div>
+                  {cancellable && (
+                    <button
+                      onClick={() => api.skipFind(k).catch(toastErr)}
+                      title="Don't search for this song"
+                      className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] text-muted ring-1 ring-line hover:bg-hover hover:text-fg"
+                    >
+                      <X size={11} /> Cancel search
+                    </button>
+                  )}
                 </div>
                 {!res && <div className="text-[11.5px] text-faint">Not searched yet</div>}
                 {res?.state === "waiting" && <div className="text-[11.5px] text-faint">Waiting…</div>}
@@ -198,27 +210,39 @@ export function SoulseekMissing({ playlistId, items }: { playlistId: number; ite
                     <Loader2 size={11} className="animate-spin" /> Searching "{res.query}"…
                   </div>
                 )}
+                {res?.state === "skipped" && <div className="text-[11.5px] text-faint">Search cancelled.</div>}
                 {res?.state === "notFound" && <div className="text-[11.5px] text-faint">No good file found (searched "{res.query}").</div>}
                 {res?.state === "failed" && <div className="text-[11.5px] text-warn">{res.error}</div>}
                 {res?.state === "found" && (
-                  <div className="mt-0.5 space-y-0.5">
-                    {res.files.map((file) => (
-                      <label key={file.path} className={`flex cursor-pointer items-center gap-2 text-[11.5px] ${f?.path === file.path ? "text-fg" : "text-muted"}`} title={file.path}>
-                        <input
-                          type="radio"
-                          name={`pick-${k}`}
+                  <div className="mt-1 space-y-0.5">
+                    {files.map((file, i) => {
+                      const on = f?.path === file.path;
+                      return (
+                        <button
+                          key={file.path}
+                          type="button"
+                          role="radio"
+                          aria-checked={on}
                           disabled={!!job}
-                          checked={f?.path === file.path}
-                          onChange={() => setPick((p) => ({ ...p, [k]: file.path }))}
-                          className="accent-[var(--c-accent)]"
-                        />
-                        <FormatBadge f={file} />
-                        <span className="min-w-0 truncate">{file.name}</span>
-                        <span className="shrink-0 text-faint">
-                          {mb(file.size)} · {file.username} · {file.why}
-                        </span>
-                      </label>
-                    ))}
+                          title={on ? "Click again to choose none" : file.path}
+                          // Clicking the chosen file again leaves the song out.
+                          onClick={() => setPick((p) => ({ ...p, [k]: on ? "" : file.path }))}
+                          className={`flex w-full min-w-0 items-center gap-2 rounded-md px-1.5 py-0.5 text-left text-[11.5px] transition-colors hover:bg-hover disabled:cursor-default ${on ? "text-fg" : "text-muted"}`}
+                        >
+                          <span className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full ring-1 ${on ? "bg-accent ring-accent" : "ring-faint"}`}>
+                            {on && <span className="h-1.5 w-1.5 rounded-full bg-bg" />}
+                          </span>
+                          <FormatBadge f={file} />
+                          <span className="min-w-0 truncate">{file.name}</span>
+                          {i === 0 && <Tag tone="accent">Recommended</Tag>}
+                          {smallest && file.path === smallest.path && file.username === smallest.username && i !== 0 && <Tag tone="muted">Smallest</Tag>}
+                          <span className="shrink-0 text-faint">
+                            {mb(file.size)} · {file.username} · {file.why}
+                          </span>
+                        </button>
+                      );
+                    })}
+                    {!f && !job && <div className="pl-6 text-[11px] text-faint">None chosen. This song won't be downloaded.</div>}
                   </div>
                 )}
               </div>

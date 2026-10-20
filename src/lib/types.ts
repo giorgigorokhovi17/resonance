@@ -402,10 +402,13 @@ export interface FoundFile extends Omit<SlskFile, "path"> {
   why: string;
 }
 
-export type FindState = "waiting" | "searching" | "found" | "notFound" | "failed";
+export type FindState = "waiting" | "searching" | "found" | "notFound" | "failed" | "skipped";
 
 export interface FindResult {
   refKey: string;
+  /** The song as the playlist's source names it. */
+  title: string;
+  artists: string[];
   state: FindState;
   query: string;
   files: FoundFile[];

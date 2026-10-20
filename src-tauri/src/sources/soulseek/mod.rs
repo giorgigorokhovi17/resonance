@@ -330,9 +330,9 @@ impl Soulseek {
 
     /// Runs one search to completion (`window`) and returns the answers, without touching the
     /// search shown on the Sources page. Used to find songs missing from imported playlists.
-    pub fn search_collect(&self, query: &str, window: Duration) -> Result<Vec<RawResponse>, String> {
+    pub fn search_collect(&self, query: &str, window: Duration, cancel: Option<Arc<AtomicBool>>) -> Result<Vec<RawResponse>, String> {
         let client = self.client()?;
-        client.search_with_cancel(query, window, None).map_err(|e| format!("Soulseek search failed: {e}"))?;
+        client.search_with_cancel(query, window, cancel).map_err(|e| format!("Soulseek search failed: {e}"))?;
         Ok(client.get_search_results(query).into_iter().map(raw_response).collect())
     }
 

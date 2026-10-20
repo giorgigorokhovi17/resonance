@@ -19,6 +19,7 @@ interface UiStore {
   forward: View[];
   nowPlaying: boolean;
   queueOpen: boolean;
+  downloadsOpen: boolean;
   mini: boolean;
   setView: (v: View, replace?: boolean) => void;
   goBack: () => void;
@@ -26,6 +27,7 @@ interface UiStore {
   toggleNowPlaying: () => void;
   setNowPlaying: (v: boolean) => void;
   toggleQueue: () => void;
+  toggleDownloads: () => void;
   setMini: (v: boolean) => void;
 }
 
@@ -37,6 +39,7 @@ export const useUi = create<UiStore>((set, get) => ({
   forward: [],
   nowPlaying: false,
   queueOpen: false,
+  downloadsOpen: false,
   mini: false,
   setView: (v, replace) => {
     const cur = get().view;
@@ -59,6 +62,7 @@ export const useUi = create<UiStore>((set, get) => ({
   },
   toggleNowPlaying: () => set((s) => ({ nowPlaying: !s.nowPlaying })),
   setNowPlaying: (v) => set({ nowPlaying: v }),
-  toggleQueue: () => set((s) => ({ queueOpen: !s.queueOpen })),
+  toggleQueue: () => set((s) => ({ queueOpen: !s.queueOpen, downloadsOpen: false })),
+  toggleDownloads: () => set((s) => ({ downloadsOpen: !s.downloadsOpen, queueOpen: false })),
   setMini: (v) => set({ mini: v }),
 }));

@@ -187,6 +187,12 @@ pub fn stop_find(state: State<'_, AppState>, playlist_id: i64) {
     state.finder.stop(playlist_id);
 }
 
+/// Cancel the Soulseek search for one song (skipped if waiting, stopped if running).
+#[tauri::command]
+pub fn skip_find(state: State<'_, AppState>, key: String) {
+    state.finder.skip(&key);
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FindStatus {

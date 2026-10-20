@@ -15,6 +15,7 @@ import { Toasts } from "./components/Toasts";
 import { ContextMenuHost } from "./components/ContextMenu";
 import { NavSearch } from "./components/SearchBox";
 import { DialogHost } from "./components/Dialog";
+import { DownloadsPanel } from "./components/DownloadsPanel";
 import { LinkImportHost } from "./components/LinkImportDialog";
 import { PlaylistEditorHost } from "./components/PlaylistEditor";
 import { Ambient } from "./components/Ambient";
@@ -160,6 +161,7 @@ export default function App() {
             <MainView />
           </div>
           <QueuePanel />
+          <DownloadsPanel />
         </main>
         <NowPlaying />
       </div>

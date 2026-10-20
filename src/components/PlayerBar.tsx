@@ -1,20 +1,7 @@
-import {
-  ListMusic,
-  Maximize2,
-  Pause,
-  PictureInPicture2,
-  Play,
-  Repeat,
-  Repeat1,
-  Shuffle,
-  SkipBack,
-  SkipForward,
-  Volume1,
-  Volume2,
-  VolumeX,
-} from "lucide-react";
+import { Download, ListMusic, Maximize2, Pause, PictureInPicture2, Play, Repeat, Repeat1, Shuffle, SkipBack, SkipForward, Volume1, Volume2, VolumeX } from "lucide-react";
 import type { ReactNode } from "react";
 import { api } from "../lib/api";
+import { useDownloadsBadge } from "./DownloadsPanel";
 import { displayArtist } from "../lib/format";
 import { usePlayer } from "../store/player";
 import { useUi } from "../store/ui";
@@ -149,6 +136,9 @@ export function PlayerBar() {
   const nowPlaying = useUi((s) => s.nowPlaying);
   const queueOpen = useUi((s) => s.queueOpen);
   const toggleQueue = useUi((s) => s.toggleQueue);
+  const downloadsOpen = useUi((s) => s.downloadsOpen);
+  const toggleDownloads = useUi((s) => s.toggleDownloads);
+  const downloadsBadge = useDownloadsBadge();
 
   return (
     <div className="grid h-[84px] shrink-0 grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)_minmax(0,1fr)] items-center gap-4 bg-bg px-4">
@@ -195,6 +185,16 @@ export function PlayerBar() {
         <IconButton label="Now playing (F)" active={nowPlaying} onClick={toggleNowPlaying}>
           <Maximize2 size={16} />
         </IconButton>
+        <div className="relative">
+          <IconButton label="Downloads" active={downloadsOpen} onClick={toggleDownloads}>
+            <Download size={17} />
+          </IconButton>
+          {downloadsBadge > 0 && (
+            <span className="pointer-events-none absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-bold text-black">
+              {downloadsBadge > 99 ? "99+" : downloadsBadge}
+            </span>
+          )}
+        </div>
         <IconButton label="Queue (Q)" active={queueOpen || view.kind === "queue"} onClick={toggleQueue}>
           <ListMusic size={18} />
         </IconButton>

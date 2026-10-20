@@ -197,7 +197,8 @@ pub fn judge(r: &TrackRef, wanted: &[Reading], user: &RawResponse, path: &str, s
     })
 }
 
-/// Every acceptable file in a set of search answers, best first (at most `KEEP`).
+/// Every acceptable file in a set of search answers, best first (at most `KEEP`), plus the
+/// smallest acceptable file when it isn't among those (for when space or speed matters more).
 pub fn rank(r: &TrackRef, responses: &[RawResponse]) -> Vec<Found> {
     let mut wanted = readings(&r.title, &r.artists);
     // A reference without artists still names one in its "Artist - Title" title: require it.
@@ -216,7 +217,13 @@ pub fn rank(r: &TrackRef, responses: &[RawResponse]) -> Vec<Found> {
         }
     }
     out.sort_by(|a, b| b.score.total_cmp(&a.score).then(b.size.cmp(&a.size)));
+    let smallest = out.iter().min_by_key(|f| f.size).cloned();
     out.truncate(KEEP);
+    if let Some(s) = smallest {
+        if !out.iter().any(|o| o.username == s.username && o.path == s.path) {
+            out.push(s);
+        }
+    }
     out
 }
 
@@ -234,12 +241,17 @@ pub enum FindState {
     Found,
     NotFound,
     Failed,
+    /// The user cancelled this song's search.
+    Skipped,
 }
 
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct FindResult {
     pub ref_key: String,
+    /// The song, as the playlist's source names it (for the Downloads panel).
+    pub title: String,
+    pub artists: Vec<String>,
     pub state: FindState,
     /// The search that found it (or the last one tried).
     pub query: String,
@@ -263,11 +275,20 @@ pub struct Finder {
     running: Mutex<HashMap<i64, Arc<AtomicBool>>>,
     /// Latest result per reference (kept while the app runs, so the screen can come back to it).
     results: Mutex<HashMap<String, FindResult>>,
+    /// Songs whose search the user cancelled, and the cancel flag of the search running now.
+    skipped: Mutex<std::collections::HashSet<String>>,
+    current: Mutex<Option<(String, Arc<AtomicBool>)>>,
 }
 
 impl Finder {
     pub fn new(app: AppHandle) -> Arc<Self> {
-        Arc::new(Self { app, running: Mutex::new(HashMap::new()), results: Mutex::new(HashMap::new()) })
+        Arc::new(Self {
+            app,
+            running: Mutex::new(HashMap::new()),
+            results: Mutex::new(HashMap::new()),
+            skipped: Mutex::new(Default::default()),
+            current: Mutex::new(None),
+        })
     }
 
     pub fn results(&self, keys: &[String]) -> Vec<FindResult> {
@@ -279,9 +300,23 @@ impl Finder {
         self.running.lock().contains_key(&playlist_id)
     }
 
+    /// Cancel one song's search: skipped if it's still waiting, stopped if it's running.
+    pub fn skip(&self, key: &str) {
+        self.skipped.lock().insert(key.to_string());
+        if let Some((k, flag)) = self.current.lock().as_ref() {
+            if k == key {
+                flag.store(true, Ordering::Relaxed);
+            }
+        }
+    }
+
     pub fn stop(&self, playlist_id: i64) {
         if let Some(flag) = self.running.lock().remove(&playlist_id) {
             flag.store(true, Ordering::Relaxed);
+            // Also end the search in progress now rather than after its window.
+            if let Some((_, current)) = self.current.lock().as_ref() {
+                current.store(true, Ordering::Relaxed);
+            }
         }
     }
 
@@ -296,9 +331,18 @@ impl Finder {
         let cancel = Arc::new(AtomicBool::new(false));
         self.running.lock().insert(playlist_id, cancel.clone());
         let total = refs.len();
-        for (k, _) in &refs {
-            let waiting = FindResult { ref_key: k.clone(), state: FindState::Waiting, query: String::new(), files: Vec::new(), error: None };
-            self.results.lock().insert(k.clone(), waiting);
+        for (k, r) in &refs {
+            self.skipped.lock().remove(k);
+            let waiting = FindResult {
+                ref_key: k.clone(),
+                title: r.title.clone(),
+                artists: r.artists.clone(),
+                state: FindState::Waiting,
+                query: String::new(),
+                files: Vec::new(),
+                error: None,
+            };
+            self.set(playlist_id, waiting, 0, total, true);
         }
         let me = self.clone();
         std::thread::spawn(move || {
@@ -307,11 +351,29 @@ impl Finder {
                     break;
                 }
                 let qs = queries(&r);
-                let mut result = FindResult { ref_key: k.clone(), state: FindState::Searching, query: qs.first().cloned().unwrap_or_default(), files: Vec::new(), error: None };
+                let mut result = FindResult {
+                    ref_key: k.clone(),
+                    title: r.title.clone(),
+                    artists: r.artists.clone(),
+                    state: FindState::Searching,
+                    query: qs.first().cloned().unwrap_or_default(),
+                    files: Vec::new(),
+                    error: None,
+                };
+                if me.skipped.lock().contains(&k) {
+                    result.state = FindState::Skipped;
+                    me.set(playlist_id, result, i + 1, total, true);
+                    continue;
+                }
+                let song_cancel = Arc::new(AtomicBool::new(false));
+                *me.current.lock() = Some((k.clone(), song_cancel.clone()));
                 me.set(playlist_id, result.clone(), i, total, true);
                 for q in &qs {
                     result.query = q.clone();
-                    match slsk.search_collect(q, SEARCH_WINDOW) {
+                    if song_cancel.load(Ordering::Relaxed) {
+                        break;
+                    }
+                    match slsk.search_collect(q, SEARCH_WINDOW, Some(song_cancel.clone())) {
                         Ok(answers) => {
                             result.files = rank(&r, &answers);
                             if !result.files.is_empty() {
@@ -328,7 +390,10 @@ impl Finder {
                     }
                     std::thread::sleep(BETWEEN_SEARCHES);
                 }
-                result.state = if result.error.is_some() {
+                *me.current.lock() = None;
+                result.state = if song_cancel.load(Ordering::Relaxed) {
+                    FindState::Skipped
+                } else if result.error.is_some() {
                     FindState::Failed
                 } else if result.files.is_empty() {
                     FindState::NotFound
@@ -411,6 +476,24 @@ mod tests {
             r"mp3\Kendrick Lamar\Swimming Pools (Drank).mp3",
         ], "FLAC first; no extended, instrumental, 128 kbps or wrong-artist files");
         assert!(found[0].why.starts_with("FLAC 16/44.1 · length matches"), "{}", found[0].why);
+    }
+
+    #[test]
+    fn smallest_file_is_offered_fourth() {
+        let want = r("Dark Red", &["Steve Lacy"], Some(173_000));
+        let f = |user: &str, mb: u64, depth: u32| file(&format!(r"{user}\Steve Lacy - Dark Red.flac"), mb * 1_000_000, &[(1, 173), (4, 44100), (5, depth)]);
+        let answers = vec![
+            user("a", true, 3_000_000, vec![f("a", 33, 24)]),
+            user("b", true, 2_900_000, vec![f("b", 32, 24)]),
+            user("c", true, 2_800_000, vec![f("c", 31, 24)]),
+            user("d", false, 10, vec![f("d", 19, 16)]),
+        ];
+        let found = rank(&want, &answers);
+        assert_eq!(found.len(), 4);
+        assert_eq!(found[0].username, "a", "best first");
+        assert_eq!((found[3].username.as_str(), found[3].size), ("d", 19_000_000), "smallest added as a 4th choice");
+        // When the smallest is already among the best three, nothing is added.
+        assert_eq!(rank(&want, &answers[..3]).len(), 3);
     }
 
     #[test]

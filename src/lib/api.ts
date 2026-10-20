@@ -125,6 +125,8 @@ export const api = {
   importLink: (url: string) => invoke<LinkImport>("import_link", { url }),
   findMissing: (playlistId: number, keys: string[] | null = null) => invoke<number>("find_missing", { playlistId, keys }),
   stopFind: (playlistId: number) => invoke<void>("stop_find", { playlistId }),
+  /** Cancel one song's Soulseek search. */
+  skipFind: (key: string) => invoke<void>("skip_find", { key }),
   findResults: (playlistId: number, keys: string[]) =>
     invoke<{ running: boolean; results: FindResult[] }>("find_results", { playlistId, keys }),
   downloadFound: (items: SlskDownloadRequest[]) => invoke<number>("download_found", { items }),
