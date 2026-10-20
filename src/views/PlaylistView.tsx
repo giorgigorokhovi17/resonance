@@ -1,5 +1,5 @@
 import { save } from "@tauri-apps/plugin-dialog";
-import { AlertTriangle, FileOutput, GripVertical, ListChecks, ListMusic, MoreHorizontal, Pause, Pencil, Play, Shuffle, Trash2, X } from "lucide-react";
+import { AlertTriangle, Download, FileOutput, GripVertical, ListChecks, ListMusic, MoreHorizontal, Pause, Pencil, Play, Shuffle, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { openMenu, SEP, type MenuItem } from "../components/ContextMenu";
 import { Cover } from "../components/Cover";
@@ -101,6 +101,8 @@ export function PlaylistView({ id }: { id: number }) {
   const [detail, setDetail] = useState<PlaylistDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [toReview, setToReview] = useState(0);
+  /** Imported songs with nothing like them in the library (can be found on Soulseek). */
+  const [notOwned, setNotOwned] = useState(0);
   const currentPath = usePlayer((s) => s.status?.track?.path);
   const playing = usePlayer((s) => s.status?.state === "playing");
   const queuePaths = usePlayer((s) => s.queue.items);
@@ -122,11 +124,16 @@ export function PlaylistView({ id }: { id: number }) {
     let alive = true;
     if (!imported) {
       setToReview(0);
+      setNotOwned(0);
       return;
     }
     api
       .getPlaylistReview(id)
-      .then((r) => alive && setToReview(r.pending.length))
+      .then((r) => {
+        if (!alive) return;
+        setToReview(r.pending.length);
+        setNotOwned(r.missing.length);
+      })
       .catch(() => alive && setToReview(0));
     return () => {
       alive = false;
@@ -209,14 +216,25 @@ export function PlaylistView({ id }: { id: number }) {
               </span>
             )}
           </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+          {notOwned + toReview > 0 && (
+            <button
+              onClick={() => useUi.getState().setView({ kind: "review", id })}
+              className="accent-gradient text-on-accent inline-flex items-center gap-1.5 rounded-full px-3.5 py-1 text-[12.5px] font-semibold shadow-md transition-transform hover:scale-[1.03]"
+              title="Search Soulseek for the songs you don't have, then pick what to download"
+            >
+              <Download size={14} /> Get {notOwned + toReview} missing song{notOwned + toReview === 1 ? "" : "s"}
+            </button>
+          )}
           {toReview > 0 && (
             <button
               onClick={() => useUi.getState().setView({ kind: "review", id })}
-              className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-accent/15 px-3 py-1 text-[12.5px] font-medium text-accent ring-1 ring-accent/30 transition-colors hover:bg-accent/25"
+              className="inline-flex items-center gap-1.5 rounded-full bg-accent/15 px-3 py-1 text-[12.5px] font-medium text-accent ring-1 ring-accent/30 transition-colors hover:bg-accent/25"
             >
               <ListChecks size={14} /> {toReview} song{toReview === 1 ? "" : "s"} need{toReview === 1 ? "s" : ""} a decision · Review
             </button>
           )}
+          </div>
         </div>
       </div>
       <div className="flex items-center gap-4 px-8 pb-5">
@@ -291,13 +309,17 @@ export function PlaylistView({ id }: { id: number }) {
             onContextMenu={(e) =>
               openMenu(e, [
                 ...(entry.missing
-                  ? [{ label: "File not found", disabled: true, icon: <AlertTriangle size={14} /> }]
+                  ? [
+                      entry.refKey
+                        ? { label: "Find on Soulseek…", icon: <Download size={14} />, onClick: () => useUi.getState().setView({ kind: "review", id }) }
+                        : { label: "File not found", disabled: true, icon: <AlertTriangle size={14} /> },
+                    ]
                   : trackMenuItems([t], { playAll: () => playPlaylist(id, at, false) })),
                 SEP,
                 { label: "Remove from playlist", icon: <X size={14} />, danger: true, onClick: remove },
               ])
             }
-            title={entry.missing ? `Missing: ${t.path}` : t.path}
+            title={entry.missing ? (entry.refKey ? "Not in your library yet" : `Missing: ${t.path}`) : t.path}
           >
             <GripVertical size={14} className="shrink-0 cursor-grab text-faint opacity-0 transition-opacity group-hover:opacity-100" />
             <span className="tabular w-6 shrink-0 text-right text-[12.5px] text-muted">{index + 1}</span>
@@ -307,10 +329,10 @@ export function PlaylistView({ id }: { id: number }) {
                 {entry.missing && <AlertTriangle size={12} className="mr-1 inline text-warn" />}
                 {t.title}
               </div>
-              <div className="truncate text-[12.5px] text-muted">{entry.missing ? t.path : displayArtist(t)}</div>
+              <div className="truncate text-[12.5px] text-muted">{entry.missing && !entry.refKey ? t.path : displayArtist(t)}</div>
             </div>
-            <span className="hidden w-[30%] truncate text-[12.5px] text-muted lg:block">{entry.missing ? "" : t.album}</span>
-            <span className="tabular w-12 shrink-0 text-right text-[12.5px] text-muted">{entry.missing ? "" : fmtTime(t.duration)}</span>
+            <span className="hidden w-[30%] truncate text-[12.5px] text-muted lg:block">{entry.missing && !entry.refKey ? "" : t.album}</span>
+            <span className="tabular w-12 shrink-0 text-right text-[12.5px] text-muted">{t.duration > 0 ? fmtTime(t.duration) : ""}</span>
             <button
               aria-label="Remove from playlist"
               onClick={remove}
