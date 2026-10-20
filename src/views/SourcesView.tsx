@@ -1,11 +1,12 @@
-import { Cloud, Download, ListPlus, MonitorPlay } from "lucide-react";
+import { Cloud, Download, Link2, ListPlus } from "lucide-react";
 import type { ReactNode } from "react";
+import { openLinkImport } from "../components/LinkImportDialog";
 import { ViewHeader } from "../components/ViewHeader";
 import { SoulseekPanel } from "./SoulseekPanel";
 
 /**
- * Getting music in from elsewhere. Soulseek downloads go into a library folder; the playlist
- * imports (not built yet; each card says what is planned) match against files you already have.
+ * Getting music in from elsewhere. Soulseek downloads go into a library folder; playlist links
+ * (Spotify, YouTube, Apple Music) are matched against files you already have.
  */
 export function SourcesView() {
   return (
@@ -25,26 +26,25 @@ export function SourcesView() {
 
           <SourceCard
             icon={<ListPlus size={20} />}
-            name="Spotify"
+            name="Spotify, YouTube and Apple Music"
             kind="Playlist import"
-            body="Import playlists from an Exportify CSV or your Spotify data download. Songs you have are matched; the rest are listed as missing."
-            planned={["Exportify CSV (most accurate)", "Spotify account data (matches go to review)"]}
-          />
-
-          <SourceCard
-            icon={<MonitorPlay size={20} />}
-            name="YouTube Music"
-            kind="Playlist import"
-            body="Import playlists from a Google Takeout export and match them to your files."
-            planned={["Google Takeout playlists and library songs"]}
-          />
+            body="Paste a public playlist or album link; no sign-in. Songs you have are matched to your files. The rest stay in the playlist as missing, and you can find them on Soulseek from the playlist's review page."
+            live
+          >
+            <button
+              onClick={openLinkImport}
+              className="accent-gradient text-on-accent inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-[12.5px] font-semibold"
+            >
+              <Link2 size={14} /> Import from link
+            </button>
+          </SourceCard>
 
           <SourceCard
             icon={<Cloud size={20} />}
             name="SoundCloud"
             kind="Playlist import"
-            body="Import SoundCloud playlists and match them to your files."
-            planned={["Not looked into yet"]}
+            body="Import SoundCloud sets and match them to your files."
+            planned={["Not planned yet"]}
           />
         </div>
       </div>

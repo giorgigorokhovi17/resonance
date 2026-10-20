@@ -32,6 +32,8 @@ pub struct AppState {
     pub queue_dirty: Arc<AtomicBool>,
     pub queue_file: PathBuf,
     pub soulseek: Arc<sources::soulseek::Soulseek>,
+    /// Finds songs missing from imported playlists on Soulseek.
+    pub finder: Arc<sources::missing::Finder>,
 }
 
 fn serve_cover(app: &AppHandle, uri: &tauri::http::Uri) -> Option<Vec<u8>> {
@@ -291,8 +293,23 @@ pub fn run() {
             // Soulseek stays offline until the user signs in (or saved a sign-in earlier).
             let soulseek = sources::soulseek::Soulseek::new(app.handle().clone(), &app.config().identifier);
             soulseek.sign_in_saved(s.soulseek.clone());
+            // A finished download that was found for an imported playlist entry replaces that
+            // entry in every playlist that has it (recorded as the user's choice).
+            {
+                let (lib, handle) = (library.clone(), app.handle().clone());
+                soulseek.set_on_linked_done(Arc::new(move |key, path| {
+                    let path = path.to_string_lossy().to_string();
+                    match library::interchange::decide(&mut lib.db.lock(), &key, "accept", Some(&path)) {
+                        Ok(_) => {
+                            let _ = handle.emit("playlists:changed", ());
+                        }
+                        Err(e) => log::warn!("could not link {path} to its playlist entry: {e:#}"),
+                    }
+                }));
+            }
+            let finder = sources::missing::Finder::new(app.handle().clone());
 
-            app.manage(AppState { engine, settings, library, queue_dirty, queue_file, soulseek });
+            app.manage(AppState { engine, settings, library, queue_dirty, queue_file, soulseek, finder });
 
             // Files passed on the command line start playing right away.
             let args: Vec<String> = std::env::args().collect();
@@ -373,6 +390,12 @@ pub fn run() {
             sources::commands::slsk_clear_finished,
             sources::commands::slsk_settings,
             sources::commands::slsk_update_settings,
+            sources::commands::check_link,
+            sources::commands::import_link,
+            sources::commands::find_missing,
+            sources::commands::stop_find,
+            sources::commands::find_results,
+            sources::commands::download_found,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Undertone")

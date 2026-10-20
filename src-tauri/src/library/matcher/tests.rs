@@ -169,6 +169,15 @@ fn same_title_other_artist_is_no_candidate() {
 }
 
 #[test]
+fn same_artist_other_song_is_no_candidate() {
+    let mut c = library(&[]);
+    let res = run(&mut c, &r("7 rings", &["Ariana Grande"], Some(178_000)));
+    rejected(&res, Reason::NoCandidate);
+    assert!(!res.needs_review(), "an artist in common isn't enough to ask: {res:#?}");
+    rejected(&run(&mut c, &r("Bitch, Don't Kill My Vibe", &["Kendrick Lamar"], Some(310_000))), Reason::NoCandidate);
+}
+
+#[test]
 fn short_files_never_auto() {
     let mut c = library(&[]);
     rejected(&run(&mut c, &r("Cha-Ching", &[], Some(1_500))), Reason::LowConfidence);

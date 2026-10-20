@@ -184,6 +184,8 @@ export interface Playlist {
 export interface PlaylistEntry {
   track: Track;
   missing: boolean;
+  /** The imported reference this entry came from (for review and Soulseek search). */
+  refKey: string | null;
 }
 
 export interface PlaylistDetail {
@@ -250,6 +252,8 @@ export interface PlaylistReview {
   decided: ReviewItem[];
   matched: number;
   unmatched: number;
+  /** Entries with nothing like them in the library. */
+  missing: ReviewItem[];
 }
 
 export type MatchDecision = "accept" | "missing" | "skip" | "clear";
@@ -360,6 +364,8 @@ export interface SlskJob {
   size: number;
   folder: string;
   state: SlskJobState;
+  /** Imported playlist entry this download fills in when done. */
+  linkKey: string | null;
   bytes: number;
   speed: number;
   error: string | null;
@@ -369,4 +375,47 @@ export interface SlskDownloadRequest {
   username: string;
   path: string;
   size: number;
+  /** Link the finished file to this imported playlist entry. */
+  linkKey?: string;
+}
+
+/** A public link Undertone can import. */
+export interface LinkInfo {
+  service: "Spotify" | "YouTube" | "Apple Music";
+  kind: "playlist" | "album";
+}
+
+export interface LinkImport extends ImportResult {
+  service: LinkInfo["service"];
+  /** Set when the service only gave part of the playlist. */
+  note: string | null;
+}
+
+/** A Soulseek file judged acceptable for a missing song. */
+export interface FoundFile extends Omit<SlskFile, "path"> {
+  username: string;
+  path: string;
+  folder: string;
+  freeSlots: boolean;
+  speed: number;
+  score: number;
+  why: string;
+}
+
+export type FindState = "waiting" | "searching" | "found" | "notFound" | "failed";
+
+export interface FindResult {
+  refKey: string;
+  state: FindState;
+  query: string;
+  files: FoundFile[];
+  error: string | null;
+}
+
+export interface FindProgress {
+  playlistId: number;
+  result: FindResult;
+  done: number;
+  total: number;
+  running: boolean;
 }

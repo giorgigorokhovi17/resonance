@@ -385,6 +385,8 @@ pub fn update_settings(app: AppHandle, state: State<'_, AppState>, patch: Settin
 pub struct PlaylistEntry {
     pub track: Track,
     pub missing: bool,
+    /// The imported reference this entry came from, if any (for review and Soulseek search).
+    pub ref_key: Option<String>,
 }
 
 #[derive(serde::Serialize)]
@@ -438,19 +440,37 @@ pub fn delete_playlist(app: AppHandle, state: State<'_, AppState>, id: i64) -> C
 pub async fn get_playlist(state: State<'_, AppState>, id: i64) -> CmdResult<PlaylistDetail> {
     let lib = state.library.clone();
     tauri::async_runtime::spawn_blocking(move || -> CmdResult<PlaylistDetail> {
-        let (playlist, paths) = {
+        let (playlist, items) = {
             let conn = lib.db.lock();
             let p = db::playlists(&conn)
                 .map_err(err)?
                 .into_iter()
                 .find(|p| p.id == id)
                 .ok_or_else(|| "Playlist not found.".to_string())?;
-            (p, db::playlist_paths(&conn, id).map_err(err)?)
+            (p, db::playlist_items(&conn, id).map_err(err)?)
         };
-        let entries = lib
-            .resolve_paths(&paths)
+        let paths: Vec<String> = items.iter().map(|(p, _)| p.clone()).collect();
+        let resolved = lib.resolve_paths(&paths);
+        let conn = lib.db.lock();
+        let entries = resolved
             .into_iter()
-            .map(|(track, missing)| PlaylistEntry { track, missing })
+            .zip(items)
+            .map(|((mut track, missing), (_, ref_key))| {
+                // A song you don't have: show what the source called it, not a file name.
+                if missing {
+                    if let Some(r) = ref_key
+                        .as_deref()
+                        .and_then(|k| db::match_ref_json(&conn, k).ok().flatten())
+                        .and_then(|j| serde_json::from_str::<interchange::TrackRef>(&j).ok())
+                    {
+                        track.title = if r.title.is_empty() { track.title } else { r.title };
+                        track.artist = r.artists.join(", ");
+                        track.album = r.album;
+                        track.duration = r.duration_ms.map(|ms| ms as f64 / 1000.0).unwrap_or(0.0);
+                    }
+                }
+                PlaylistEntry { track, missing, ref_key }
+            })
             .collect();
         Ok(PlaylistDetail { playlist, entries })
     })

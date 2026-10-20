@@ -112,3 +112,102 @@ pub fn slsk_update_settings(state: State<'_, AppState>, settings: SoulseekSettin
     });
     settings_view(&state)
 }
+
+// ---- paste-a-link import ----------------------------------------------------------------------
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LinkImport {
+    #[serde(flatten)]
+    pub outcome: crate::library::interchange::ImportOutcome,
+    /// "Spotify", "YouTube" or "Apple Music".
+    pub service: &'static str,
+    /// Set when the service only gave part of the playlist.
+    pub note: Option<String>,
+}
+
+/// Whether `url` is a link Undertone can import (for live feedback while typing).
+#[tauri::command]
+pub fn check_link(url: String) -> Option<super::links::LinkInfo> {
+    super::links::parse_link(&url).map(|l| l.info())
+}
+
+/// Read a public Spotify / YouTube / Apple Music playlist or album link and import it: every
+/// song goes through the matcher; ones you don't have stay in the playlist as missing, ready to
+/// be found on Soulseek. Importing the same link again updates its playlist.
+#[tauri::command]
+pub async fn import_link(app: tauri::AppHandle, state: State<'_, AppState>, url: String) -> CmdResult<LinkImport> {
+    use tauri::Emitter;
+    let link = super::links::parse_link(&url)
+        .ok_or("That isn't a public Spotify, YouTube or Apple Music playlist or album link.")?;
+    let fetched = super::links::fetch(&link).await.map_err(|e| format!("{e:#}"))?;
+    let lib = state.library.clone();
+    let playlist = fetched.playlist;
+    let outcome = tauri::async_runtime::spawn_blocking(move || {
+        crate::library::interchange::import_into_db(&mut lib.db.lock(), &playlist, std::path::Path::new("."))
+            .map_err(|e| format!("{e:#}"))
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    let _ = app.emit("playlists:changed", ());
+    Ok(LinkImport { outcome, service: link.info().service, note: fetched.note })
+}
+
+// ---- missing songs → Soulseek -----------------------------------------------------------------
+
+/// Search Soulseek for the songs an imported playlist is missing: entries with nothing like them
+/// in the library, plus ones waiting for review (they may be a different version). `keys` limits
+/// it to some entries. Results arrive as `slsk:find` events; nothing downloads until approved.
+#[tauri::command]
+pub async fn find_missing(state: State<'_, AppState>, playlist_id: i64, keys: Option<Vec<String>>) -> CmdResult<usize> {
+    if state.soulseek.status().state != soulseek::ConnState::SignedIn {
+        return Err("Sign in to Soulseek first (Sources page).".into());
+    }
+    let lib = state.library.clone();
+    let review = tauri::async_runtime::spawn_blocking(move || {
+        crate::library::interchange::playlist_review(&mut lib.db.lock(), playlist_id).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    let refs: Vec<(String, crate::library::interchange::TrackRef)> = review
+        .missing
+        .into_iter()
+        .chain(review.pending)
+        .filter(|i| keys.as_ref().is_none_or(|k| k.contains(&i.result.ref_key)))
+        .map(|i| (i.result.ref_key, i.reference))
+        .collect();
+    if refs.is_empty() {
+        return Err("Nothing in this playlist is missing.".into());
+    }
+    Ok(state.finder.start(state.soulseek.clone(), playlist_id, refs))
+}
+
+#[tauri::command]
+pub fn stop_find(state: State<'_, AppState>, playlist_id: i64) {
+    state.finder.stop(playlist_id);
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FindStatus {
+    pub running: bool,
+    pub results: Vec<super::missing::FindResult>,
+}
+
+/// Results found so far for these entries (kept while the app runs).
+#[tauri::command]
+pub fn find_results(state: State<'_, AppState>, playlist_id: i64, keys: Vec<String>) -> FindStatus {
+    FindStatus { running: state.finder.is_running(playlist_id), results: state.finder.results(&keys) }
+}
+
+/// Download approved files; each one replaces its playlist entry when it finishes.
+#[tauri::command]
+pub fn download_found(state: State<'_, AppState>, items: Vec<DownloadRequest>) -> CmdResult<usize> {
+    if items.iter().any(|i| i.link_key.is_none()) {
+        return Err("Each file needs the playlist entry it's for.".into());
+    }
+    let folder = settings_view(&state)
+        .effective_folder
+        .ok_or("Choose a download folder first, or add a library folder in Settings.")?;
+    state.soulseek.download(std::path::Path::new(&folder), items)
+}

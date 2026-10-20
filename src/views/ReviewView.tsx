@@ -12,6 +12,7 @@ import { usePlayer } from "../store/player";
 import { usePlaylists } from "../store/playlists";
 import { useUi } from "../store/ui";
 import { exportUnmatchedReport } from "./PlaylistView";
+import { SoulseekMissing } from "./SoulseekMissing";
 
 const toastErr = (e: unknown) => usePlayer.getState().pushToast("error", String(e));
 
@@ -280,6 +281,7 @@ export function ReviewView({ id }: { id: number }) {
       />
       <div className="mx-auto max-w-5xl space-y-3 px-8 pb-12">
         {error && <p className="text-[13px] text-warn">{error}</p>}
+        {data && playlist?.source && <SoulseekMissing playlistId={id} items={[...data.missing, ...data.pending]} />}
         {data && data.pending.length === 0 && (
           <div className="flex items-center gap-4 rounded-xl bg-panel/70 p-5 ring-1 ring-line animate-in">
             <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-hover text-ok">

@@ -15,6 +15,7 @@ import { Toasts } from "./components/Toasts";
 import { ContextMenuHost } from "./components/ContextMenu";
 import { NavSearch } from "./components/SearchBox";
 import { DialogHost } from "./components/Dialog";
+import { LinkImportHost } from "./components/LinkImportDialog";
 import { PlaylistEditorHost } from "./components/PlaylistEditor";
 import { Ambient } from "./components/Ambient";
 import { SettingsView } from "./views/SettingsView";
@@ -166,6 +167,7 @@ export default function App() {
       <Toasts />
       <ContextMenuHost />
       <DialogHost />
+      <LinkImportHost />
       <PlaylistEditorHost />
     </div>
   );

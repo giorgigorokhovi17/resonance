@@ -2,4 +2,6 @@
 //! see AGENTS.md).
 
 pub mod commands;
+pub mod links;
+pub mod missing;
 pub mod soulseek;

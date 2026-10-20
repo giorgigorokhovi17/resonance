@@ -68,6 +68,8 @@ pub struct Job {
     /// Folder the file goes into.
     pub folder: String,
     pub state: DownloadState,
+    /// Imported playlist entry (matcher ref key) this download fills in, once it's done.
+    pub link_key: Option<String>,
     pub bytes: u64,
     /// Bytes per second while downloading.
     pub speed: f64,
@@ -80,7 +82,13 @@ pub struct DownloadRequest {
     pub username: String,
     pub path: String,
     pub size: u64,
+    /// Link the finished file to this imported playlist entry (matcher ref key).
+    #[serde(default)]
+    pub link_key: Option<String>,
 }
+
+/// Called with (ref key, file path) when a linked download finishes.
+pub type OnLinkedDone = Arc<dyn Fn(String, PathBuf) + Send + Sync>;
 
 struct Conn {
     client: Option<Arc<Client>>,
@@ -99,6 +107,7 @@ pub struct Soulseek {
     next_job: AtomicU64,
     search_id: AtomicU64,
     search_cancel: Mutex<Option<Arc<AtomicBool>>>,
+    on_linked_done: Mutex<Option<OnLinkedDone>>,
 }
 
 fn err(e: impl std::fmt::Display) -> String {
@@ -115,6 +124,7 @@ impl Soulseek {
             next_job: AtomicU64::new(1),
             search_id: AtomicU64::new(0),
             search_cancel: Mutex::new(None),
+            on_linked_done: Mutex::new(None),
         })
     }
 
@@ -318,6 +328,19 @@ impl Soulseek {
         Ok(id)
     }
 
+    /// Runs one search to completion (`window`) and returns the answers, without touching the
+    /// search shown on the Sources page. Used to find songs missing from imported playlists.
+    pub fn search_collect(&self, query: &str, window: Duration) -> Result<Vec<RawResponse>, String> {
+        let client = self.client()?;
+        client.search_with_cancel(query, window, None).map_err(|e| format!("Soulseek search failed: {e}"))?;
+        Ok(client.get_search_results(query).into_iter().map(raw_response).collect())
+    }
+
+    /// What to do when a download linked to a playlist entry finishes.
+    pub fn set_on_linked_done(&self, f: OnLinkedDone) {
+        *self.on_linked_done.lock() = Some(f);
+    }
+
     pub fn stop_search(&self) {
         self.cancel_search();
     }
@@ -367,6 +390,7 @@ impl Soulseek {
                     size: it.size,
                     folder: dir.to_string_lossy().into_owned(),
                     state: DownloadState::Queued,
+                    link_key: it.link_key,
                     bytes: 0,
                     speed: 0.0,
                     error: None,
@@ -470,8 +494,13 @@ impl Soulseek {
                 let terminal = status.is_terminal();
                 me.update_job(id, |j| apply_status(j, status));
                 if terminal {
-                    if me.jobs.lock().iter().any(|j| j.id == id && j.state == DownloadState::Done) {
+                    let done = me.jobs.lock().iter().find(|j| j.id == id && j.state == DownloadState::Done).map(|j| j.link_key.clone());
+                    if let Some(link) = done {
                         set_read_only(&dest);
+                        let hook = me.on_linked_done.lock().clone();
+                        if let (Some(key), Some(hook)) = (link, hook) {
+                            hook(key, dest.clone());
+                        }
                     }
                     me.emit_jobs();
                     return;
@@ -572,6 +601,7 @@ mod tests {
             size: 100,
             folder: "x".into(),
             state: DownloadState::Queued,
+            link_key: None,
             bytes: 0,
             speed: 0.0,
             error: None,

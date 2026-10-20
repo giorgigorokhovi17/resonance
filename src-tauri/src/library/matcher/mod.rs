@@ -273,6 +273,7 @@ fn fts_ids(conn: &Connection, query: &str) -> Result<Vec<i64>> {
 struct Fit {
     score: f64,
     title_exact: bool,
+    title_sim: f64,
     artist: Option<f64>,
     versions_eq: bool,
     drift_eq: bool,
@@ -319,6 +320,7 @@ fn fit(ref_readings: &[Reading], ref_duration_ms: Option<u64>, local: &Local) ->
     Fit {
         score: 0.85 * s + 0.15 * dur_score,
         title_exact: title_sim == 1.0,
+        title_sim,
         artist,
         versions_eq: a.versions == b.versions,
         drift_eq: a.drift == b.drift,
@@ -605,6 +607,9 @@ impl Matcher {
         // not a candidate (the "Artist - Title" readings already cover uploader-tagged files).
         let same_title_other_artist = scored.iter().any(|(f, _)| f.title_exact && f.artist.is_some_and(|a| a < 0.5));
         scored.retain(|(f, _)| f.artist.is_none_or(|a| a >= 0.5));
+        // Same artist, different song ("7 rings" vs "Into You"): not a candidate either. A
+        // candidate shares at least half its title words.
+        scored.retain(|(f, _)| f.title_sim >= 0.5);
 
         let eligible: Vec<&(Fit, usize)> = scored.iter().filter(|(f, i)| f.auto_ok(&self.locals[*i], policy)).collect();
         let mut candidates: Vec<Candidate> = hints;

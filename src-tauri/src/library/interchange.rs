@@ -202,6 +202,8 @@ pub struct PlaylistReview {
     pub matched: usize,
     /// Nothing in the library looks like them (no candidate to offer).
     pub unmatched: usize,
+    /// Those same entries, for finding them elsewhere (Soulseek).
+    pub missing: Vec<ReviewItem>,
 }
 
 /// Group a playlist's imported entries by reference and sort them into the review screen's lists.
@@ -225,6 +227,7 @@ pub fn playlist_review(conn: &mut rusqlite::Connection, id: i64) -> Result<Playl
             out.pending.push(item);
         } else {
             out.unmatched += 1;
+            out.missing.push(item);
         }
     }
     Ok(out)

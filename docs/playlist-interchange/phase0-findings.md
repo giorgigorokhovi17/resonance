@@ -243,3 +243,29 @@ The synthetic numbers check that the rules behave as designed. They say nothing 
 - **Review UI** (pick a candidate / skip / mark missing). The decision storage and the matcher side are ready, but there are no screens yet.
 - Golden-set evaluation, which waits for `fixtures/`.
 - Unresolved references with no location (future Spotify/Takeout imports) are stored as `unmatched:<ref key>` paths, which show as missing until the review UI exists.
+
+## 8. Paste-a-link import + Soulseek for missing songs (2026-10-20, branch `feat/link-import`)
+
+Modelled on Riff (github.com/rootscripts/riff, MIT): **paste a public link, no sign-in**. This replaces the Phase 3 OAuth plan for reading playlists. Only track metadata is read. Riff streams each song from YouTube or SoundCloud; Undertone instead matches against local files and gets missing songs from Soulseek.
+
+| Service | How it's read | Live check (2026-10-20) |
+|---|---|---|
+| Spotify playlist | Embed page (`__NEXT_DATA__`: name, first tracks, anonymous token), then the web player's `pathfinder` `fetchPlaylist` persisted query, 100 per page. Uses the track's artists, not the album's (Riff uses the album's). | "All Out 2010s": 150/150 tracks with artists, duration and ID |
+| Spotify album | Embed page | "DAMN.": 14/14 |
+| YouTube / YouTube Music playlist | `youtubei/v1/browse` (`VL<id>`, then continuation tokens). Reads both `lockupViewModel` and `playlistVideoRenderer` entries. Riff uses yt-dlp instead. Mixes (`RD…`) are refused. | YouTube Charts "Top 100 Songs Global": 99 of 100 |
+| Apple Music playlist | Page `serialized-server-data` JSON (JSON-LD as fallback). Apple's page only carries the first 100 songs. | "Today's Hits": 50/50 |
+| Apple Music album | `itunes.apple.com/lookup?id=…&entity=song` | "good kid, m.A.A.d city": 12/12 |
+
+**Live matching against the real 38-track library** (a copy of the database), using `examples/link_import_check.rs`:
+- **Auto-matched, all correct:** Apple's "Swimming Pools (Drank) [Extended Version]" → the local `[Extended]` file; Spotify's "DJ Got Us Fallin' In Love (feat. Pitbull)" and "Cool for the Summer".
+- **Not matched, also correct:** Spotify's plain "TiK ToK" went to review as a version mismatch against the local Hardstyle edit.
+- **Wrong auto-accepts:** 0.
+
+That run exposed review clutter: songs sharing only an artist (for example "7 rings" vs "Into You") were offered as candidates. Fix: a candidate now needs ≥ 50% of its title words in common, with a test added. After the fix, the review queue held only the TiK ToK decision.
+
+**Soulseek for missing songs** (`sources/missing.rs`):
+- **Search:** "artist + title + version words", then "title + version words".
+- **Acceptable file:** same title and version as the reference (file name read with and without a track number, alone or under an "Artist - Album" folder), main artist in the path, length within 3 s when both sides know it, FLAC or MP3 ≥ 320 kbps.
+- **Ranking:** FLAC first, then a confirmed length, a free slot, and upload speed.
+- **Downloads:** never automatic. The user ticks files; a finished download is recorded as the user's choice for that reference, which replaces the missing entry in every playlist.
+- **Testing:** unit-tested on synthetic answers (including extended, instrumental, 128 kbps and wrong-artist decoys). **Not yet run against the live Soulseek network.**

@@ -57,8 +57,13 @@ tauri-plugin-process = "2"
 # soulseek downloads. Pinned exactly: upstream ships breaking releases often (docs/soulseek-design.md).
 soulseek-rs-lib = "=19.1.0"
 
+# paste-a-link playlist import (both already in the build through tauri)
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
+tokio = { version = "1", features = ["time"] }
+
 [dev-dependencies]
 proptest = "1"
+tokio = { version = "1", features = ["macros", "rt", "time"] }
 
 [profile.release]
 codegen-units = 1

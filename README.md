@@ -1,6 +1,6 @@
 # Undertone
 
-A personal, **local-only** music player for Windows. No telemetry. The only network use is the update check and, once you sign in, Soulseek.
+A personal, **local-only** music player for Windows. No telemetry. The only network use is the update check, reading playlist links you paste, and, once you sign in, Soulseek.
 
 Formerly called Resonance. The installer name, data folder (`app.resonance.player`) and backup
 file format still use the old name so existing installs, libraries and backups keep working.
@@ -31,6 +31,7 @@ Built with **Tauri 2** (Rust backend) and **React + TypeScript + Tailwind** (fro
 - **Queue** (drag to reorder, remove, save as playlist) as a full view and a slide-over panel.
 - **Playlists**: create, rename, delete, reorder. **Import M3U/M3U8, PLS, XSPF and WPL**: importing the same file again updates its playlist instead of adding a copy. **Export to M3U8, XSPF, or CSV with ISRC** (for spreadsheets; cells are guarded against formula injection). ISRCs and MusicBrainz recording ids are read from tags (invalid values, such as barcodes in the ISRC field, are ignored).
 - **Playlist matcher**: every imported entry is matched to a local file by path, folder + file name, ISRC, MusicBrainz id, then fuzzy title/artist/version/duration (SQLite FTS5 narrows candidates). Only unambiguous, fully confirmed matches are accepted automatically. A remix, slowed or extended version is never taken for the original. **Export unmatched report…** on an imported playlist lists what wasn't matched and why.
+- **Import from link** (like Riff): paste a public Spotify, YouTube / YouTube Music or Apple Music playlist or album link, with no sign-in. Only track info is read, and songs are matched to your files. On the playlist's review page, **Get missing songs from Soulseek** searches for the rest (FLAC first, else MP3 at 320 kbps, same title, artist and version, length within 3 s) and lists the best file for each. You tick what to download, and each finished download replaces its missing entry in every playlist. These services' web endpoints are undocumented and can change; when one does, its import says so instead of guessing.
 - Shuffle, repeat one/all, and the queue plus position are restored on the next launch.
 - Live format info: codec, sample rate, bit depth, bitrate, output mode and bit depth, device, bit-perfect / resampled / EQ / ReplayGain badges.
 - Output device picker, **media keys + Windows media overlay (SMTC)**, **system tray** (with optional close-to-tray), **mini-player** (Ctrl+M), and keyboard shortcuts.
@@ -167,7 +168,8 @@ src-tauri/src
 │                  playlist interchange (interchange.rs model + m3u/pls/xspf/wpl/csv),
 │                  matcher/ (normalize.rs rules, tiers, FTS5 candidates, decisions)
 ├─ queue.rs        queue, shuffle, repeat
-├─ sources/       Soulseek: wrapper around soulseek-rs-lib, Credential Manager, result grouping
+├─ sources/       Soulseek: wrapper around soulseek-rs-lib, Credential Manager, result grouping;
+│                  links/ (Spotify, YouTube, Apple Music link readers), missing.rs (finding missing songs)
 ├─ smtc.rs         Windows media overlay / media keys (souvlaki)
 ├─ persist.rs      queue persistence
 └─ commands.rs     Tauri command API

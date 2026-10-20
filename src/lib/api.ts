@@ -1,5 +1,8 @@
 ﻿import { invoke } from "@tauri-apps/api/core";
 import type {
+  FindResult,
+  LinkImport,
+  LinkInfo,
   AutoEqImport,
   DeviceInfo,
   EqPreset,
@@ -115,6 +118,16 @@ export const api = {
   slskClearFinished: () => invoke<void>("slsk_clear_finished"),
   slskSettings: () => invoke<SlskSettingsView>("slsk_settings"),
   slskUpdateSettings: (settings: SoulseekSettings) => invoke<SlskSettingsView>("slsk_update_settings", { settings }),
+
+  // paste-a-link import + missing songs from Soulseek
+  checkLink: (url: string) => invoke<LinkInfo | null>("check_link", { url }),
+  /** Public Spotify / YouTube / Apple Music playlist or album link. Re-importing updates it. */
+  importLink: (url: string) => invoke<LinkImport>("import_link", { url }),
+  findMissing: (playlistId: number, keys: string[] | null = null) => invoke<number>("find_missing", { playlistId, keys }),
+  stopFind: (playlistId: number) => invoke<void>("stop_find", { playlistId }),
+  findResults: (playlistId: number, keys: string[]) =>
+    invoke<{ running: boolean; results: FindResult[] }>("find_results", { playlistId, keys }),
+  downloadFound: (items: SlskDownloadRequest[]) => invoke<number>("download_found", { items }),
 
   // misc
   openUrl: (url: string) => invoke<void>("open_url", { url }),

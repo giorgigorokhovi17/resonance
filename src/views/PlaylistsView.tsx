@@ -1,9 +1,10 @@
 import { open } from "@tauri-apps/plugin-dialog";
-import { FileInput, Play, Plus } from "lucide-react";
+import { FileInput, Link2, Play, Plus } from "lucide-react";
 import { openMenu } from "../components/ContextMenu";
 import { SecondaryButton } from "../components/EmptyState";
 import { PlaylistCover } from "../components/PlaylistCover";
 import { openPlaylistEditor } from "../components/PlaylistEditor";
+import { openLinkImport } from "../components/LinkImportDialog";
 import { ViewHeader } from "../components/ViewHeader";
 import { api } from "../lib/api";
 import type { Playlist } from "../lib/types";
@@ -80,9 +81,14 @@ export function PlaylistsView() {
         title="Playlists"
         subtitle={`${playlists.length} playlist${playlists.length === 1 ? "" : "s"}`}
         actions={
-          <SecondaryButton onClick={importPlaylist}>
-            <FileInput size={15} /> Import playlist
-          </SecondaryButton>
+          <>
+            <SecondaryButton onClick={openLinkImport} title="Spotify, YouTube or Apple Music link">
+              <Link2 size={15} /> Import from link
+            </SecondaryButton>
+            <SecondaryButton onClick={importPlaylist} title="M3U, PLS, XSPF, WPL or CSV file">
+              <FileInput size={15} /> Import file
+            </SecondaryButton>
+          </>
         }
       />
       <div className="grid grid-cols-[repeat(auto-fill,minmax(184px,1fr))] gap-1 px-6 pb-10">
