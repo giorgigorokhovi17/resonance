@@ -129,6 +129,7 @@ export interface Settings {
   minimizeToMini: boolean;
   eq: EqSettings;
   appearance: Appearance;
+  soulseek: SoulseekSettings;
 }
 
 export interface Appearance {
@@ -292,4 +293,80 @@ export interface DeviceInfo {
   id: string;
   name: string;
   isDefault: boolean;
+}
+
+// ---- Soulseek -------------------------------------------------------------------------------
+
+export interface SoulseekSettings {
+  /** null = a "Soulseek" folder inside the first library folder. */
+  downloadFolder: string | null;
+  listen: boolean;
+  listenPort: number;
+}
+
+export interface SlskSettingsView extends SoulseekSettings {
+  effectiveFolder: string | null;
+  inLibrary: boolean;
+}
+
+export type SlskConnState = "signedOut" | "connecting" | "signedIn";
+
+export interface SlskStatus {
+  state: SlskConnState;
+  username: string | null;
+  remembered: boolean;
+  error: string | null;
+}
+
+export interface SlskFile {
+  path: string;
+  name: string;
+  size: number;
+  format: string;
+  bitrate: number | null;
+  length: number | null;
+  vbr: boolean;
+  sampleRate: number | null;
+  bitDepth: number | null;
+}
+
+export interface SlskFolder {
+  path: string;
+  files: SlskFile[];
+}
+
+export interface SlskUser {
+  username: string;
+  freeSlots: boolean;
+  speed: number;
+  folders: SlskFolder[];
+}
+
+export interface SlskSearchUpdate {
+  id: number;
+  query: string;
+  users: SlskUser[];
+  fileCount: number;
+  done: boolean;
+}
+
+export type SlskJobState = "queued" | "downloading" | "done" | "failed" | "cancelled";
+
+export interface SlskJob {
+  id: number;
+  username: string;
+  remotePath: string;
+  name: string;
+  size: number;
+  folder: string;
+  state: SlskJobState;
+  bytes: number;
+  speed: number;
+  error: string | null;
+}
+
+export interface SlskDownloadRequest {
+  username: string;
+  path: string;
+  size: number;
 }

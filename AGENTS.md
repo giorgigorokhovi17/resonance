@@ -6,8 +6,8 @@ file; keep project rules here so they stay in one place.
 ## What this is
 
 A personal, **local-only Windows** music player: Tauri 2 (Rust backend in `src-tauri/`) with
-React + TypeScript + Tailwind (frontend in `src/`). No accounts, no telemetry; the update check is
-the only network request. Music files are only ever read, never modified. See `README.md` for
+React + TypeScript + Tailwind (frontend in `src/`). No telemetry; the network is used only for the
+update check and, after the user signs in, Soulseek. Music files are only ever read, never modified. See `README.md` for
 features, architecture and data locations.
 
 ## Commands
@@ -36,7 +36,8 @@ Before saying a change works, run the tests and the typecheck, and report the ac
 - **Never commit** `fixtures/` (personal playlist exports) or the updater signing key
   (`%USERPROFILE%\.tauri\resonance-updater.key`).
 - Never download or stream audio from any service. **Exception (owner's decision, 2026-10-19):**
-  Soulseek downloading is planned (placeholder in `src/views/SourcesView.tsx`). Spotify, YouTube
+  Soulseek downloading (`src-tauri/src/sources/soulseek/`, design in `docs/soulseek-design.md`).
+  Nothing is shared or uploaded, and downloaded files are marked read-only. Spotify, YouTube
   Music and SoundCloud stay playlist imports that match against local files, never downloads.
 - **Database:** SQLite at `%APPDATA%\app.resonance.player\library.db`, migrated in
   `src-tauri/src/library/db.rs` (`migrate`). Schema changes are additive (`add_column` /
@@ -57,3 +58,4 @@ Before saying a change works, run the tests and the typecheck, and report the ac
 
 - `docs/playlist-interchange/phase0-findings.md`: playlist import/export and matcher plan,
   decisions and status. Update its status sections when that work changes.
+- `docs/soulseek-design.md`: Soulseek protocol choice, NAT/firewall behaviour, credentials.

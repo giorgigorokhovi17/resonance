@@ -24,6 +24,24 @@ pub struct Settings {
     pub minimize_to_mini: bool,
     pub eq: EqSettings,
     pub appearance: Appearance,
+    pub soulseek: SoulseekSettings,
+}
+
+/// Soulseek options. The account itself is in Windows Credential Manager, not here.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SoulseekSettings {
+    /// Where downloads go. `None` means a `Soulseek` folder inside the first library folder.
+    pub download_folder: Option<String>,
+    /// Accept incoming connections from other users (needed for some results and downloads).
+    pub listen: bool,
+    pub listen_port: u16,
+}
+
+impl Default for SoulseekSettings {
+    fn default() -> Self {
+        Self { download_folder: None, listen: true, listen_port: 2234 }
+    }
 }
 
 /// Look-and-feel options from the Visual settings tab. Only stored here; the frontend applies them.
@@ -107,6 +125,7 @@ impl Default for Settings {
             minimize_to_mini: false,
             eq: EqSettings::default(),
             appearance: Appearance::default(),
+            soulseek: SoulseekSettings::default(),
         }
     }
 }
@@ -167,6 +186,15 @@ mod tests {
         assert!(s.close_to_tray);
         assert_eq!(s.appearance, Appearance::default());
         assert!(!s.minimize_to_mini);
+        assert_eq!(s.soulseek, SoulseekSettings::default());
+    }
+
+    #[test]
+    fn partial_soulseek_settings_keep_defaults() {
+        let s: Settings = serde_json::from_str(r#"{"soulseek":{"downloadFolder":"D:\\Music\\In"}}"#).unwrap();
+        assert_eq!(s.soulseek.download_folder.as_deref(), Some(r"D:\Music\In"));
+        assert!(s.soulseek.listen);
+        assert_eq!(s.soulseek.listen_port, 2234);
     }
 
     #[test]

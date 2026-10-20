@@ -7,6 +7,7 @@ import { initLibrary, useLiveCover } from "./store/library";
 import { initPlaylists, usePlaylists } from "./store/playlists";
 import { useUi } from "./store/ui";
 import { initUpdater } from "./store/updater";
+import { initSoulseek } from "./store/soulseek";
 import { TitleBar } from "./components/TitleBar";
 import { Sidebar } from "./components/Sidebar";
 import { PlayerBar } from "./components/PlayerBar";
@@ -114,6 +115,7 @@ export default function App() {
     initLibrary().catch((e) => usePlayer.getState().pushToast("error", `Library failed to load: ${e}`));
     initPlaylists().catch((e) => console.error(e));
     initUpdater();
+    initSoulseek().catch((e) => console.error(e));
     resumeMiniAfterReload();
     // Files dropped from Explorer start playing.
     const un = getCurrentWebview().onDragDropEvent((e) => {
