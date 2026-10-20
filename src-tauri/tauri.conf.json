@@ -35,7 +35,7 @@
   "plugins": {
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEE4NkFBQjJCNEVBRjM0MjgKUldRb05LOU9LNnRxcUlTSzI2N1FIUlNTQUJmRkRkZnc0Y2g0ZUNwVy9VM0NkZjBweGp2K0RuSHgK",
-      "endpoints": ["https://github.com/YOUR_GITHUB_USERNAME/resonance/releases/latest/download/latest.json"],
+      "endpoints": ["https://github.com/giorgigorokhovi17/resonance/releases/latest/download/latest.json"],
       "windows": { "installMode": "passive" }
     }
   },
