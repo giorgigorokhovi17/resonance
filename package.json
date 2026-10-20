@@ -1,6 +1,7 @@
 {
   "name": "resonance",
   "private": true,
+  "license": "MIT",
   "version": "0.4.3",
   "type": "module",
   "packageManager": "pnpm@9.15.9",

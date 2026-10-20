@@ -1,5 +1,5 @@
 //! Matcher behaviour on a library that mirrors the real one's metadata (titles, artists,
-//! durations, ISRCs and MBIDs copied from MusicG14), including its hard cases.
+//! durations, ISRCs and MBIDs copied from a real 38-track library), including its hard cases.
 
 use std::path::Path;
 
@@ -8,7 +8,7 @@ use rusqlite::Connection;
 use super::*;
 use crate::library::interchange::TrackRef;
 
-const LIB: &str = r"C:\Users\G\MusicG14";
+const LIB: &str = r"D:\Music";
 
 /// (relative path, title, artist, seconds, isrc, mbid)
 const TRACKS: &[(&str, &str, &str, f64, &str, &str)] = &[

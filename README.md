@@ -2,10 +2,26 @@
 
 A personal, **local-only** music player for Windows. No telemetry. The only network use is the update check, reading playlist links you paste, and, once you sign in, Soulseek.
 
-Formerly called Resonance. The installer name, data folder (`app.resonance.player`) and backup
-file format still use the old name so existing installs, libraries and backups keep working.
+Formerly called Resonance. The data folder (`app.resonance.player`) and backup file format still
+use the old name so existing libraries and backups keep working.
 
 Built with **Tauri 2** (Rust backend) and **React + TypeScript + Tailwind** (frontend).
+Open source under the [MIT License](LICENSE).
+
+## Download
+
+Get the latest `Undertone_<version>_x64-setup.exe` from the
+[Releases page](https://github.com/giorgigorokhovi17/resonance/releases/latest) and run it.
+It installs for your user only (no admin rights needed) and adds Start-menu and Desktop shortcuts.
+Installed copies check that page for updates and offer to install them.
+
+Windows 10 or 11, 64-bit. WebView2 is preinstalled on Windows 11; the installer adds it on
+Windows 10 if it's missing.
+
+**"Windows protected your PC"**: the installer isn't code-signed (a signing certificate costs
+money every year), so SmartScreen warns about it the first few times. Click **More info → Run
+anyway**. Updates are still verified: the app only installs updates signed with the project's
+own update key.
 
 ## Features
 
@@ -183,3 +199,32 @@ The decoder thread fills a lock-free SPSC ring buffer (`rtrb`). The output callb
 - In exclusive mode, consecutive tracks with different sample rates or bit depths need a device reopen, which causes a short gap. Same-format albums are fully gapless.
 - WavPack, APE, DSD and MQA are not supported by the decoder stack.
 - Multichannel files are downmixed to stereo when the device only takes 2 channels.
+
+## Disclaimer
+
+Undertone is a personal hobby project, provided as is (see the [license](LICENSE)). It isn't
+affiliated with, endorsed by, or connected to Spotify, YouTube, Google, Apple or Soulseek.
+
+- **Playlist links:** importing a Spotify, YouTube or Apple Music link only reads the public
+  track list (titles, artists, durations), the same information the services' own web pages show.
+  It uses those pages' undocumented web endpoints, which can change or stop working at any time,
+  and which the services' terms may not allow. Nothing is streamed or downloaded from them.
+- **Soulseek:** downloading from Soulseek is entirely your decision and your responsibility. Only
+  download music you have the right to. Copyright law differs between countries, and sharing or
+  downloading copyrighted music without permission is illegal in many of them. Undertone doesn't
+  upload or share anything.
+- Your music files are never modified. Your Soulseek password is kept in Windows Credential
+  Manager and is only ever sent to the Soulseek server.
+
+## Credits
+
+- The paste-a-link import follows the approach of [Riff](https://github.com/rootscripts/riff)
+  (MIT), including the Spotify web player's persisted-query hash.
+- Soulseek protocol: [soulseek-rs-lib](https://crates.io/crates/soulseek-rs-lib) (MIT).
+- Decoding: [Symphonia](https://github.com/pdeljanov/Symphonia) and libopus; tags:
+  [lofty](https://github.com/Serial-ATA/lofty-rs); headphone EQ presets:
+  [AutoEq](https://github.com/jaakkopasanen/AutoEq).
+
+## License
+
+[MIT](LICENSE). Each third-party crate and package keeps its own license.
