@@ -151,6 +151,25 @@ export interface Appearance {
   backgroundScope: "app" | "nowPlaying";
   /** Where GIF and video artwork moves. */
   animatedArt: AnimatedArt;
+  /** Playlist page design. */
+  playlistLayout: PlaylistLayout;
+}
+
+/** "classic": header above the songs; "split": cover, details and lyrics left, songs right. */
+export type PlaylistLayout = "classic" | "split";
+
+export interface LyricLine {
+  /** Start in milliseconds, for timed (LRC) lyrics. */
+  timeMs: number | null;
+  text: string;
+}
+
+export interface Lyrics {
+  lines: LyricLine[];
+  /** Every line has a time. */
+  synced: boolean;
+  /** "lrc" (a file next to the song) or "tags". */
+  source: string;
 }
 
 export type AnimatedArt = "everywhere" | "nowPlaying" | "off";

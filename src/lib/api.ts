@@ -11,6 +11,7 @@ import type {
   ImportResult,
   LibraryFolder,
   Backdrop,
+  Lyrics,
   Media,
   MediaPurpose,
   StagedMedia,
@@ -107,6 +108,8 @@ export const api = {
     invoke<Media>("commit_media", { id, purpose, width, height, durationMs, poster }),
   discardMedia: (id: string) => invoke<void>("discard_media", { id }),
   getMedia: () => invoke<Media[]>("get_media"),
+  /** From a .lrc file next to the song or its tags; null when it has none. */
+  getLyrics: (path: string) => invoke<Lyrics | null>("get_lyrics", { path }),
   setShuffle: (shuffle: boolean) => invoke<void>("set_shuffle", { shuffle }),
   setRepeat: (repeat: RepeatMode) => invoke<void>("set_repeat", { repeat }),
 

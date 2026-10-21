@@ -2,6 +2,7 @@ pub mod covers;
 pub mod csv;
 pub mod db;
 pub mod interchange;
+pub mod lyrics;
 pub mod m3u;
 pub mod matcher;
 pub mod media;

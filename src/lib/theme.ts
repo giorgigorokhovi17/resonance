@@ -97,6 +97,7 @@ export const DEFAULT_APPEARANCE: Appearance = {
   background: null,
   backgroundScope: "app",
   animatedArt: "off",
+  playlistLayout: "classic",
 };
 
 export const CORNER_SCALE: Record<Appearance["corners"], number> = { sharp: 0.35, default: 1, round: 1.6 };
