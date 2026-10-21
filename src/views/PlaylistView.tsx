@@ -5,6 +5,7 @@ import { openMenu, SEP, type MenuItem } from "../components/ContextMenu";
 import { Cover } from "../components/Cover";
 import { confirmDialog } from "../components/Dialog";
 import { EmptyState } from "../components/EmptyState";
+import { LyricsPanel } from "../components/LyricsPanel";
 import { HiddenNote, MinLengthSelect } from "../components/MinLengthSelect";
 import { PlaylistCover } from "../components/PlaylistCover";
 import { openPlaylistEditor } from "../components/PlaylistEditor";
@@ -106,6 +107,7 @@ export function PlaylistView({ id }: { id: number }) {
   const currentPath = usePlayer((s) => s.status?.track?.path);
   const playing = usePlayer((s) => s.status?.state === "playing");
   const queuePaths = usePlayer((s) => s.queue.items);
+  const split = usePlayer((s) => s.settings?.appearance.playlistLayout === "split");
 
   useEffect(() => {
     let alive = true;
@@ -184,119 +186,137 @@ export function PlaylistView({ id }: { id: number }) {
     playable.some((e) => e.track.path === currentPath) &&
     queuePaths.length === playable.length;
 
-  const header = (
-    <div>
-      <div className="flex items-end gap-7 px-8 pb-6 pt-10">
-        <button
-          onClick={() => openPlaylistEditor(playlist)}
-          className="group relative shrink-0 rounded-lg shadow-[0_16px_48px_-12px_rgba(0,0,0,0.6)]"
-          aria-label="Edit details"
-        >
-          <PlaylistCover playlist={playlist} className="h-[212px] w-[212px]" iconSize={72} size="full" motion="page" />
-          <span className="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-lg bg-black/55 text-[13px] font-semibold text-white opacity-0 transition-opacity duration-200 group-hover:opacity-100">
-            <Pencil size={28} /> Edit details
+  // The page's parts; the Visual setting decides how they're laid out.
+  const cover = (box: string) => (
+    <button
+      onClick={() => openPlaylistEditor(playlist)}
+      className={`group relative shrink-0 rounded-lg shadow-[0_16px_48px_-12px_rgba(0,0,0,0.6)] ${box}`}
+      aria-label="Edit details"
+    >
+      <PlaylistCover playlist={playlist} className="h-full w-full" iconSize={72} size="full" motion="page" />
+      <span className="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-lg bg-black/55 text-[13px] font-semibold text-white opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+        <Pencil size={28} /> Edit details
+      </span>
+    </button>
+  );
+
+  const details = (
+    <div className="min-w-0 pb-1">
+      <div className="text-[12px] font-semibold text-fg/80">Playlist</div>
+      <h1
+        onClick={() => openPlaylistEditor(playlist)}
+        className={`mt-1 cursor-pointer font-display font-extrabold leading-[1.05] tracking-tight ${
+          split ? "line-clamp-2 text-[clamp(24px,2.4vw,34px)]" : "truncate text-[clamp(32px,4.4vw,64px)]"
+        }`}
+      >
+        {playlist.name}
+      </h1>
+      {playlist.description && <p className="mt-3 line-clamp-2 max-w-2xl text-[13.5px] text-fg/70">{playlist.description}</p>}
+      <div className="mt-3 text-[13px] text-fg/75">
+        {shown.length} song{shown.length === 1 ? "" : "s"}
+        {total > 0 && <span className="text-fg/55"> · {fmtDuration(total)}</span>}
+        <HiddenNote count={hidden} />
+        {missing > 0 && (
+          <span className="ml-2 inline-flex items-center gap-1 text-warn">
+            <AlertTriangle size={13} /> {missing} missing
           </span>
-        </button>
-        <div className="min-w-0 pb-1">
-          <div className="text-[12px] font-semibold text-fg/80">Playlist</div>
-          <h1
-            onClick={() => openPlaylistEditor(playlist)}
-            className="mt-1 cursor-pointer truncate font-display text-[clamp(32px,4.4vw,64px)] font-extrabold leading-[1.05] tracking-tight"
-          >
-            {playlist.name}
-          </h1>
-          {playlist.description && <p className="mt-3 line-clamp-2 max-w-2xl text-[13.5px] text-fg/70">{playlist.description}</p>}
-          <div className="mt-3 text-[13px] text-fg/75">
-            {shown.length} song{shown.length === 1 ? "" : "s"}
-            {total > 0 && <span className="text-fg/55"> · {fmtDuration(total)}</span>}
-            <HiddenNote count={hidden} />
-            {missing > 0 && (
-              <span className="ml-2 inline-flex items-center gap-1 text-warn">
-                <AlertTriangle size={13} /> {missing} missing
-              </span>
-            )}
-          </div>
-          <div className="mt-3 flex flex-wrap gap-2">
-          {notOwned + toReview > 0 && (
-            <button
-              onClick={() => useUi.getState().setView({ kind: "review", id })}
-              className="accent-gradient text-on-accent inline-flex items-center gap-1.5 rounded-full px-3.5 py-1 text-[12.5px] font-semibold shadow-md transition-transform hover:scale-[1.03]"
-              title="Search Soulseek for the songs you don't have, then pick what to download"
-            >
-              <Download size={14} /> Get {notOwned + toReview} missing song{notOwned + toReview === 1 ? "" : "s"}
-            </button>
-          )}
-          {toReview > 0 && (
-            <button
-              onClick={() => useUi.getState().setView({ kind: "review", id })}
-              className="inline-flex items-center gap-1.5 rounded-full bg-accent/15 px-3 py-1 text-[12.5px] font-medium text-accent ring-1 ring-accent/30 transition-colors hover:bg-accent/25"
-            >
-              <ListChecks size={14} /> {toReview} song{toReview === 1 ? "" : "s"} need{toReview === 1 ? "s" : ""} a decision · Review
-            </button>
-          )}
-          </div>
-        </div>
+        )}
       </div>
-      <div className="flex items-center gap-4 px-8 pb-5">
+      <div className="mt-3 flex flex-wrap gap-2">
+      {notOwned + toReview > 0 && (
         <button
-          aria-label={isPlayingThis && playing ? "Pause" : "Play"}
-          disabled={!playable.length}
-          onClick={() => (isPlayingThis ? api.togglePlay() : playPlaylist(id, 0, false))}
-          className="flex h-14 w-14 items-center justify-center rounded-full bg-accent text-on-accent shadow-lg transition-transform duration-150 hover:scale-105 active:scale-95 disabled:opacity-40"
+          onClick={() => useUi.getState().setView({ kind: "review", id })}
+          className="accent-gradient text-on-accent inline-flex items-center gap-1.5 rounded-full px-3.5 py-1 text-[12.5px] font-semibold shadow-md transition-transform hover:scale-[1.03]"
+          title="Search Soulseek for the songs you don't have, then pick what to download"
         >
-          {isPlayingThis && playing ? (
-            <Pause size={24} fill="currentColor" strokeWidth={0} />
-          ) : (
-            <Play size={24} fill="currentColor" strokeWidth={0} className="translate-x-0.5" />
-          )}
+          <Download size={14} /> Get {notOwned + toReview} missing song{notOwned + toReview === 1 ? "" : "s"}
         </button>
+      )}
+      {toReview > 0 && (
         <button
-          aria-label="Shuffle play"
-          title="Shuffle play"
-          disabled={!playable.length}
-          onClick={() => playPlaylist(id, 0, true)}
-          className="rounded-full p-2 text-muted transition-colors hover:text-fg disabled:opacity-40"
+          onClick={() => useUi.getState().setView({ kind: "review", id })}
+          className="inline-flex items-center gap-1.5 rounded-full bg-accent/15 px-3 py-1 text-[12.5px] font-medium text-accent ring-1 ring-accent/30 transition-colors hover:bg-accent/25"
         >
-          <Shuffle size={26} />
+          <ListChecks size={14} /> {toReview} song{toReview === 1 ? "" : "s"} need{toReview === 1 ? "s" : ""} a decision · Review
         </button>
-        <button
-          aria-label="More options"
-          onClick={(e) => openMenu(e, playlistItemMenu(playlist))}
-          className="rounded-full p-2 text-muted transition-colors hover:text-fg"
-        >
-          <MoreHorizontal size={26} />
-        </button>
-        <div className="ml-auto">
-          <MinLengthSelect />
-        </div>
+      )}
       </div>
     </div>
   );
 
-  if (!shown.length) {
-    return (
-      <div className="h-full overflow-y-auto">
-        {header}
-        <p className="px-8 text-[13px] text-muted">
-          {hidden > 0 ? (
-            "Every song in this playlist is shorter than the minimum length."
-          ) : (
-            <>
-              This playlist is empty. Right-click any song and choose <span className="text-fg">Add to playlist</span>.
-            </>
-          )}
-        </p>
+  const actions = (
+    <div className={`flex items-center gap-4 ${split ? "" : "px-8 pb-5"}`}>
+      <button
+        aria-label={isPlayingThis && playing ? "Pause" : "Play"}
+        disabled={!playable.length}
+        onClick={() => (isPlayingThis ? api.togglePlay() : playPlaylist(id, 0, false))}
+        className="flex h-14 w-14 items-center justify-center rounded-full bg-accent text-on-accent shadow-lg transition-transform duration-150 hover:scale-105 active:scale-95 disabled:opacity-40"
+      >
+        {isPlayingThis && playing ? (
+          <Pause size={24} fill="currentColor" strokeWidth={0} />
+        ) : (
+          <Play size={24} fill="currentColor" strokeWidth={0} className="translate-x-0.5" />
+        )}
+      </button>
+      <button
+        aria-label="Shuffle play"
+        title="Shuffle play"
+        disabled={!playable.length}
+        onClick={() => playPlaylist(id, 0, true)}
+        className="rounded-full p-2 text-muted transition-colors hover:text-fg disabled:opacity-40"
+      >
+        <Shuffle size={26} />
+      </button>
+      <button
+        aria-label="More options"
+        onClick={(e) => openMenu(e, playlistItemMenu(playlist))}
+        className="rounded-full p-2 text-muted transition-colors hover:text-fg"
+      >
+        <MoreHorizontal size={26} />
+      </button>
+      <div className="ml-auto">
+        <MinLengthSelect />
       </div>
-    );
-  }
+    </div>
+  );
 
-  return (
+  const header = (
+    <div>
+      <div className="flex items-end gap-7 px-8 pb-6 pt-10">
+        {cover("h-[212px] w-[212px]")}
+        {details}
+      </div>
+      {actions}
+    </div>
+  );
+
+  // With the split layout, the details sit above the songs; the cover and lyrics are on the left.
+  const splitHeader = (
+    <div className="space-y-5 px-8 pb-5 pt-8">
+      {details}
+      {actions}
+    </div>
+  );
+
+  const emptyNote = (
+    <p className="px-8 text-[13px] text-muted">
+      {hidden > 0 ? (
+        "Every song in this playlist is shorter than the minimum length."
+      ) : (
+        <>
+          This playlist is empty. Right-click any song and choose <span className="text-fg">Add to playlist</span>.
+        </>
+      )}
+    </p>
+  );
+
+  const list = shown.length > 0 && (
     <ReorderList<PlaylistEntry>
       items={shown}
       getKey={(e) => e.track.path + "#" + slots[shown.indexOf(e)]}
       rowHeight={56}
       onMove={onMove}
-      header={header}
+      header={split ? splitHeader : header}
       renderRow={(entry, index) => {
         const t = entry.track;
         const isCur = t.path === currentPath;
@@ -344,5 +364,34 @@ export function PlaylistView({ id }: { id: number }) {
         );
       }}
     />
+  );
+
+  if (split) {
+    // The cover with the playing song's lyrics below it on the left; details and songs on the right.
+    return (
+      <div className="flex h-full gap-2 pl-8">
+        <aside className="flex w-[clamp(240px,27vw,340px)] shrink-0 flex-col gap-4 overflow-y-auto pb-5 pt-8">
+          {cover("aspect-square w-[min(100%,40vh)]")}
+          <LyricsPanel className="min-h-[200px] flex-1" />
+        </aside>
+        <div className="min-w-0 flex-1">
+          {list || (
+            <div className="h-full overflow-y-auto">
+              {splitHeader}
+              {emptyNote}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    list || (
+      <div className="h-full overflow-y-auto">
+        {header}
+        {emptyNote}
+      </div>
+    )
   );
 }

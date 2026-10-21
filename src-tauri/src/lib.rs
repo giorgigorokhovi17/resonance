@@ -422,6 +422,7 @@ pub fn run() {
             commands::commit_media,
             commands::discard_media,
             commands::get_media,
+            commands::get_lyrics,
             commands::set_playlist_background,
             commands::set_tracks_cover_hidden,
             commands::set_tracks_cover,

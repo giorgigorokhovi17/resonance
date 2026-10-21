@@ -12,7 +12,7 @@ import {
   TEXT_MIN_CONTRAST,
 } from "../../lib/theme";
 import { importBackground, importError, pickMedia } from "../../lib/mediaImport";
-import type { AnimatedArt, Appearance, Backdrop as BackdropOptions, Settings } from "../../lib/types";
+import type { AnimatedArt, Appearance, Backdrop as BackdropOptions, PlaylistLayout, Settings } from "../../lib/types";
 import { Backdrop, useBackdropReadability } from "../../components/Backdrop";
 import { useMedia } from "../../store/media";
 import { usePlayer } from "../../store/player";
@@ -169,6 +169,25 @@ export function VisualSettings({ settings }: { settings: Settings }) {
               onChange={(v) => setAppearance({ backdropBlur: v })}
             />
           </Row>
+        </div>
+      </Section>
+
+      <Section title="Playlist page" description="How a playlist's page is laid out.">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <LayoutCard
+            value="classic"
+            current={a.playlistLayout}
+            name="Classic"
+            hint="Cover and title on top, songs below."
+            onClick={() => setAppearance({ playlistLayout: "classic" })}
+          />
+          <LayoutCard
+            value="split"
+            current={a.playlistLayout}
+            name="Cover and lyrics"
+            hint="Cover on the left with the playing song and its lyrics below it; title and songs on the right."
+            onClick={() => setAppearance({ playlistLayout: "split" })}
+          />
         </div>
       </Section>
 
@@ -524,5 +543,79 @@ function SkinPreview({ backdrop }: { backdrop: BackdropOptions }) {
         </div>
       </div>
     </div>
+  );
+}
+
+/** A small drawing of a playlist page design, to pick it. */
+function LayoutCard({
+  value,
+  current,
+  name,
+  hint,
+  onClick,
+}: {
+  value: PlaylistLayout;
+  current: PlaylistLayout;
+  name: string;
+  hint: string;
+  onClick: () => void;
+}) {
+  const selected = value === current;
+  const bar = (w: string, cls = "bg-fg/25") => <div className={`h-1.5 rounded-full ${cls}`} style={{ width: w }} />;
+  const rows = (n: number) => (
+    <div className="space-y-1.5">
+      {Array.from({ length: n }, (_, i) => (
+        <div key={i} className="flex items-center gap-1.5">
+          <div className="h-3 w-3 shrink-0 rounded-sm bg-fg/20" />
+          {bar(`${70 - (i % 3) * 12}%`)}
+        </div>
+      ))}
+    </div>
+  );
+  const art = <div className="accent-gradient aspect-square rounded-md" />;
+  return (
+    <button
+      onClick={onClick}
+      aria-pressed={selected}
+      className={`rounded-xl p-1.5 text-left transition-colors ${selected ? "bg-accent/10 ring-2 ring-accent" : "ring-1 ring-line hover:bg-hover"}`}
+    >
+      <div className="h-[132px] overflow-hidden rounded-lg bg-bg p-2.5">
+        {value === "classic" ? (
+          <div className="flex h-full flex-col gap-2">
+            <div className="flex items-end gap-2.5">
+              <div className="w-12">{art}</div>
+              <div className="flex-1 space-y-1.5 pb-1">
+                {bar("30%", "bg-fg/40")}
+                {bar("60%", "bg-fg/70")}
+              </div>
+            </div>
+            {rows(4)}
+          </div>
+        ) : (
+          <div className="flex h-full gap-2.5">
+            <div className="flex w-[30%] flex-col gap-1.5">
+              <div className="w-[60px]">{art}</div>
+              <div className="flex-1 space-y-1.5 rounded-md bg-fg/10 p-1.5">
+                {bar("80%", "bg-fg/30")}
+                {bar("65%", "bg-accent")}
+                {bar("75%", "bg-fg/30")}
+              </div>
+            </div>
+            <div className="flex-1 space-y-2 pt-0.5">
+              <div className="space-y-1.5">
+                {bar("30%", "bg-fg/40")}
+                {bar("55%", "bg-fg/70")}
+              </div>
+              {rows(4)}
+            </div>
+          </div>
+        )}
+      </div>
+      <div className="flex items-center justify-between px-1 pt-1.5 text-[12.5px] font-medium">
+        {name}
+        {selected && <Check size={14} className="text-accent" />}
+      </div>
+      <div className="px-1 pb-0.5 text-[11.5px] text-faint">{hint}</div>
+    </button>
   );
 }

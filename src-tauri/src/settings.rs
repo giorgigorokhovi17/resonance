@@ -75,6 +75,9 @@ pub struct Appearance {
     /// Where GIF and video artwork moves: "everywhere" | "nowPlaying" | "off" (the default: it
     /// costs CPU, GPU and battery, so it's opt-in).
     pub animated_art: String,
+    /// Playlist page design: "classic" (header above the songs) | "split" (cover, details and the
+    /// playing song's lyrics on the left, songs on the right).
+    pub playlist_layout: String,
 }
 
 impl Default for Appearance {
@@ -93,6 +96,7 @@ impl Default for Appearance {
             background: None,
             background_scope: "app".into(),
             animated_art: "off".into(),
+            playlist_layout: "classic".into(),
         }
     }
 }
@@ -124,6 +128,9 @@ impl Appearance {
         }
         if !matches!(self.animated_art.as_str(), "everywhere" | "nowPlaying" | "off") {
             self.animated_art = d.animated_art;
+        }
+        if !matches!(self.playlist_layout.as_str(), "classic" | "split") {
+            self.playlist_layout = d.playlist_layout;
         }
         self
     }
@@ -244,6 +251,16 @@ mod tests {
         assert_eq!(a.backdrop_blur, 90.0);
         assert_eq!(a.corners, "default");
         assert_eq!(a.ui_scale, 0.8);
+    }
+
+    #[test]
+    fn playlist_layout_setting() {
+        let s: Settings = serde_json::from_str(r#"{"appearance":{"preset":"ocean"}}"#).unwrap();
+        assert_eq!(s.appearance.playlist_layout, "classic", "settings from before keep today's design");
+        let s: Settings = serde_json::from_str(r#"{"appearance":{"playlistLayout":"split"}}"#).unwrap();
+        assert_eq!(s.appearance.normalized().playlist_layout, "split");
+        let a = Appearance { playlist_layout: "grid".into(), ..Appearance::default() }.normalized();
+        assert_eq!(a.playlist_layout, "classic");
     }
 
     #[test]

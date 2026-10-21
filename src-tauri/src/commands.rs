@@ -862,6 +862,18 @@ pub fn discard_media(state: State<'_, AppState>, id: String) -> CmdResult<()> {
     Ok(())
 }
 
+/// Lyrics for a song, from a `.lrc` file next to it or its tags (never from the network).
+/// `None` when it has none.
+#[tauri::command]
+pub async fn get_lyrics(path: String) -> CmdResult<Option<crate::library::lyrics::Lyrics>> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let p = Path::new(&path);
+        is_audio_file(p).then(|| crate::library::lyrics::read(p)).flatten()
+    })
+    .await
+    .map_err(err)
+}
+
 /// Every stored photo, GIF and video, with its kind, size and poster.
 #[tauri::command]
 pub fn get_media(state: State<'_, AppState>) -> CmdResult<Vec<Media>> {
