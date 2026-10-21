@@ -5,6 +5,7 @@ import { api } from "./lib/api";
 import { initPlayer, usePlayer } from "./store/player";
 import { initLibrary, useLiveCover } from "./store/library";
 import { initPlaylists, usePlaylists } from "./store/playlists";
+import { initMedia, useMedia } from "./store/media";
 import { useUi } from "./store/ui";
 import { initUpdater } from "./store/updater";
 import { initSoulseek } from "./store/soulseek";
@@ -19,6 +20,7 @@ import { DownloadsPanel } from "./components/DownloadsPanel";
 import { LinkImportHost } from "./components/LinkImportDialog";
 import { PlaylistEditorHost } from "./components/PlaylistEditor";
 import { Ambient } from "./components/Ambient";
+import { Backdrop } from "./components/Backdrop";
 import { SettingsView } from "./views/SettingsView";
 import { SongsView } from "./views/SongsView";
 import { TracksView } from "./views/TracksView";
@@ -73,6 +75,22 @@ function useArtColors() {
   return { ambient: useCoverColor(coverId), playing: useCoverColor(playingCover) };
 }
 
+/**
+ * Custom backgrounds that apply now: the app's (Settings → Visual, when it covers the whole app)
+ * and the open playlist's page background.
+ */
+function useBackgrounds() {
+  const view = useUi((s) => s.view);
+  const skin = usePlayer((s) => s.settings?.appearance.background ?? null);
+  const scope = usePlayer((s) => s.settings?.appearance.backgroundScope ?? "app");
+  const playlistBg = usePlaylists((s) => (view.kind === "playlist" ? s.playlists.find((p) => p.id === view.id)?.background : null) ?? null);
+  const known = useMedia((s) => s.byId);
+  return {
+    skin: skin && scope === "app" && known.has(skin.mediaId) ? skin : null,
+    page: playlistBg && known.has(playlistBg.mediaId) ? playlistBg : null,
+  };
+}
+
 function MainView() {
   const view = useUi((s) => s.view);
   switch (view.kind) {
@@ -111,11 +129,22 @@ export default function App() {
   const art = useArtColors();
   useAppearance(art.playing);
   const showAmbient = usePlayer((s) => s.settings?.appearance.ambient ?? true);
+  const backgrounds = useBackgrounds();
+  const nowPlaying = useUi((s) => s.nowPlaying);
+
+  // The app background shows through the main surfaces (index.css), and the library underneath
+  // must not show through Now Playing.
+  useEffect(() => {
+    const el = document.documentElement;
+    el.toggleAttribute("data-skin", !!backgrounds.skin);
+    el.toggleAttribute("data-np-over-skin", !!backgrounds.skin && nowPlaying);
+  }, [backgrounds.skin, nowPlaying]);
 
   useEffect(() => {
     initPlayer().catch((e) => console.error(e));
     initLibrary().catch((e) => usePlayer.getState().pushToast("error", `Library failed to load: ${e}`));
     initPlaylists().catch((e) => console.error(e));
+    initMedia().catch((e) => console.error(e));
     initUpdater();
     initSoulseek().catch((e) => console.error(e));
     resumeMiniAfterReload();
@@ -149,14 +178,19 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-full flex-col bg-bg text-fg">
+    <div className={`relative isolate flex h-full flex-col text-fg ${backgrounds.skin ? "" : "bg-bg"}`}>
+      {backgrounds.skin && <Backdrop backdrop={backgrounds.skin} place="app" scrim="bg" className="absolute inset-0 -z-10" />}
       <TitleBar>
         <NavSearch ref={searchRef} />
       </TitleBar>
       <div className="relative flex min-h-0 flex-1 gap-2 px-2">
         <Sidebar />
-        <main className="relative min-w-0 flex-1 overflow-hidden rounded-xl bg-elev">
-          <Ambient color={showAmbient ? art.ambient : null} />
+        <main className="skin-glass np-hide relative min-w-0 flex-1 overflow-hidden rounded-xl bg-elev">
+          {backgrounds.page ? (
+            <Backdrop backdrop={backgrounds.page} place="page" scrim="elev" />
+          ) : (
+            <Ambient color={showAmbient && !backgrounds.skin ? art.ambient : null} />
+          )}
           <div key={viewKey} className="relative h-full animate-in">
             <MainView />
           </div>

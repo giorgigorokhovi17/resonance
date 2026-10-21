@@ -35,6 +35,8 @@ export interface Track {
   isrc?: string;
   /** MusicBrainz recording id from the tags. */
   mbid?: string;
+  /** GIF or video the user picked as artwork (`coverId` is then its still poster). */
+  motionId?: string;
 }
 
 export interface SourceFormat {
@@ -143,7 +145,48 @@ export interface Appearance {
   backdropBlur: number;
   corners: "sharp" | "default" | "round";
   uiScale: number;
+  /** Custom photo, GIF or video behind the app. */
+  background: Backdrop | null;
+  /** Where the custom background shows. */
+  backgroundScope: "app" | "nowPlaying";
+  /** Where GIF and video artwork moves. */
+  animatedArt: AnimatedArt;
 }
+
+export type AnimatedArt = "everywhere" | "nowPlaying" | "off";
+
+export type MediaKind = "image" | "gif" | "webp-animated" | "video";
+
+/** A custom photo, GIF or video stored in the app. */
+export interface Media {
+  id: string;
+  kind: MediaKind;
+  mime: string;
+  width: number;
+  height: number;
+  durationMs: number | null;
+  bytes: number;
+  /** Still image shown wherever the file isn't played. */
+  posterId: string | null;
+}
+
+/** A photo, GIF or video behind a playlist page or the app, with a scrim on top. */
+export interface Backdrop {
+  mediaId: string;
+  fit: "cover" | "contain";
+  /** Scrim strength 0..0.8; null uses the mode's default (55% dark, 35% light). */
+  dim: number | null;
+  /** px, 0..40 */
+  blur: number;
+}
+
+export type MediaPurpose = "cover" | "background";
+
+/** What the backend made of a chosen file. */
+export type StagedMedia =
+  | { type: "cover"; coverId: string }
+  | { type: "ready"; media: Media }
+  | { type: "pending"; id: string; kind: MediaKind; mime: string; bytes: number };
 
 export interface LibraryFolder {
   id: number;
@@ -175,6 +218,9 @@ export interface Playlist {
   trackCount: number;
   description: string;
   coverId: string | null;
+  /** GIF or video cover (`coverId` is its poster). */
+  motionId: string | null;
+  background: Backdrop | null;
   previewCovers: string[];
   /** Import source ("m3u", "xspf", …); null for playlists made in the app. */
   source: string | null;
@@ -278,6 +324,9 @@ export interface ExportSummary {
   playlists: number;
   presets: number;
   artwork: number;
+  media: number;
+  /** Custom GIFs, videos or photos left out because they're too large. */
+  mediaSkipped: number;
   bytes: number;
 }
 
@@ -285,6 +334,9 @@ export interface RestoreSummary {
   playlists: number;
   presets: number;
   artwork: number;
+  media: number;
+  /** Custom media that wasn't in the backup (too large) or couldn't be restored, one line each. */
+  skippedMedia: string[];
   foldersAdded: string[];
   foldersMissing: string[];
   relocated: number;

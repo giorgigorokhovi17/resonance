@@ -10,6 +10,10 @@ import type {
   ExportSummary,
   ImportResult,
   LibraryFolder,
+  Backdrop,
+  Media,
+  MediaPurpose,
+  StagedMedia,
   MatchDecision,
   Playlist,
   PlaylistDetail,
@@ -86,10 +90,23 @@ export const api = {
     invoke<number>("decide_match", { key, decision, path }),
   updatePlaylist: (id: number, name: string, description: string) =>
     invoke<void>("update_playlist", { id, name, description }),
-  importCoverImage: (path: string) => invoke<string>("import_cover_image", { path }),
-  setPlaylistCover: (id: number, coverId: string | null) => invoke<void>("set_playlist_cover", { id, coverId }),
+  /** `motionId`: a GIF or video from commitMedia; `coverId` is then its poster. */
+  setPlaylistCover: (id: number, coverId: string | null, motionId: string | null = null) =>
+    invoke<void>("set_playlist_cover", { id, coverId, motionId }),
+  setPlaylistBackground: (id: number, background: Backdrop | null) =>
+    invoke<void>("set_playlist_background", { id, background }),
   setTracksCoverHidden: (ids: number[], hidden: boolean) => invoke<void>("set_tracks_cover_hidden", { ids, hidden }),
-  setTracksCover: (ids: number[], coverId: string | null) => invoke<void>("set_tracks_cover", { ids, coverId }),
+  setTracksCover: (ids: number[], coverId: string | null, motionId: string | null = null) =>
+    invoke<void>("set_tracks_cover", { ids, coverId, motionId }),
+
+  // custom photos, GIFs and videos (see lib/mediaImport.ts)
+  /** Checks a file and copies it into the app. Refusals reject with a plain message. */
+  stageMedia: (path: string, purpose: MediaPurpose) => invoke<StagedMedia>("stage_media", { path, purpose }),
+  /** Finishes a pending GIF/video import; `poster` is its first frame (base64 JPEG). */
+  commitMedia: (id: string, purpose: MediaPurpose, width: number, height: number, durationMs: number | null, poster: string) =>
+    invoke<Media>("commit_media", { id, purpose, width, height, durationMs, poster }),
+  discardMedia: (id: string) => invoke<void>("discard_media", { id }),
+  getMedia: () => invoke<Media[]>("get_media"),
   setShuffle: (shuffle: boolean) => invoke<void>("set_shuffle", { shuffle }),
   setRepeat: (repeat: RepeatMode) => invoke<void>("set_repeat", { repeat }),
 

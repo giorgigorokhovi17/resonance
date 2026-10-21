@@ -5,11 +5,11 @@ Checked 2026-10-18. No feature code has been written. The only code added is a r
 ## 0. Blockers to resolve first
 
 1. **`/fixtures` does not exist.** None of the sample exports were provided, so none of the format notes in §2 have been checked against your real files. §2 has export steps for each one.
-2. **The library is 38 tracks, and that's the whole collection** (confirmed by you; `C:\Users\Giorgi\Desktop\MusicG14`, 877 MB). The golden-set evaluation has been re-planned around this; see §5.
+2. **The test library is 38 tracks, and that's the owner's whole collection** (877 MB). The golden-set evaluation has been re-planned around this; see §5.
 3. **Fingerprinting doesn't fit the matcher as specified.** Spotify, YouTube and Apple exports carry no audio fingerprints, so Chromaprint can't match an *external* TrackRef against a local file. It only helps (a) local-to-local matching, such as phone files against PC files, which path matching already covers better, or (b) through the online AcoustID lookup (fingerprint → AcoustID → MBID), which needs an API key and the network. `fpcalc` is also not installed on this machine. **Decided 2026-10-18: fingerprinting is dropped from the matcher tiers.** There is no fpcalc dependency and no setting for it.
 4. **A tier is missing: path/location.** M3U, PLS, XSPF, WPL and Library.xml all carry file locations. **Decided 2026-10-18: a path tier is added ahead of ISRC.** The tier order is now **path → ISRC → MBID → fuzzy**.
    - **Exact path:** the location is normalised (`file://` URI decoded, `/` → `\`, NFC, case-insensitive) and equals a library path. This auto-accepts.
-   - **Suffix path:** the trailing components match a library path, as in `/storage/emulated/0/Music/Artist/01 Song.flac` → `…\MusicG14\Artist\01 Song.flac`. This auto-accepts only when at least the filename plus its parent folder match, exactly one library file matches, and any `#EXTINF`/`Length`/`duration` from the playlist doesn't contradict the file (within ±3 s). Otherwise the item goes to review and records the reason.
+   - **Suffix path:** the trailing components match a library path, as in `/storage/emulated/0/Music/Artist/01 Song.flac` → `…\Music\Artist\01 Song.flac`. This auto-accepts only when at least the filename plus its parent folder match, exactly one library file matches, and any `#EXTINF`/`Length`/`duration` from the playlist doesn't contradict the file (within ±3 s). Otherwise the item goes to review and records the reason.
    - **No resolvable path:** the item falls through to ISRC/fuzzy, using whatever title, artist and duration the format carries.
 5. **Phase 3 changes the app's promise.** The README says "No accounts, no network access", and the only network call today is the update check. The online connectors need the README, the CSP and the capabilities updated, even with them off by default.
 
@@ -75,7 +75,7 @@ Nothing here has been checked against your real files yet. Copy every file onto 
 
 ## 3. What identifiers the local files carry
 
-`cargo run --example id_audit -- "C:\Users\Giorgi\Desktop\MusicG14"`. It reads tags with lofty 0.25.4, the same reader the scanner uses, then cross-checks with a raw byte scan of each file's first 2 MiB.
+`cargo run --example id_audit -- "D:\Music"`. It reads tags with lofty 0.25.4, the same reader the scanner uses, then cross-checks with a raw byte scan of each file's first 2 MiB.
 
 | ext | files | tags unreadable | ISRC (valid) | MBID recording (valid) | duration > 1 s | lofty vs decoder Δ > 1 s | title | artist | multi-artist string |
 |---|---|---|---|---|---|---|---|---|---|
@@ -109,7 +109,7 @@ Quirks found in the actual files:
 
 With 38 local files, the external playlists will be mostly tracks you **don't** have. That shifts the question. It's no longer mainly "does the matcher find the file?", because at most 36 songs can be found. The main question becomes "**does it ever attach an absent track to the wrong file?**" Your rule that wrong matches count worse than misses makes the negatives the most important part of the set.
 
-So the set is built on purpose around your 36 real songs, instead of 500 random playlist entries. `Cha-Ching` (1.5 s) and `Dodoxvrinva` (20.8 s, a 3gp voice-style file) are not songs. Files under 30 s are excluded from auto-accept entirely.
+So the set is built on purpose around your 36 real songs, instead of 500 random playlist entries. `Cha-Ching` (1.5 s) and a 20.8 s voice recording are not songs. Files under 30 s are excluded from auto-accept entirely.
 
 The library itself shows where matching will fail, and that decides what goes into the set:
 
@@ -141,7 +141,7 @@ The tier coverage this set can actually measure, stated upfront:
 ### 5.3 Labelling protocol
 
 1. After the Phase 1 parsers exist, a command writes `fixtures/golden/sheet.csv` with one row per ref: source, file, playlist, position, title, artists, album, duration, IDs, and an empty `label`. It is generated **blind**: no matcher suggestions, so the labels can't inherit the matcher's mistakes.
-2. A label is one of: the local file's path relative to `MusicG14`; `MISSING`; or `OTHER_VERSION:<path>`, which scores as MISSING but tags the row as a hard negative so errors can be grouped by type.
+2. A label is one of: the local file's path relative to the library folder; `MISSING`; or `OTHER_VERSION:<path>`, which scores as MISSING but tags the row as a hard negative so errors can be grouped by type.
 3. **Definition of correct (decided 2026-10-18):** *same recording at the same speed and edit*. A remaster or a clean/explicit pair of the same recording is labelled `DRIFT:<path>`. Drift is never auto-accepted (an auto-accepted DRIFT counts as a wrong match), but choosing it in review isn't an error. A different uploader's sped-up version of the same remix counts as a different recording.
 4. A sanity pass, not done by the matcher, flags any label whose file duration differs from the ref by more than 10 s, so you can re-check it. Then the sheet is **frozen**, with a hash recorded in the run report.
 5. **Split by song, not by ref:** 18 songs (with all their refs) go to `dev` for tuning, and 18 go to `test`. Background playlists are split by playlist. Thresholds are tuned only on `dev`, and `test` is scored once per matcher version, so leaked refs can't inflate the numbers.
@@ -219,7 +219,7 @@ Your real library can't exercise it, so it's split in two:
 - **Decisions** (`match_decisions`: accept a file, missing, skip) are applied before any tier, so nothing is asked twice. If an accepted file disappears, the reference is asked about again, with a note.
 - **Imports run through the matcher.** Each item stores its reference (`match_refs` + `playlist_items.ref_key`), which survives reordering in the app. **Export unmatched report…** on an imported playlist re-matches against the current library and writes a CSV with the reasons.
 
-**Tests:** 76 Rust tests in total. The 27 matcher tests use a library that mirrors MusicG14's metadata and cover every hard case from §5.1: original vs instrumental vs extended *Swimming Pools*, the two 128.3 s *sins*, `RiFix`/`Ke$ha`, `X_.M150`/Paparazzi, `vivi baby; ovg!`, generic titles by other artists, the 1.5 s file, ISRC duration conflicts, duplicates, phone paths, NFD paths, and decisions.
+**Tests:** 76 Rust tests in total. The 27 matcher tests use a library that mirrors the test library's metadata and cover every hard case from §5.1: original vs instrumental vs extended *Swimming Pools*, the two 128.3 s *sins*, `RiFix`/`Ke$ha`, `X_.M150`/Paparazzi, `vivi baby; ovg!`, generic titles by other artists, the 1.5 s file, ISRC duration conflicts, duplicates, phone paths, NFD paths, and decisions.
 
 **50k synthetic benchmark** (`cargo run --release --example match_bench`): generated library with ~8% sibling versions, ~2% duplicate copies, multi-artist credits and a 120-word vocabulary.
 

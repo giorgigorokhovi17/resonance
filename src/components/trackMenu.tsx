@@ -1,7 +1,7 @@
-import { open } from "@tauri-apps/plugin-dialog";
 import { FolderOpen, Image, ImageMinus, ImageOff, ImagePlus, ListEnd, ListPlus, ListStart, Play } from "lucide-react";
 import { addToQueue, playNext, playTracks } from "../lib/actions";
 import { api } from "../lib/api";
+import { importCover, importError, pickMedia } from "../lib/mediaImport";
 import type { Track } from "../lib/types";
 import { folderOf, useLibrary } from "../store/library";
 import { usePlayer } from "../store/player";
@@ -21,25 +21,28 @@ async function setArtworkHidden(tracks: Track[], hidden: boolean) {
   }
 }
 
-const IMAGE_EXTS = ["jpg", "jpeg", "png", "webp", "gif", "bmp"];
-
-/** Pick an image and use it as the artwork for these library songs everywhere in the app. */
+/**
+ * Pick a picture, GIF or short video and use it as the artwork for these library songs everywhere
+ * in the app. A GIF or video moves where artwork animates; everywhere else its first frame shows.
+ */
 async function chooseArtwork(tracks: Track[]) {
   const ids = tracks.filter((t) => t.id > 0).map((t) => t.id);
-  const picked = await open({
-    multiple: false,
-    title: ids.length === 1 ? `Artwork for "${tracks[0].title}"` : `Artwork for ${ids.length} songs`,
-    filters: [{ name: "Images", extensions: IMAGE_EXTS }],
-  });
-  if (!picked || Array.isArray(picked)) return;
+  const picked = await pickMedia(ids.length === 1 ? `Artwork for "${tracks[0].title}"` : `Artwork for ${ids.length} songs`);
+  if (!picked) return;
   try {
-    const coverId = await api.importCoverImage(picked);
-    await api.setTracksCover(ids, coverId);
+    const art = await importCover(picked);
+    await api.setTracksCover(ids, art.coverId, art.motionId);
+    const still = art.motionId && (usePlayer.getState().settings?.appearance.animatedArt ?? "off") === "off";
     usePlayer
       .getState()
-      .pushToast("info", `Set artwork for ${ids.length === 1 ? `"${tracks[0].title}"` : `${ids.length} songs`}.`);
+      .pushToast(
+        "info",
+        `Set artwork for ${ids.length === 1 ? `"${tracks[0].title}"` : `${ids.length} songs`}.${
+          still ? " GIFs and videos show a still frame until you turn them on in Settings → Visual." : ""
+        }`,
+      );
   } catch (e) {
-    usePlayer.getState().pushToast("error", String(e));
+    usePlayer.getState().pushToast("error", importError(e));
   }
 }
 

@@ -5,7 +5,7 @@ import { FormatBadge } from "../components/FormatBadge";
 import { api } from "../lib/api";
 import { displayArtist } from "../lib/format";
 import { livePosition, usePlayer } from "../store/player";
-import { useLiveCover } from "../store/library";
+import { useLiveCover, useLiveMotion } from "../store/library";
 import { useEffect, useState } from "react";
 
 /** Compact always-on-top player (Ctrl+M toggles). */
@@ -15,6 +15,7 @@ export function MiniPlayer({ onExit }: { onExit: () => void }) {
   const track = status?.track ?? queue.items.find((i) => i.uid === queue.currentUid)?.track ?? null;
   const playing = status?.state === "playing";
   const coverId = useLiveCover(track);
+  const motionId = useLiveMotion(track);
   const [frac, setFrac] = useState(0);
 
   useEffect(() => {
@@ -32,7 +33,14 @@ export function MiniPlayer({ onExit }: { onExit: () => void }) {
 
   return (
     <div data-tauri-drag-region className="relative flex h-full select-none items-center gap-3 overflow-hidden bg-elev px-3">
-      <Cover coverId={coverId} className="h-[84px] w-[84px] shrink-0 shadow-lg" rounded="rounded-lg" iconSize={28} />
+      <Cover
+        coverId={coverId}
+        motionId={motionId}
+        motion="tile"
+        className="h-[84px] w-[84px] shrink-0 shadow-lg"
+        rounded="rounded-lg"
+        iconSize={28}
+      />
       <div data-tauri-drag-region className="min-w-0 flex-1">
         <div className="truncate text-[13.5px] font-semibold">{track?.title ?? "Nothing playing"}</div>
         <div className="truncate text-[12px] text-muted">{track ? displayArtist(track) : ""}</div>

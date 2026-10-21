@@ -192,7 +192,7 @@ export function PlaylistView({ id }: { id: number }) {
           className="group relative shrink-0 rounded-lg shadow-[0_16px_48px_-12px_rgba(0,0,0,0.6)]"
           aria-label="Edit details"
         >
-          <PlaylistCover playlist={playlist} className="h-[212px] w-[212px]" iconSize={72} size="full" />
+          <PlaylistCover playlist={playlist} className="h-[212px] w-[212px]" iconSize={72} size="full" motion="page" />
           <span className="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-lg bg-black/55 text-[13px] font-semibold text-white opacity-0 transition-opacity duration-200 group-hover:opacity-100">
             <Pencil size={28} /> Edit details
           </span>

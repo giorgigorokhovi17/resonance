@@ -20,6 +20,7 @@ export function PlaylistNav() {
         return (
           <button
             key={p.id}
+            data-motion-hover
             onClick={() => setView({ kind: "playlist", id: p.id })}
             onContextMenu={(e) => openMenu(e, playlistItemMenu(p))}
             className={`flex items-center gap-3 rounded-lg p-1.5 text-left transition-colors duration-200 ${
@@ -27,7 +28,7 @@ export function PlaylistNav() {
             }`}
             title={p.name}
           >
-            <PlaylistCover playlist={p} className="h-10 w-10 shrink-0" rounded="rounded-md" iconSize={18} />
+            <PlaylistCover playlist={p} motion="tile" className="h-10 w-10 shrink-0" rounded="rounded-md" iconSize={18} />
             <span className="min-w-0">
               <span className={`block truncate text-[13px] ${active ? "font-semibold text-accent" : "text-fg"}`}>{p.name}</span>
               <span className="block truncate text-[11.5px] text-muted">

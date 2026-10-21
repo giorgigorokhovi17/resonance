@@ -110,6 +110,19 @@ button,
   -webkit-tap-highlight-color: transparent;
 }
 
+/* A custom app background (Settings → Visual → Background) shows through the main surfaces;
+   its scrim keeps text readable. */
+:root[data-skin] .skin-glass {
+  background-color: color-mix(in srgb, var(--c-elev) 40%, transparent);
+}
+:root[data-skin] .skin-clear {
+  background-color: transparent;
+}
+/* Now Playing lets the app background through, so the library underneath is hidden. */
+:root[data-np-over-skin] .np-hide {
+  visibility: hidden;
+}
+
 /* Album-art colour wash; --ambient is the intensity setting (0..1). */
 .ambient-wash {
   opacity: calc(0.45 * var(--ambient, 1));

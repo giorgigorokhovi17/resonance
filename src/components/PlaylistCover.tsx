@@ -1,24 +1,40 @@
 import { ListMusic } from "lucide-react";
 import { memo } from "react";
+import type { MotionPlace } from "../lib/motion";
 import type { Playlist } from "../lib/types";
 import { Cover } from "./Cover";
 
-/** Playlist artwork: the custom photo, else a 2x2 collage of its songs, else a gradient tile. */
+/**
+ * Playlist artwork: the custom photo (or GIF/video, which moves where `motion` allows), else a 2x2
+ * collage of its songs, else a gradient tile.
+ */
 export const PlaylistCover = memo(function PlaylistCover({
   playlist,
   className = "",
   rounded = "rounded-lg",
   iconSize = 40,
   size = "thumb",
+  motion,
 }: {
-  playlist: Pick<Playlist, "coverId" | "previewCovers">;
+  playlist: Pick<Playlist, "coverId" | "previewCovers"> & { motionId?: string | null };
   className?: string;
   rounded?: string;
   iconSize?: number;
   size?: "thumb" | "full";
+  motion?: MotionPlace;
 }) {
   if (playlist.coverId) {
-    return <Cover coverId={playlist.coverId} size={size} className={className} rounded={rounded} iconSize={iconSize} />;
+    return (
+      <Cover
+        coverId={playlist.coverId}
+        motionId={playlist.motionId}
+        motion={motion}
+        size={size}
+        className={className}
+        rounded={rounded}
+        iconSize={iconSize}
+      />
+    );
   }
   const covers = playlist.previewCovers ?? [];
   if (covers.length >= 4) {

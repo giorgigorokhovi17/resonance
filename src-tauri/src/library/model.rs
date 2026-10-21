@@ -55,6 +55,9 @@ pub struct Track {
     /// MusicBrainz recording id from the tags (lower-case UUID).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mbid: Option<String>,
+    /// A GIF or video the user picked as this song's artwork (`cover_id` is then its still poster).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub motion_id: Option<String>,
 }
 
 impl Track {

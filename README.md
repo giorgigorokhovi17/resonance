@@ -2,10 +2,26 @@
 
 A personal, **local-only** music player for Windows. No telemetry. The only network use is the update check, reading playlist links you paste, and, once you sign in, Soulseek.
 
-Formerly called Resonance. The installer name, data folder (`app.resonance.player`) and backup
-file format still use the old name so existing installs, libraries and backups keep working.
+Formerly called Resonance. The data folder (`app.resonance.player`) and backup file format still
+use the old name so existing libraries and backups keep working.
 
 Built with **Tauri 2** (Rust backend) and **React + TypeScript + Tailwind** (frontend).
+Open source under the [MIT License](LICENSE).
+
+## Download
+
+Get the latest `Undertone_<version>_x64-setup.exe` from the
+[Releases page](https://github.com/giorgigorokhovi17/resonance/releases/latest) and run it.
+It installs for your user only (no admin rights needed) and adds Start-menu and Desktop shortcuts.
+Installed copies check that page for updates and offer to install them.
+
+Windows 10 or 11, 64-bit. WebView2 is preinstalled on Windows 11; the installer adds it on
+Windows 10 if it's missing.
+
+**"Windows protected your PC"**: the installer isn't code-signed (a signing certificate costs
+money every year), so SmartScreen warns about it the first few times. Click **More info → Run
+anyway**. Updates are still verified: the app only installs updates signed with the project's
+own update key.
 
 ## Features
 
@@ -28,6 +44,11 @@ Built with **Tauri 2** (Rust backend) and **React + TypeScript + Tailwind** (fro
 
 **Playback UI**
 - Dark (default) and light themes. Large **Now Playing** view with album art over a blurred-art background.
+- **Custom photos, GIFs and short videos**: as a song's artwork (**Set artwork…**), as a playlist's cover, behind a playlist's page (**Edit details → Background**), and as the app's background (**Settings → Visual → Background**, behind the whole app or only Now Playing). Every GIF or video keeps a still first frame, which lists, colour extraction, the Windows media overlay, the tray and backups use. Videos never play sound.
+  - Formats: JPG, PNG and WebP pictures up to 25 MB (larger than 3840 px is scaled down); GIF and animated WebP up to 15 MB as a cover and 30 MB as a background; MP4 (H.264) or WebM (VP9 or AV1) video, up to 10 s, 1080 px and 15 MB as a cover, or up to 60 s, 1920×1080 and 100 MB as a background. MOV, HEVC and 4K video are refused with a hint, since WebView2 doesn't play them reliably or cheaply.
+  - Off by default: GIFs and videos show their still frame until you turn on **Settings → Visual → GIFs and videos** (everywhere, or Now Playing only), since playing them uses more CPU, GPU and battery.
+  - Performance first: at most 4 animations at once, only what's on screen (grid tiles move while the pointer is over them, list rows never), and nothing while the window is minimised, in the tray, or Windows asks for less motion. A 1080p H.264 background adds about 1% CPU with hardware decoding, and the audio path is untouched (exclusive mode stays bit-perfect).
+  - Backgrounds get a scrim (dim 0–80%, blur 0–40 px, fill or whole picture). The dim is raised automatically when needed so text meets WCAG AA contrast over the picture in dark and light mode.
 - **Queue** (drag to reorder, remove, save as playlist) as a full view and a slide-over panel.
 - **Playlists**: create, rename, delete, reorder. **Import M3U/M3U8, PLS, XSPF and WPL**: importing the same file again updates its playlist instead of adding a copy. **Export to M3U8, XSPF, or CSV with ISRC** (for spreadsheets; cells are guarded against formula injection). ISRCs and MusicBrainz recording ids are read from tags (invalid values, such as barcodes in the ISRC field, are ignored).
 - **Playlist matcher**: every imported entry is matched to a local file by path, folder + file name, ISRC, MusicBrainz id, then fuzzy title/artist/version/duration (SQLite FTS5 narrows candidates). Only unambiguous, fully confirmed matches are accepted automatically. A remix, slowed or extended version is never taken for the original. **Export unmatched report…** on an imported playlist lists what wasn't matched and why.
@@ -121,8 +142,8 @@ cargo run --release --example probe -- song.flac          # decode a file and pr
 - **Settings → Library folders → Add folder** to build the library. Use **Rescan** after big changes, though folder watching usually handles it.
 - **Settings → Audio output** picks Shared/Exclusive and the device. For bit-perfect playback, choose Exclusive, set volume to 100% and bypass the EQ. The player bar and Now Playing view show **Bit-perfect** when the whole chain is transparent.
 - **Equalizer → Import AutoEQ** loads a `ParametricEQ.txt` (Equalizer APO format) from the AutoEQ project and saves it as a preset. Drag the numbered points on the response graph, scroll over a point to change its Q, and double-click a slider to reset it.
-- Right-click any track, album, folder or playlist for **Play next / Add to queue / Add to playlist / Go to album**. **Set artwork…** gives songs your own picture (kept in the app, files untouched); it shows everywhere, including playlists and the player.
-- **Settings → Backup & restore** saves playlists, EQ presets, custom artwork, library folders and settings to a `.resonance-backup` file. Restoring it on another PC relinks playlists even if the music is on a different drive or folder.
+- Right-click any track, album, folder or playlist for **Play next / Add to queue / Add to playlist / Go to album**. **Set artwork…** gives songs your own picture, GIF or short video (kept in the app, files untouched); it shows everywhere, including playlists and the player.
+- **Settings → Backup & restore** saves playlists, EQ presets, custom artwork, library folders and settings to a `.resonance-backup` file. Custom GIFs, videos and background photos are included up to 25 MB each and 200 MB in all; the restore summary lists anything left out. Restoring it on another PC relinks playlists even if the music is on a different drive or folder.
 
 ### Keyboard shortcuts
 
@@ -148,7 +169,8 @@ Hardware media keys work through Windows' media controls, even when the window i
 |---|---|
 | Settings, EQ presets | `%APPDATA%\app.resonance.player\settings.json`, `eq_presets.json` |
 | Library database, saved queue | `%APPDATA%\app.resonance.player\library.db`, `queue.json` |
-| Album-art cache | `%LOCALAPPDATA%\app.resonance.player\covers\` |
+| Album-art cache (and the still frames of GIFs and videos) | `%LOCALAPPDATA%\app.resonance.player\covers\` |
+| Custom GIFs, videos and background photos (copies; ones nothing uses are deleted on startup) | `%LOCALAPPDATA%\app.resonance.player\media\` |
 | Soulseek sign-in | Windows Credential Manager, generic credential `Resonance/Soulseek` |
 
 Music files are only ever read, never modified. Soulseek downloads are new files, saved once and then marked read-only.
@@ -165,6 +187,7 @@ src-tauri/src
 │  ├─ eq.rs         RBJ biquads, auto headroom, AutoEQ parser
 │  └─ output.rs     cpal shared stream / WASAPI exclusive stream + format negotiation + PCM packing
 ├─ library/        SQLite schema, parallel incremental scanner, cover cache, folder watcher,
+│                  media.rs (custom GIFs/videos: format checks, store, HTTP Range serving),
 │                  playlist interchange (interchange.rs model + m3u/pls/xspf/wpl/csv),
 │                  matcher/ (normalize.rs rules, tiers, FTS5 candidates, decisions)
 ├─ queue.rs        queue, shuffle, repeat
@@ -183,3 +206,32 @@ The decoder thread fills a lock-free SPSC ring buffer (`rtrb`). The output callb
 - In exclusive mode, consecutive tracks with different sample rates or bit depths need a device reopen, which causes a short gap. Same-format albums are fully gapless.
 - WavPack, APE, DSD and MQA are not supported by the decoder stack.
 - Multichannel files are downmixed to stereo when the device only takes 2 channels.
+
+## Disclaimer
+
+Undertone is a personal hobby project, provided as is (see the [license](LICENSE)). It isn't
+affiliated with, endorsed by, or connected to Spotify, YouTube, Google, Apple or Soulseek.
+
+- **Playlist links:** importing a Spotify, YouTube or Apple Music link only reads the public
+  track list (titles, artists, durations), the same information the services' own web pages show.
+  It uses those pages' undocumented web endpoints, which can change or stop working at any time,
+  and which the services' terms may not allow. Nothing is streamed or downloaded from them.
+- **Soulseek:** downloading from Soulseek is entirely your decision and your responsibility. Only
+  download music you have the right to. Copyright law differs between countries, and sharing or
+  downloading copyrighted music without permission is illegal in many of them. Undertone doesn't
+  upload or share anything.
+- Your music files are never modified. Your Soulseek password is kept in Windows Credential
+  Manager and is only ever sent to the Soulseek server.
+
+## Credits
+
+- The paste-a-link import follows the approach of [Riff](https://github.com/rootscripts/riff)
+  (MIT), including the Spotify web player's persisted-query hash.
+- Soulseek protocol: [soulseek-rs-lib](https://crates.io/crates/soulseek-rs-lib) (MIT).
+- Decoding: [Symphonia](https://github.com/pdeljanov/Symphonia) and libopus; tags:
+  [lofty](https://github.com/Serial-ATA/lofty-rs); headphone EQ presets:
+  [AutoEq](https://github.com/jaakkopasanen/AutoEq).
+
+## License
+
+[MIT](LICENSE). Each third-party crate and package keeps its own license.

@@ -14,6 +14,7 @@ fn main() {
     let lib = Library::open(
         &tmp.join("library.db"),
         tmp.join("covers"),
+        tmp.join("media"),
         Arc::new(move |ev| {
             if let LibraryEvent::Finished(s) = ev {
                 let _ = tx.send(s);

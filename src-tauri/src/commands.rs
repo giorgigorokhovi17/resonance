@@ -8,8 +8,9 @@ use crate::audio::engine::{Command, PlayerStatus};
 use crate::audio::eq::EqSettings;
 use crate::audio::output::{self, DeviceInfo};
 use crate::audio::types::{OutputMode, ReplayGainMode};
-use crate::library::db::{self, Folder, Playlist};
+use crate::library::db::{self, Folder, Media, Playlist};
 use crate::library::interchange::{self, ImportOutcome, PlaylistItem};
+use crate::library::media::{self as media_files, Backdrop, MediaKind, Purpose};
 use crate::library::{csv, m3u, xspf};
 use crate::library::model::{is_audio_file, Track};
 use crate::library::ScanRequest;
@@ -348,6 +349,13 @@ pub struct SettingsPatch {
 #[tauri::command]
 pub fn update_settings(app: AppHandle, state: State<'_, AppState>, patch: SettingsPatch) -> Settings {
     let rg_changed = patch.replay_gain.is_some() || patch.replay_gain_preamp.is_some();
+    let appearance = patch.appearance.map(|a| {
+        let mut a = a.normalized();
+        if a.background.as_ref().is_some_and(|b| !media_exists(&state, &b.media_id, false)) {
+            a.background = None;
+        }
+        a
+    });
     let s = state.settings.update(|s| {
         if let Some(v) = patch.theme {
             s.theme = v;
@@ -367,8 +375,8 @@ pub fn update_settings(app: AppHandle, state: State<'_, AppState>, patch: Settin
         if let Some(v) = patch.replay_gain_preamp {
             s.replay_gain_preamp = v.clamp(-15.0, 15.0);
         }
-        if let Some(v) = patch.appearance {
-            s.appearance = v.normalized();
+        if let Some(v) = appearance {
+            s.appearance = v;
         }
     });
     if rg_changed {
@@ -724,34 +732,179 @@ pub fn update_playlist(app: AppHandle, state: State<'_, AppState>, id: i64, name
     Ok(())
 }
 
-/// Copy an image into the app's artwork cache and return its id (used for playlist photos,
-/// so the original file can be moved or deleted afterwards).
-#[tauri::command]
-pub async fn import_cover_image(state: State<'_, AppState>, path: String) -> CmdResult<String> {
-    let lib = state.library.clone();
-    tauri::async_runtime::spawn_blocking(move || -> CmdResult<String> {
-        let md = std::fs::metadata(&path).map_err(|e| format!("Cannot read {path}: {e}"))?;
-        if md.len() > 40 * 1024 * 1024 {
-            return Err("That image is too large (over 40 MB).".into());
-        }
-        let bytes = std::fs::read(&path).map_err(|e| format!("Cannot read {path}: {e}"))?;
-        lib.covers
-            .store(&bytes)
-            .ok_or_else(|| "That file isn't a supported image (JPEG, PNG, WebP, GIF or BMP).".to_string())
-    })
-    .await
-    .map_err(err)?
+fn emit_media(app: &AppHandle) {
+    let _ = app.emit("media:changed", ());
 }
 
-/// Set (or with `None`, remove) a playlist's photo.
+/// Whether `id` is a stored media file (with `animated`, a GIF or video rather than a photo).
+fn media_exists(state: &AppState, id: &str, animated: bool) -> bool {
+    let row = db::media_by_id(&state.library.db.lock(), id).ok().flatten();
+    row.is_some_and(|m| !animated || m.kind.animated()) && state.library.media.file(id).is_some()
+}
+
+/// What `stage_media` made of a file.
+#[derive(serde::Serialize)]
+#[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum Staged {
+    /// A still picture for a cover, stored in the artwork cache like any other cover.
+    Cover { cover_id: String },
+    /// A still picture for a background, stored and ready to use.
+    Ready { media: Media },
+    /// A GIF or video copied into the app, waiting for `commit_media` with its size, length and
+    /// poster (the frontend reads those from the file).
+    Pending { id: String, kind: MediaKind, mime: String, bytes: u64 },
+}
+
+/// Check a photo, GIF or video for `purpose` and copy it into the app's cache (the original file
+/// isn't needed afterwards). Refusals come back as plain messages.
 #[tauri::command]
-pub fn set_playlist_cover(app: AppHandle, state: State<'_, AppState>, id: i64, cover_id: Option<String>) -> CmdResult<()> {
+pub async fn stage_media(app: AppHandle, state: State<'_, AppState>, path: String, purpose: Purpose) -> CmdResult<Staged> {
+    let lib = state.library.clone();
+    let staged = tauri::async_runtime::spawn_blocking(move || -> CmdResult<Staged> {
+        let checked = media_files::read_checked(Path::new(&path), purpose)?;
+        let unreadable = || "That picture can't be read.".to_string();
+        if checked.format.kind() != MediaKind::Image {
+            let id = lib.media.put(&checked.data, checked.format.ext()).map_err(err)?;
+            return Ok(Staged::Pending {
+                id,
+                kind: checked.format.kind(),
+                mime: checked.format.mime().into(),
+                bytes: checked.data.len() as u64,
+            });
+        }
+        if purpose == Purpose::Cover {
+            return lib.covers.store(&checked.data).map(|cover_id| Staged::Cover { cover_id }).ok_or_else(unreadable);
+        }
+        let (data, format, width, height) = media_files::fit_still_image(checked.data, checked.format)?;
+        let poster_id = lib.covers.store(&data).ok_or_else(unreadable)?;
+        let id = lib.media.put(&data, format.ext()).map_err(err)?;
+        let media = Media {
+            id,
+            kind: MediaKind::Image,
+            mime: format.mime().into(),
+            width,
+            height,
+            duration_ms: None,
+            bytes: data.len() as u64,
+            poster_id: Some(poster_id),
+        };
+        db::put_media(&lib.db.lock(), &media).map_err(err)?;
+        Ok(Staged::Ready { media })
+    })
+    .await
+    .map_err(err)??;
+    if matches!(staged, Staged::Ready { .. }) {
+        emit_media(&app);
+    }
+    Ok(staged)
+}
+
+/// Finish importing a GIF or video from `stage_media`: `width`, `height` and `duration_ms` were
+/// read from the file by the frontend, `poster` is its first frame (base64 JPEG or PNG).
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn commit_media(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+    purpose: Purpose,
+    width: u32,
+    height: u32,
+    duration_ms: Option<u64>,
+    poster: String,
+) -> CmdResult<Media> {
+    use base64::Engine as _;
+    let lib = state.library.clone();
+    let media = tauri::async_runtime::spawn_blocking(move || -> CmdResult<Media> {
+        let gone = || "That file is no longer available. Choose it again.".to_string();
+        let (path, mime) = lib.media.file(&id).ok_or_else(gone)?;
+        let format = match mime {
+            "video/mp4" => media_files::Format::Mp4,
+            "video/webm" => media_files::Format::WebM,
+            "image/gif" => media_files::Format::Gif { animated: true },
+            "image/webp" => media_files::Format::Webp { animated: true },
+            _ => return Err(gone()),
+        };
+        let bytes = std::fs::metadata(&path).map_err(|_| gone())?.len();
+        media_files::check_size(format, purpose, bytes)?;
+        if format.kind() == MediaKind::Video {
+            media_files::check_video(purpose, width, height, duration_ms.unwrap_or(0))?;
+        }
+        let frame = base64::engine::general_purpose::STANDARD
+            .decode(poster.trim_start_matches("data:image/jpeg;base64,").trim_start_matches("data:image/png;base64,"))
+            .map_err(err)?;
+        let poster_id = lib.covers.store(&frame).ok_or_else(|| "Couldn't make a still frame of that file.".to_string())?;
+        let media = Media {
+            id,
+            kind: format.kind(),
+            mime: mime.into(),
+            width,
+            height,
+            duration_ms: duration_ms.filter(|_| format.kind() == MediaKind::Video),
+            bytes,
+            poster_id: Some(poster_id),
+        };
+        db::put_media(&lib.db.lock(), &media).map_err(err)?;
+        Ok(media)
+    })
+    .await
+    .map_err(err)??;
+    emit_media(&app);
+    Ok(media)
+}
+
+/// Drop a staged file that the frontend refused (too long, too large…). Files already in use stay.
+#[tauri::command]
+pub fn discard_media(state: State<'_, AppState>, id: String) -> CmdResult<()> {
+    if db::media_by_id(&state.library.db.lock(), &id).map_err(err)?.is_none() {
+        state.library.media.remove(&id);
+    }
+    Ok(())
+}
+
+/// Every stored photo, GIF and video, with its kind, size and poster.
+#[tauri::command]
+pub fn get_media(state: State<'_, AppState>) -> CmdResult<Vec<Media>> {
+    db::media(&state.library.db.lock()).map_err(err)
+}
+
+/// Set (or with `None`, remove) a playlist's photo. `motion_id` is a GIF or video from
+/// `commit_media`; `cover_id` is then its poster.
+#[tauri::command]
+pub fn set_playlist_cover(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: i64,
+    cover_id: Option<String>,
+    motion_id: Option<String>,
+) -> CmdResult<()> {
     if let Some(c) = &cover_id {
         if state.library.covers.file(c, false).is_none() {
             return Err("That image is no longer available.".into());
         }
     }
-    db::set_playlist_cover(&state.library.db.lock(), id, cover_id.as_deref()).map_err(err)?;
+    if motion_id.as_deref().is_some_and(|m| !media_exists(&state, m, true)) {
+        return Err("That GIF or video is no longer available.".into());
+    }
+    db::set_playlist_cover(&state.library.db.lock(), id, cover_id.as_deref(), motion_id.as_deref()).map_err(err)?;
+    emit_playlists(&app);
+    Ok(())
+}
+
+/// Set (or with `None`, remove) the photo, GIF or video behind a playlist's page.
+#[tauri::command]
+pub fn set_playlist_background(app: AppHandle, state: State<'_, AppState>, id: i64, background: Option<Backdrop>) -> CmdResult<()> {
+    let background = match background {
+        Some(b) => {
+            let b = b.normalized().ok_or_else(|| "That background is no longer available.".to_string())?;
+            if !media_exists(&state, &b.media_id, false) {
+                return Err("That background is no longer available.".into());
+            }
+            Some(b)
+        }
+        None => None,
+    };
+    db::set_playlist_background(&state.library.db.lock(), id, background.as_ref()).map_err(err)?;
     emit_playlists(&app);
     Ok(())
 }
@@ -811,6 +964,7 @@ pub async fn import_backup(app: AppHandle, state: State<'_, AppState>, path: Str
         s.close_to_tray = from.close_to_tray;
         s.watch_folders = from.watch_folders;
         s.eq = from.eq.clone().normalized();
+        s.appearance = from.appearance.clone().normalized();
     });
     state.engine.set_volume(s.volume);
     state.engine.set_eq(s.eq.clone());
@@ -823,16 +977,26 @@ pub async fn import_backup(app: AppHandle, state: State<'_, AppState>, path: Str
     Ok(summary)
 }
 
-/// Give tracks custom artwork (an id from `import_cover_image`), or with `None` go back to the
-/// artwork from their files. Stored in the app only; music files are untouched.
+/// Give tracks custom artwork (a cover id from `stage_media`, or a GIF/video's poster with the
+/// GIF/video as `motion_id`), or with `None` go back to the artwork from their files. Stored in the
+/// app only; music files are untouched.
 #[tauri::command]
-pub fn set_tracks_cover(app: AppHandle, state: State<'_, AppState>, ids: Vec<i64>, cover_id: Option<String>) -> CmdResult<()> {
+pub fn set_tracks_cover(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    ids: Vec<i64>,
+    cover_id: Option<String>,
+    motion_id: Option<String>,
+) -> CmdResult<()> {
     if let Some(c) = &cover_id {
         if state.library.covers.file(c, false).is_none() {
             return Err("That image is no longer available.".into());
         }
     }
-    db::set_custom_cover(&mut state.library.db.lock(), &ids, cover_id.as_deref()).map_err(err)?;
+    if motion_id.as_deref().is_some_and(|m| !media_exists(&state, m, true)) {
+        return Err("That GIF or video is no longer available.".into());
+    }
+    db::set_custom_cover(&mut state.library.db.lock(), &ids, cover_id.as_deref(), motion_id.as_deref()).map_err(err)?;
     let _ = app.emit("library:changed", crate::library::scan::ScanSummary::default());
     emit_playlists(&app);
     Ok(())

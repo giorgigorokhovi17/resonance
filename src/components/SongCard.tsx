@@ -36,6 +36,7 @@ export const SongCard = memo(function SongCard({
   };
   return (
     <div
+      data-motion-hover
       className={`group min-w-0 cursor-pointer select-none rounded-lg p-2.5 transition-colors duration-200 ${
         selected ? "bg-accent/15 ring-1 ring-accent/50" : "hover:bg-hover"
       }`}
@@ -46,6 +47,8 @@ export const SongCard = memo(function SongCard({
       <div className="relative aspect-square w-full">
         <Cover
           coverId={track.coverId}
+          motionId={track.motionId}
+          motion="tile"
           className="h-full w-full shadow-[0_8px_24px_-8px_rgba(0,0,0,0.5)]"
           iconSize={40}
         />

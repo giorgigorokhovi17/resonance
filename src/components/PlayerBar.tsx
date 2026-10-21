@@ -5,7 +5,7 @@ import { useDownloadsBadge } from "./DownloadsPanel";
 import { displayArtist } from "../lib/format";
 import { usePlayer } from "../store/player";
 import { useUi } from "../store/ui";
-import { useLiveCover } from "../store/library";
+import { useLiveCover, useLiveMotion } from "../store/library";
 import { Cover } from "./Cover";
 import { FormatBadge } from "./FormatBadge";
 import { Seekbar } from "./Seekbar";
@@ -130,6 +130,7 @@ export function PlayerBar() {
     (s) => s.status?.track ?? s.queue.items.find((i) => i.uid === s.queue.currentUid)?.track ?? null,
   );
   const coverId = useLiveCover(track);
+  const motionId = useLiveMotion(track);
   const view = useUi((s) => s.view);
   const setView = useUi((s) => s.setView);
   const toggleNowPlaying = useUi((s) => s.toggleNowPlaying);
@@ -141,7 +142,7 @@ export function PlayerBar() {
   const downloadsBadge = useDownloadsBadge();
 
   return (
-    <div className="grid h-[84px] shrink-0 grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)_minmax(0,1fr)] items-center gap-4 bg-bg px-4">
+    <div className="skin-clear grid h-[84px] shrink-0 grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)_minmax(0,1fr)] items-center gap-4 bg-bg px-4">
       <div className="flex min-w-0 items-center gap-3">
         <button
           className="group relative shrink-0"
@@ -149,7 +150,7 @@ export function PlayerBar() {
           aria-label="Open now playing"
           title="Now playing (F)"
         >
-          <Cover coverId={coverId} className="h-14 w-14 shadow-md" iconSize={22} />
+          <Cover coverId={coverId} motionId={motionId} motion="tile" className="h-14 w-14 shadow-md" iconSize={22} />
           {track && (
             <span className="absolute inset-0 flex items-center justify-center rounded-md bg-black/45 opacity-0 transition-opacity group-hover:opacity-100">
               <Maximize2 size={16} className="text-white" />
