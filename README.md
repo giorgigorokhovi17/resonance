@@ -26,6 +26,9 @@ Installed copies check that page for updates and offer to install them.
 Windows 10 or 11, 64-bit. WebView2 is preinstalled on Windows 11; the installer adds it on
 Windows 10 if it's missing.
 
+Undertone is free. If you'd like to support it, you can donate on
+[Kisa](https://www.kisa.ge/donate/zhg15pbjbz); the **Donate** button in the app opens the same page.
+
 **"Windows protected your PC"**: the installer isn't code-signed (a signing certificate costs
 money every year), so SmartScreen warns about it the first few times. Click **More info → Run
 anyway**. Updates are still verified: the app only installs updates signed with the project's
