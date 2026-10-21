@@ -8,6 +8,14 @@ use the old name so existing libraries and backups keep working.
 Built with **Tauri 2** (Rust backend) and **React + TypeScript + Tailwind** (frontend).
 Open source under the [MIT License](LICENSE).
 
+![The Songs view, with a FLAC playing bit-perfect in exclusive mode](docs/screenshots/songs.jpg)
+
+| Now Playing | A playlist with a video background and a GIF cover |
+|---|---|
+| ![Now Playing: source and output format, device, and the Bit-perfect badge](docs/screenshots/np.jpg) | ![The Late Night Drive playlist over a looping video background](docs/screenshots/playlist.jpg) |
+
+<sub>The screenshots use a made-up demo library.</sub>
+
 ## Download
 
 Get the latest `Undertone_<version>_x64-setup.exe` from the
@@ -40,7 +48,7 @@ own update key.
 - Add one or more music folders. They're scanned recursively and in parallel; tags and properties are read with `lofty`. Album art comes from embedded pictures or folder images (`cover.jpg`, `folder.png`, …), cached as thumbnails.
 - Stored in local SQLite (WAL). Rescans are incremental: only new or changed files are re-read.
 - Folders are watched for changes, which triggers an automatic incremental rescan.
-- Views: **Albums** (cover grid), **Artists**, **Tracks** (sortable table), **Folders**, **Search**. All lists are virtualized.
+- Views: **Songs** (cover grid), **Tracks** (sortable table), **Playlists**, **Folders** and **Search**. Long lists are virtualized.
 
 **Playback UI**
 - Dark (default) and light themes. Large **Now Playing** view with album art over a blurred-art background.
@@ -60,7 +68,6 @@ own update key.
 
 **Sources**
 - **Soulseek**: sign in, search (results grouped by user and folder, with format, bitrate or bit depth/sample rate, length and size), and download single files or whole folders. A queue shows progress, with cancel and retry. Downloads go to a `Soulseek` folder in your first library folder (or a folder you pick), are marked read-only, and appear in the library through the folder watcher. Nothing is shared or uploaded. See `docs/soulseek-design.md`.
-- Spotify, YouTube Music and SoundCloud playlist imports are planned (they will match against your files, never download).
 
 ## Measured performance
 
@@ -106,19 +113,20 @@ A plain `corepack pnpm tauri build` stops with a missing-signing-key error unles
 
 Outputs:
 
-- `src-tauri/target/release/resonance.exe`: the app itself (portable)
-- `src-tauri/target/release/bundle/msi/Resonance_0.1.0_x64_en-US.msi`
-- `src-tauri/target/release/bundle/nsis/Resonance_0.1.0_x64-setup.exe`
+- `src-tauri/target/release/Undertone.exe`: the app itself (portable)
+- `src-tauri/target/release/bundle/msi/Undertone_<version>_x64_en-US.msi`
+- `src-tauri/target/release/bundle/nsis/Undertone_<version>_x64-setup.exe`
+- `src-tauri/target/release/bundle/latest.json`: the update feed
 
 The first `tauri build` downloads the WiX and NSIS bundler tools; later builds don't need them again.
 
 ### Publishing an update
 
-Installed copies check `https://github.com/<user>/resonance/releases/latest/download/latest.json` on startup (set the real user/repo in `src-tauri/tauri.conf.json` → `plugins.updater.endpoints`), then offer **Update and restart**.
+Installed copies check `https://github.com/giorgigorokhovi17/resonance/releases/latest/download/latest.json` on startup (`plugins.updater.endpoints` in `src-tauri/tauri.conf.json`), then offer **Update and restart**.
 
 1. Bump `version` in `src-tauri/tauri.conf.json`, `package.json` and `src-tauri/Cargo.toml`.
 2. Run `scripts/release.ps1` as above. It builds, signs and writes `bundle/latest.json`.
-3. On GitHub, create a release tagged `v<version>` (e.g. `v0.2.0`) and upload the `-setup.exe` and `latest.json` it lists.
+3. On GitHub, create a release tagged `v<version>` (e.g. `v0.5.0`) and upload the `-setup.exe` and `latest.json` it lists, for example with `gh release create v<version> <setup.exe> <latest.json> --title "Undertone <version>"`.
 
 The private signing key is `%USERPROFILE%\.tauri\resonance-updater.key` (no password). **Back it up and never share or commit it.** If it's lost, existing installs can't verify new versions and people must reinstall manually. Apart from Soulseek (only after you sign in), the update check is the app's only network request; everything else runs offline.
 
@@ -142,7 +150,7 @@ cargo run --release --example probe -- song.flac          # decode a file and pr
 - **Settings → Library folders → Add folder** to build the library. Use **Rescan** after big changes, though folder watching usually handles it.
 - **Settings → Audio output** picks Shared/Exclusive and the device. For bit-perfect playback, choose Exclusive, set volume to 100% and bypass the EQ. The player bar and Now Playing view show **Bit-perfect** when the whole chain is transparent.
 - **Equalizer → Import AutoEQ** loads a `ParametricEQ.txt` (Equalizer APO format) from the AutoEQ project and saves it as a preset. Drag the numbered points on the response graph, scroll over a point to change its Q, and double-click a slider to reset it.
-- Right-click any track, album, folder or playlist for **Play next / Add to queue / Add to playlist / Go to album**. **Set artwork…** gives songs your own picture, GIF or short video (kept in the app, files untouched); it shows everywhere, including playlists and the player.
+- Right-click any song or playlist for **Play / Play next / Add to queue / Add to playlist / Go to folder**. **Set artwork…** gives songs your own picture, GIF or short video (kept in the app, files untouched); it shows everywhere, including playlists and the player.
 - **Settings → Backup & restore** saves playlists, EQ presets, custom artwork, library folders and settings to a `.resonance-backup` file. Custom GIFs, videos and background photos are included up to 25 MB each and 200 MB in all; the restore summary lists anything left out. Restoring it on another PC relinks playlists even if the music is on a different drive or folder.
 
 ### Keyboard shortcuts

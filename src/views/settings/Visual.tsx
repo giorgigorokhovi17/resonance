@@ -189,14 +189,16 @@ export function VisualSettings({ settings }: { settings: Settings }) {
               label="Where"
               hint="Grid tiles move while the pointer is over them. Nothing moves while Undertone is minimised or in the tray, or when Windows is set to show fewer animations."
             >
-              <Segmented<AnimatedArt>
-                value={a.animatedArt}
-                onChange={(v) => setAppearance({ animatedArt: v })}
-                options={[
-                  { value: "everywhere", label: "Everywhere" },
-                  { value: "nowPlaying", label: "Now Playing only" },
-                ]}
-              />
+              <div className="shrink-0">
+                <Segmented<AnimatedArt>
+                  value={a.animatedArt}
+                  onChange={(v) => setAppearance({ animatedArt: v })}
+                  options={[
+                    { value: "everywhere", label: "Everywhere" },
+                    { value: "nowPlaying", label: "Now Playing only" },
+                  ]}
+                />
+              </div>
             </Row>
           )}
         </div>
