@@ -76,7 +76,8 @@ export function NowPlaying() {
           Nothing playing
         </div>
       ) : (
-        <div className="relative flex h-full items-center justify-center gap-[5vw] px-[6vw] py-10">
+        // Centred, but never cut off at the top when the window is too short: then it scrolls.
+        <div className="relative flex h-full items-center-safe justify-center gap-[5vw] overflow-y-auto px-[6vw] py-10">
           <Cover
             coverId={coverId}
             motionId={motionId}
