@@ -4,8 +4,8 @@ import { api } from "../lib/api";
 import { usePlayer } from "../store/player";
 import { useUi, type View } from "../store/ui";
 
-/** Where the Donate button points. */
-export const DONATE_URL = "https://kisa.ge";
+/** Where the Donate button points: the developer's page on Kisa (kisa.ge), a Georgian donation site. */
+export const DONATE_URL = "https://www.kisa.ge/donate/zhg15pbjbz";
 import { openPlaylistEditor } from "./PlaylistEditor";
 import { PlaylistNav } from "./PlaylistNav";
 import { useDownloadsBadge } from "./DownloadsPanel";
