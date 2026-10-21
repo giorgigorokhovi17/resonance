@@ -70,7 +70,7 @@ function DownloadsItem() {
 
 export function Sidebar() {
   return (
-    <nav className="flex w-[236px] shrink-0 flex-col overflow-hidden rounded-xl bg-elev" aria-label="Main">
+    <nav className="skin-glass np-hide flex w-[236px] shrink-0 flex-col overflow-hidden rounded-xl bg-elev" aria-label="Main">
       <div className="flex flex-col gap-0.5 px-2 pt-3">
         <NavItem icon={<LayoutGrid size={18} />} label="Songs" view={{ kind: "songs" }} match={["songs"]} />
         <NavItem icon={<Music2 size={18} />} label="Tracks" view={{ kind: "tracks" }} match={["tracks", "search"]} />

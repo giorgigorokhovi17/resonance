@@ -90,3 +90,76 @@ export function useCoverColor(coverId: string | null | undefined): string | null
   }, [coverId]);
   return color;
 }
+
+// ---- backdrop tone ------------------------------------------------------------------------------
+
+const toneCache = new Map<string, string | null>();
+const TONE_PX = 48;
+
+/** Relative brightness (0..255) of an `rgb(r, g, b)` tone. */
+export function toneLevel(tone: string): number {
+  const [r, g, b] = tone.match(/\d+/g)?.map(Number) ?? [0, 0, 0];
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+/**
+ * The riskiest tone of a picture for text over it: the colour at the 98th percentile of
+ * brightness in dark mode (light text over its bright parts), the 2nd in light mode. Only the
+ * smallest highlights are left out.
+ */
+export function toneOf(src: CanvasImageSource, w: number, h: number, dark: boolean): string | null {
+  if (!w || !h) return null;
+  const scale = TONE_PX / Math.max(w, h);
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(w * scale));
+  canvas.height = Math.max(1, Math.round(h * scale));
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  if (!ctx) return null;
+  ctx.drawImage(src, 0, 0, canvas.width, canvas.height);
+  const d = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+  const px: [number, number, number, number][] = [];
+  for (let i = 0; i < d.length; i += 4) px.push([0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2], d[i], d[i + 1], d[i + 2]]);
+  px.sort((a, b) => a[0] - b[0]);
+  const [, r, g, b] = px[Math.min(px.length - 1, Math.floor(px.length * (dark ? 0.98 : 0.02)))];
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
+/** toneOf for a poster in the cover cache. */
+async function extractTone(coverId: string, dark: boolean): Promise<string | null> {
+  const url = coverUrl(coverId, "thumb");
+  if (!url) return null;
+  const img = new Image();
+  img.crossOrigin = "anonymous";
+  img.src = url;
+  await img.decode();
+  return toneOf(img, img.naturalWidth, img.naturalHeight, dark);
+}
+
+/** Hook for extractTone; null while it loads (or with no poster). */
+export function useBackdropTone(coverId: string | null | undefined, dark: boolean): string | null {
+  const key = coverId ? `${coverId}:${dark ? "d" : "l"}` : "";
+  const [tone, setTone] = useState<string | null>(() => (key ? toneCache.get(key) ?? null : null));
+  useEffect(() => {
+    let alive = true;
+    if (!coverId) {
+      setTone(null);
+      return;
+    }
+    if (toneCache.has(key)) {
+      setTone(toneCache.get(key)!);
+      return;
+    }
+    extractTone(coverId, dark)
+      .catch(() => null)
+      .then((found) => {
+        // Unreadable poster: assume the worst, so the scrim errs on the readable side.
+        const t = found ?? (dark ? "rgb(255, 255, 255)" : "rgb(0, 0, 0)");
+        toneCache.set(key, t);
+        if (alive) setTone(t);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [coverId, dark, key]);
+  return tone;
+}

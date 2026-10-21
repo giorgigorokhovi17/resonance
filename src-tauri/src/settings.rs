@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::audio::eq::EqSettings;
 use crate::audio::types::{OutputMode, ReplayGainMode};
+use crate::library::media::Backdrop;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase", default)]
@@ -67,6 +68,12 @@ pub struct Appearance {
     pub corners: String,
     /// Interface zoom, 0.8..1.5.
     pub ui_scale: f64,
+    /// Custom photo, GIF or video behind the app (a media id with display options).
+    pub background: Option<Backdrop>,
+    /// Where the custom background shows: "app" (behind everything) | "nowPlaying".
+    pub background_scope: String,
+    /// Where GIF and video artwork moves: "everywhere" | "nowPlaying" | "off".
+    pub animated_art: String,
 }
 
 impl Default for Appearance {
@@ -82,6 +89,9 @@ impl Default for Appearance {
             backdrop_blur: 90.0,
             corners: "default".into(),
             ui_scale: 1.0,
+            background: None,
+            background_scope: "app".into(),
+            animated_art: "everywhere".into(),
         }
     }
 }
@@ -107,6 +117,13 @@ impl Appearance {
             self.corners = d.corners;
         }
         self.ui_scale = if self.ui_scale.is_finite() { self.ui_scale.clamp(0.8, 1.5) } else { d.ui_scale };
+        self.background = self.background.and_then(Backdrop::normalized);
+        if !matches!(self.background_scope.as_str(), "app" | "nowPlaying") {
+            self.background_scope = d.background_scope;
+        }
+        if !matches!(self.animated_art.as_str(), "everywhere" | "nowPlaying" | "off") {
+            self.animated_art = d.animated_art;
+        }
         self
     }
 }
@@ -226,6 +243,33 @@ mod tests {
         assert_eq!(a.backdrop_blur, 90.0);
         assert_eq!(a.corners, "default");
         assert_eq!(a.ui_scale, 0.8);
+    }
+
+    #[test]
+    fn background_and_animation_settings() {
+        // Settings saved before custom backgrounds existed.
+        let s: Settings = serde_json::from_str(r#"{"appearance":{"preset":"ocean"}}"#).unwrap();
+        assert_eq!((s.appearance.background.as_ref(), s.appearance.background_scope.as_str()), (None, "app"));
+        assert_eq!(s.appearance.animated_art, "everywhere");
+
+        let s: Settings = serde_json::from_str(
+            r#"{"appearance":{"background":{"mediaId":"ab12","fit":"contain","dim":0.9,"blur":80},
+                "backgroundScope":"nowPlaying","animatedArt":"off"}}"#,
+        )
+        .unwrap();
+        let a = s.appearance.normalized();
+        let bg = a.background.unwrap();
+        assert_eq!((bg.media_id.as_str(), bg.fit.as_str(), bg.dim, bg.blur), ("ab12", "contain", Some(0.8), 40.0));
+        assert_eq!((a.background_scope.as_str(), a.animated_art.as_str()), ("nowPlaying", "off"));
+
+        let a = Appearance {
+            background: Some(Backdrop { media_id: "not hex!".into(), ..Backdrop::default() }),
+            background_scope: "moon".into(),
+            animated_art: "sometimes".into(),
+            ..Appearance::default()
+        }
+        .normalized();
+        assert_eq!((a.background, a.background_scope.as_str(), a.animated_art.as_str()), (None, "app", "everywhere"));
     }
 
     #[test]

@@ -1,12 +1,13 @@
 ﻿//! SQLite storage for the library and playlists.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use anyhow::Result;
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use serde::Serialize;
 
+use super::media::{Backdrop, MediaKind};
 use super::model::Track;
 
 const SCHEMA_VERSION: i64 = 1;
@@ -143,6 +144,28 @@ fn migrate(conn: &Connection) -> Result<()> {
     add_column(conn, "playlist_items", "ref_key", "TEXT")?;
     // The matcher's parsed readings of each track (JSON), so opening it doesn't re-parse 50k titles.
     add_column(conn, "track_match_state", "readings", "TEXT")?;
+    // v7: custom photos, GIFs and videos (library/media.rs). `media` describes each stored file;
+    // animated covers keep their still poster in `cover_id` and the moving file in `motion_id`.
+    // Playlists can also have a background with display options (dim NULL = the mode's default).
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS media(
+            id TEXT PRIMARY KEY,
+            kind TEXT NOT NULL,
+            mime TEXT NOT NULL,
+            width INTEGER NOT NULL,
+            height INTEGER NOT NULL,
+            duration_ms INTEGER,
+            bytes INTEGER NOT NULL,
+            poster_id TEXT,
+            added_at INTEGER NOT NULL
+         );",
+    )?;
+    add_column(conn, "track_art", "motion_id", "TEXT")?;
+    add_column(conn, "playlists", "motion_id", "TEXT")?;
+    add_column(conn, "playlists", "background_id", "TEXT")?;
+    add_column(conn, "playlists", "background_fit", "TEXT NOT NULL DEFAULT 'cover'")?;
+    add_column(conn, "playlists", "background_dim", "REAL")?;
+    add_column(conn, "playlists", "background_blur", "REAL NOT NULL DEFAULT 0")?;
     Ok(())
 }
 
@@ -202,7 +225,7 @@ const TRACK_COLS: &str = "t.id, t.path, t.title, t.artist, t.album, t.album_arti
     t.disc_no, t.duration, t.sample_rate, t.bit_depth, t.channels, t.bitrate, t.codec, t.file_size, t.mtime, \
     CASE WHEN a.hidden = 1 THEN NULL ELSE COALESCE(a.cover_id, t.cover_id) END, \
     t.rg_track_gain, t.rg_track_peak, t.rg_album_gain, t.rg_album_peak, t.added_at, COALESCE(a.hidden, 0), \
-    a.cover_id IS NOT NULL, t.isrc, t.mbid";
+    a.cover_id IS NOT NULL, t.isrc, t.mbid, CASE WHEN a.hidden = 1 THEN NULL ELSE a.motion_id END";
 
 /// Tracks joined with the user's artwork choices.
 const TRACK_FROM: &str = "tracks t LEFT JOIN track_art a ON a.path = t.path";
@@ -237,6 +260,7 @@ fn row_to_track(r: &Row) -> rusqlite::Result<Track> {
         custom_cover: r.get(25)?,
         isrc: r.get(26)?,
         mbid: r.get(27)?,
+        motion_id: r.get(28)?,
     })
 }
 
@@ -258,17 +282,19 @@ pub fn set_cover_hidden(conn: &mut Connection, ids: &[i64], hidden: bool) -> Res
 }
 
 /// Use `cover_id` as the artwork for these tracks (or with `None`, go back to their own artwork).
-/// Setting artwork also un-hides it.
-pub fn set_custom_cover(conn: &mut Connection, ids: &[i64], cover_id: Option<&str>) -> Result<()> {
+/// `motion_id` is a GIF or video to show instead where artwork animates; `cover_id` is then its
+/// still poster. Setting artwork also un-hides it.
+pub fn set_custom_cover(conn: &mut Connection, ids: &[i64], cover_id: Option<&str>, motion_id: Option<&str>) -> Result<()> {
+    let motion_id = cover_id.and(motion_id);
     let tx = conn.transaction()?;
     {
         let mut stmt = tx.prepare_cached(
-            "INSERT INTO track_art(path, cover_id, hidden) SELECT path, ?2, 0 FROM tracks WHERE id = ?1
-             ON CONFLICT(path) DO UPDATE SET cover_id = excluded.cover_id,
+            "INSERT INTO track_art(path, cover_id, motion_id, hidden) SELECT path, ?2, ?3, 0 FROM tracks WHERE id = ?1
+             ON CONFLICT(path) DO UPDATE SET cover_id = excluded.cover_id, motion_id = excluded.motion_id,
                 hidden = CASE WHEN excluded.cover_id IS NULL THEN track_art.hidden ELSE 0 END",
         )?;
         for id in ids {
-            stmt.execute(params![id, cover_id])?;
+            stmt.execute(params![id, cover_id, motion_id])?;
         }
         tx.execute("DELETE FROM track_art WHERE cover_id IS NULL AND hidden = 0", [])?;
     }
@@ -283,14 +309,19 @@ pub struct TrackArt {
     pub path: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cover_id: Option<String>,
+    /// GIF or video shown where artwork animates (`cover_id` is its poster).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub motion_id: Option<String>,
     #[serde(default)]
     pub hidden: bool,
 }
 
 pub fn track_art(conn: &Connection) -> Result<Vec<TrackArt>> {
-    let mut stmt = conn.prepare("SELECT path, cover_id, hidden FROM track_art")?;
+    let mut stmt = conn.prepare("SELECT path, cover_id, motion_id, hidden FROM track_art")?;
     let rows = stmt
-        .query_map([], |r| Ok(TrackArt { path: r.get(0)?, cover_id: r.get(1)?, hidden: r.get::<_, i64>(2)? != 0 }))?
+        .query_map([], |r| {
+            Ok(TrackArt { path: r.get(0)?, cover_id: r.get(1)?, motion_id: r.get(2)?, hidden: r.get::<_, i64>(3)? != 0 })
+        })?
         .collect::<Result<Vec<_>, _>>()?;
     Ok(rows)
 }
@@ -299,11 +330,12 @@ pub fn put_track_art(conn: &mut Connection, art: &[TrackArt]) -> Result<()> {
     let tx = conn.transaction()?;
     {
         let mut stmt = tx.prepare_cached(
-            "INSERT INTO track_art(path, cover_id, hidden) VALUES(?1, ?2, ?3)
-             ON CONFLICT(path) DO UPDATE SET cover_id = excluded.cover_id, hidden = excluded.hidden",
+            "INSERT INTO track_art(path, cover_id, motion_id, hidden) VALUES(?1, ?2, ?3, ?4)
+             ON CONFLICT(path) DO UPDATE SET cover_id = excluded.cover_id, motion_id = excluded.motion_id,
+                hidden = excluded.hidden",
         )?;
         for a in art {
-            stmt.execute(params![a.path, a.cover_id, a.hidden as i64])?;
+            stmt.execute(params![a.path, a.cover_id, a.cover_id.as_ref().and(a.motion_id.as_ref()), a.hidden as i64])?;
         }
     }
     tx.commit()?;
@@ -448,8 +480,12 @@ pub struct Playlist {
     pub updated_at: i64,
     pub track_count: i64,
     pub description: String,
-    /// User-chosen playlist photo.
+    /// User-chosen playlist photo (the still poster when `motion_id` is set).
     pub cover_id: Option<String>,
+    /// GIF or video used as the playlist's cover where artwork animates.
+    pub motion_id: Option<String>,
+    /// Photo, GIF or video behind the playlist's page.
+    pub background: Option<Backdrop>,
     /// Artwork of the first few tracks, for a collage when there is no custom photo.
     pub preview_covers: Vec<String>,
     /// Import source ("m3u", "xspf", …) and its id there; `None` for playlists made in the app.
@@ -461,11 +497,15 @@ pub fn playlists(conn: &Connection) -> Result<Vec<Playlist>> {
     let mut stmt = conn.prepare(
         "SELECT p.id, p.name, p.created_at, p.updated_at,
                 (SELECT COUNT(*) FROM playlist_items i WHERE i.playlist_id = p.id),
-                p.description, p.cover_id, p.source, p.source_id
+                p.description, p.cover_id, p.source, p.source_id, p.motion_id,
+                p.background_id, p.background_fit, p.background_dim, p.background_blur
          FROM playlists p ORDER BY p.name COLLATE NOCASE",
     )?;
     let mut rows = stmt
         .query_map([], |r| {
+            let background = r.get::<_, Option<String>>(10)?.map(|media_id| -> rusqlite::Result<Backdrop> {
+                Ok(Backdrop { media_id, fit: r.get(11)?, dim: r.get(12)?, blur: r.get(13)? })
+            });
             Ok(Playlist {
                 id: r.get(0)?,
                 name: r.get(1)?,
@@ -474,6 +514,8 @@ pub fn playlists(conn: &Connection) -> Result<Vec<Playlist>> {
                 track_count: r.get(4)?,
                 description: r.get(5)?,
                 cover_id: r.get(6)?,
+                motion_id: r.get(9)?,
+                background: background.transpose()?,
                 preview_covers: Vec::new(),
                 source: r.get(7)?,
                 source_id: r.get(8)?,
@@ -508,10 +550,26 @@ pub fn update_playlist(conn: &Connection, id: i64, name: &str, description: &str
     Ok(())
 }
 
-pub fn set_playlist_cover(conn: &Connection, id: i64, cover_id: Option<&str>) -> Result<()> {
+/// Set (or with `None`, remove) a playlist's photo. `motion_id` is a GIF or video shown instead
+/// where artwork animates; `cover_id` is then its still poster.
+pub fn set_playlist_cover(conn: &Connection, id: i64, cover_id: Option<&str>, motion_id: Option<&str>) -> Result<()> {
     conn.execute(
-        "UPDATE playlists SET cover_id = ?2, updated_at = ?3 WHERE id = ?1",
-        params![id, cover_id, now()],
+        "UPDATE playlists SET cover_id = ?2, motion_id = ?3, updated_at = ?4 WHERE id = ?1",
+        params![id, cover_id, cover_id.and(motion_id), now()],
+    )?;
+    Ok(())
+}
+
+/// Set (or with `None`, remove) the photo, GIF or video behind a playlist's page.
+pub fn set_playlist_background(conn: &Connection, id: i64, background: Option<&Backdrop>) -> Result<()> {
+    let (media, fit, dim, blur) = match background {
+        Some(b) => (Some(b.media_id.as_str()), b.fit.as_str(), b.dim, b.blur),
+        None => (None, "cover", None, 0.0),
+    };
+    conn.execute(
+        "UPDATE playlists SET background_id = ?2, background_fit = ?3, background_dim = ?4, background_blur = ?5,
+            updated_at = ?6 WHERE id = ?1",
+        params![id, media, fit, dim, blur, now()],
     )?;
     Ok(())
 }
@@ -595,6 +653,102 @@ pub fn set_playlist_items(conn: &mut Connection, id: i64, items: &[(String, Opti
     tx.execute("UPDATE playlists SET updated_at = ?2 WHERE id = ?1", params![id, now()])?;
     tx.commit()?;
     Ok(())
+}
+
+// ---- custom media -----------------------------------------------------------------------------
+
+/// A stored photo, GIF or video (see `media.rs`).
+#[derive(Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Media {
+    pub id: String,
+    pub kind: MediaKind,
+    pub mime: String,
+    pub width: u32,
+    pub height: u32,
+    pub duration_ms: Option<u64>,
+    pub bytes: u64,
+    /// Still image in the cover cache, shown wherever the file isn't played.
+    pub poster_id: Option<String>,
+}
+
+const MEDIA_COLS: &str = "id, kind, mime, width, height, duration_ms, bytes, poster_id";
+
+/// `None` for a kind this version doesn't know.
+fn row_to_media(r: &Row) -> rusqlite::Result<Option<Media>> {
+    let Some(kind) = MediaKind::parse(&r.get::<_, String>(1)?) else { return Ok(None) };
+    Ok(Some(Media {
+        id: r.get(0)?,
+        kind,
+        mime: r.get(2)?,
+        width: r.get(3)?,
+        height: r.get(4)?,
+        duration_ms: r.get::<_, Option<i64>>(5)?.map(|d| d.max(0) as u64),
+        bytes: r.get::<_, i64>(6)?.max(0) as u64,
+        poster_id: r.get(7)?,
+    }))
+}
+
+pub fn put_media(conn: &Connection, m: &Media) -> Result<()> {
+    conn.execute(
+        "INSERT INTO media(id, kind, mime, width, height, duration_ms, bytes, poster_id, added_at)
+         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+         ON CONFLICT(id) DO UPDATE SET kind = excluded.kind, mime = excluded.mime, width = excluded.width,
+            height = excluded.height, duration_ms = excluded.duration_ms, bytes = excluded.bytes,
+            poster_id = excluded.poster_id",
+        params![m.id, m.kind.as_str(), m.mime, m.width, m.height, m.duration_ms.map(|d| d as i64), m.bytes as i64, m.poster_id, now()],
+    )?;
+    Ok(())
+}
+
+pub fn media(conn: &Connection) -> Result<Vec<Media>> {
+    let mut stmt = conn.prepare(&format!("SELECT {MEDIA_COLS} FROM media ORDER BY added_at, id"))?;
+    let rows = stmt.query_map([], row_to_media)?.collect::<Result<Vec<_>, _>>()?;
+    Ok(rows.into_iter().flatten().collect())
+}
+
+pub fn media_by_id(conn: &Connection, id: &str) -> Result<Option<Media>> {
+    let mut stmt = conn.prepare_cached(&format!("SELECT {MEDIA_COLS} FROM media WHERE id = ?1"))?;
+    Ok(stmt.query_row(params![id], row_to_media).optional()?.flatten())
+}
+
+pub fn delete_media(conn: &Connection, id: &str) -> Result<()> {
+    conn.execute("DELETE FROM media WHERE id = ?1", params![id])?;
+    Ok(())
+}
+
+/// Media ids that songs and playlists use.
+pub fn media_in_use(conn: &Connection) -> Result<HashSet<String>> {
+    let mut out = HashSet::new();
+    for sql in [
+        "SELECT motion_id FROM track_art WHERE motion_id IS NOT NULL",
+        "SELECT motion_id FROM playlists WHERE motion_id IS NOT NULL",
+        "SELECT background_id FROM playlists WHERE background_id IS NOT NULL",
+    ] {
+        let mut stmt = conn.prepare(sql)?;
+        for id in stmt.query_map([], |r| r.get::<_, String>(0))? {
+            out.insert(id?);
+        }
+    }
+    Ok(out)
+}
+
+/// Deletes media rows that nothing uses. `also_keep` holds ids used outside the database (the
+/// app background in the settings). Returns the ids that remain.
+pub fn prune_media(conn: &Connection, also_keep: &HashSet<String>) -> Result<HashSet<String>> {
+    let mut keep = media_in_use(conn)?;
+    keep.extend(also_keep.iter().cloned());
+    let all: Vec<String> =
+        conn.prepare("SELECT id FROM media")?.query_map([], |r| r.get::<_, String>(0))?.collect::<Result<_, _>>()?;
+    let mut remaining = HashSet::new();
+    for id in all {
+        if keep.contains(&id) {
+            remaining.insert(id);
+        } else {
+            delete_media(conn, &id)?;
+        }
+    }
+    Ok(remaining)
 }
 
 // ---- matcher storage --------------------------------------------------------------------------
@@ -708,7 +862,7 @@ mod tests {
         let id = all_tracks(&conn).unwrap()[0].id;
         let get = |c: &Connection| all_tracks(c).unwrap().remove(0);
 
-        set_custom_cover(&mut conn, &[id], Some("bb")).unwrap();
+        set_custom_cover(&mut conn, &[id], Some("bb"), None).unwrap();
         let x = get(&conn);
         assert_eq!((x.cover_id.as_deref(), x.custom_cover, x.cover_hidden), (Some("bb"), true, false));
 
@@ -720,18 +874,155 @@ mod tests {
         let x = get(&conn);
         assert_eq!((x.cover_id.as_deref(), x.cover_hidden), (None, true));
         // Setting new artwork un-hides it.
-        set_custom_cover(&mut conn, &[id], Some("dd")).unwrap();
+        set_custom_cover(&mut conn, &[id], Some("dd"), None).unwrap();
         assert_eq!(get(&conn).cover_id.as_deref(), Some("dd"));
 
-        set_custom_cover(&mut conn, &[id], None).unwrap();
+        set_custom_cover(&mut conn, &[id], None, None).unwrap();
         let x = get(&conn);
         assert_eq!((x.cover_id.as_deref(), x.custom_cover), (Some("cc"), false));
         assert!(track_art(&conn).unwrap().is_empty(), "no leftover rows once nothing is customized");
 
         // Playlist previews use the custom artwork too.
-        set_custom_cover(&mut conn, &[id], Some("ee")).unwrap();
+        set_custom_cover(&mut conn, &[id], Some("ee"), None).unwrap();
         let p = create_playlist(&conn, "P").unwrap();
         set_playlist_paths(&mut conn, p, &[t.path.clone()]).unwrap();
         assert_eq!(playlists(&conn).unwrap()[0].preview_covers, vec!["ee".to_string()]);
+    }
+
+    /// Opens a database file, lets `downgrade` turn it back into an older schema, and reopens it.
+    fn reopen_after(name: &str, downgrade: &str) -> (Connection, std::path::PathBuf) {
+        let file = std::env::temp_dir().join(format!("db-{name}-{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&file);
+        {
+            let conn = open(&file).unwrap();
+            add_folder(&conn, r"C:\Music").unwrap();
+            create_playlist(&conn, "Old").unwrap();
+            conn.execute_batch(downgrade).unwrap();
+        }
+        (open(&file).unwrap(), file)
+    }
+
+    fn remove_db(file: std::path::PathBuf) {
+        let _ = std::fs::remove_file(&file);
+        let _ = std::fs::remove_file(file.with_extension("db-wal"));
+        let _ = std::fs::remove_file(file.with_extension("db-shm"));
+    }
+
+    fn columns(conn: &Connection, table: &str) -> Vec<String> {
+        conn.prepare(&format!("PRAGMA table_info({table})"))
+            .unwrap()
+            .query_map([], |r| r.get::<_, String>(1))
+            .unwrap()
+            .map(|c| c.unwrap())
+            .collect()
+    }
+
+    fn video(id: &str) -> Media {
+        Media {
+            id: id.into(),
+            kind: MediaKind::Video,
+            mime: "video/mp4".into(),
+            width: 1280,
+            height: 720,
+            duration_ms: Some(8000),
+            bytes: 1234,
+            poster_id: Some("p1".into()),
+        }
+    }
+
+    #[test]
+    fn media_table_migrates() {
+        let (conn, file) = reopen_after("media-table", "DROP TABLE media;");
+        assert!(media(&conn).unwrap().is_empty());
+        let m = video("abc");
+        put_media(&conn, &m).unwrap();
+        assert_eq!(media_by_id(&conn, "abc").unwrap(), Some(m.clone()));
+        // Storing the same file again updates it in place.
+        put_media(&conn, &Media { poster_id: Some("p2".into()), ..m }).unwrap();
+        assert_eq!(media(&conn).unwrap().len(), 1);
+        assert_eq!(media_by_id(&conn, "abc").unwrap().unwrap().poster_id.as_deref(), Some("p2"));
+        // A kind from a newer version is skipped, not an error.
+        conn.execute("UPDATE media SET kind = 'hologram'", []).unwrap();
+        assert!(media(&conn).unwrap().is_empty());
+        drop(conn);
+        remove_db(file);
+    }
+
+    #[test]
+    fn track_motion_column_migrates() {
+        let (mut conn, file) = reopen_after("track-motion", "ALTER TABLE track_art DROP COLUMN motion_id;");
+        assert!(columns(&conn, "track_art").contains(&"motion_id".to_string()));
+        let t = Track { path: r"C:\Music\a.flac".into(), title: "A".into(), ..Default::default() };
+        upsert_tracks(&mut conn, 1, &[(t, r"C:\Music".into())]).unwrap();
+        let id = all_tracks(&conn).unwrap()[0].id;
+        set_custom_cover(&mut conn, &[id], Some("poster"), Some("loop")).unwrap();
+        let x = all_tracks(&conn).unwrap().remove(0);
+        assert_eq!((x.cover_id.as_deref(), x.motion_id.as_deref()), (Some("poster"), Some("loop")));
+        assert_eq!(track_art(&conn).unwrap()[0].motion_id.as_deref(), Some("loop"));
+        // Hidden artwork hides the motion too; a still cover or no cover clears it.
+        set_cover_hidden(&mut conn, &[id], true).unwrap();
+        assert_eq!(all_tracks(&conn).unwrap()[0].motion_id, None);
+        set_custom_cover(&mut conn, &[id], Some("still"), None).unwrap();
+        assert_eq!(all_tracks(&conn).unwrap()[0].motion_id, None);
+        set_custom_cover(&mut conn, &[id], None, Some("loop")).unwrap();
+        assert!(track_art(&conn).unwrap().is_empty(), "motion without a poster isn't kept");
+        drop(conn);
+        remove_db(file);
+    }
+
+    #[test]
+    fn playlist_motion_column_migrates() {
+        let (conn, file) = reopen_after("playlist-motion", "ALTER TABLE playlists DROP COLUMN motion_id;");
+        let p = &playlists(&conn).unwrap()[0];
+        assert_eq!((p.name.as_str(), p.motion_id.as_deref()), ("Old", None));
+        set_playlist_cover(&conn, p.id, Some("poster"), Some("loop")).unwrap();
+        let p = playlists(&conn).unwrap().remove(0);
+        assert_eq!((p.cover_id.as_deref(), p.motion_id.as_deref()), (Some("poster"), Some("loop")));
+        set_playlist_cover(&conn, p.id, None, Some("loop")).unwrap();
+        assert_eq!(playlists(&conn).unwrap()[0].motion_id, None);
+        drop(conn);
+        remove_db(file);
+    }
+
+    #[test]
+    fn playlist_background_columns_migrate() {
+        let (conn, file) = reopen_after(
+            "playlist-background",
+            "ALTER TABLE playlists DROP COLUMN background_id; ALTER TABLE playlists DROP COLUMN background_fit;
+             ALTER TABLE playlists DROP COLUMN background_dim; ALTER TABLE playlists DROP COLUMN background_blur;",
+        );
+        let p = playlists(&conn).unwrap().remove(0);
+        assert_eq!(p.background, None, "existing playlists have no background");
+        let bg = Backdrop { media_id: "vid".into(), fit: "contain".into(), dim: Some(0.4), blur: 12.0 };
+        set_playlist_background(&conn, p.id, Some(&bg)).unwrap();
+        assert_eq!(playlists(&conn).unwrap()[0].background, Some(bg));
+        set_playlist_background(&conn, p.id, None).unwrap();
+        assert_eq!(playlists(&conn).unwrap()[0].background, None);
+        drop(conn);
+        remove_db(file);
+    }
+
+    #[test]
+    fn unused_media_is_pruned() {
+        let mut conn = open(Path::new(":memory:")).unwrap();
+        let folder = add_folder(&conn, r"C:\Music").unwrap();
+        let t = Track { path: r"C:\Music\a.flac".into(), title: "A".into(), ..Default::default() };
+        upsert_tracks(&mut conn, folder, &[(t, r"C:\Music".into())]).unwrap();
+        for id in ["song", "cover", "bg", "skin", "orphan"] {
+            put_media(&conn, &video(id)).unwrap();
+        }
+        let track = all_tracks(&conn).unwrap()[0].id;
+        set_custom_cover(&mut conn, &[track], Some("p"), Some("song")).unwrap();
+        let p = create_playlist(&conn, "P").unwrap();
+        set_playlist_cover(&conn, p, Some("p"), Some("cover")).unwrap();
+        set_playlist_background(&conn, p, Some(&Backdrop { media_id: "bg".into(), ..Default::default() })).unwrap();
+        let skin: HashSet<String> = ["skin".to_string()].into_iter().collect();
+        let mut left: Vec<_> = prune_media(&conn, &skin).unwrap().into_iter().collect();
+        left.sort();
+        assert_eq!(left, vec!["bg", "cover", "skin", "song"]);
+        assert!(media_by_id(&conn, "orphan").unwrap().is_none());
+        // Removing the playlist background frees it on the next pass.
+        set_playlist_background(&conn, p, None).unwrap();
+        assert!(!prune_media(&conn, &skin).unwrap().contains("bg"));
     }
 }

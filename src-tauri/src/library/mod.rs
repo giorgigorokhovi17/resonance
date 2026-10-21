@@ -4,6 +4,7 @@ pub mod db;
 pub mod interchange;
 pub mod m3u;
 pub mod matcher;
+pub mod media;
 pub mod model;
 pub mod pls;
 pub mod scan;
@@ -11,6 +12,7 @@ pub mod tags;
 pub mod wpl;
 pub mod xspf;
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -25,6 +27,7 @@ use rusqlite::Connection;
 
 use covers::CoverCache;
 use db::Folder;
+use media::MediaStore;
 use model::Track;
 use scan::{ScanProgress, ScanSummary};
 
@@ -45,18 +48,21 @@ pub enum ScanRequest {
 pub struct Library {
     pub db: Mutex<Connection>,
     pub covers: CoverCache,
+    /// Custom GIFs, videos and background photos (by content hash).
+    pub media: MediaStore,
     scan_tx: Sender<ScanRequest>,
     scanning: AtomicBool,
     watcher: Mutex<Option<Debouncer<notify::RecommendedWatcher, RecommendedCache>>>,
 }
 
 impl Library {
-    pub fn open(db_path: &Path, cover_dir: PathBuf, events: EventSink) -> Result<Arc<Self>> {
+    pub fn open(db_path: &Path, cover_dir: PathBuf, media_dir: PathBuf, events: EventSink) -> Result<Arc<Self>> {
         let conn = db::open(db_path)?;
         let (scan_tx, scan_rx) = unbounded();
         let lib = Arc::new(Library {
             db: Mutex::new(conn),
             covers: CoverCache::new(cover_dir),
+            media: MediaStore::new(media_dir),
             scan_tx,
             scanning: AtomicBool::new(false),
             watcher: Mutex::new(None),
@@ -119,6 +125,23 @@ impl Library {
                 }
             })
             .collect()
+    }
+
+    /// Deletes custom media that nothing uses any more: database rows, and files without a row
+    /// (left by an import that was refused or interrupted). `also_keep` holds ids used outside the
+    /// database (the app background). Returns how many files were deleted.
+    pub fn sweep_media(&self, also_keep: &HashSet<String>) -> Result<usize> {
+        let conn = self.db.lock();
+        let mut keep = db::prune_media(&conn, also_keep)?;
+        // A row whose file is gone can't be shown; things that used it fall back to the poster.
+        keep.retain(|id| {
+            let present = self.media.file(id).is_some();
+            if !present {
+                let _ = db::delete_media(&conn, id);
+            }
+            present
+        });
+        Ok(self.media.sweep(&keep))
     }
 
     pub fn add_folder(self: &Arc<Self>, path: &str) -> Result<i64> {
@@ -225,5 +248,53 @@ impl Library {
             }
             Err(e) => log::warn!("file watcher unavailable: {e}"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn startup_sweep_removes_orphaned_media() {
+        let dir = std::env::temp_dir().join(format!("resonance-sweep-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let lib = Library::open(&dir.join("library.db"), dir.join("covers"), dir.join("media"), Arc::new(|_| {})).unwrap();
+        let row = |id: &str| db::Media {
+            id: id.into(),
+            kind: media::MediaKind::Video,
+            mime: "video/mp4".into(),
+            width: 640,
+            height: 360,
+            duration_ms: Some(4000),
+            bytes: 10,
+            poster_id: None,
+        };
+        // Used by a playlist, used by the app background, unused, and a file never committed.
+        let used = lib.media.put(b"playlist background", "mp4").unwrap();
+        let skin = lib.media.put(b"app background", "mp4").unwrap();
+        let unused = lib.media.put(b"removed background", "mp4").unwrap();
+        let staged = lib.media.put(b"refused import", "mp4").unwrap();
+        {
+            let conn = lib.db.lock();
+            for id in [&used, &skin, &unused] {
+                db::put_media(&conn, &row(id)).unwrap();
+            }
+            // A row whose file was deleted by hand.
+            db::put_media(&conn, &row("abcdef")).unwrap();
+            let p = db::create_playlist(&conn, "P").unwrap();
+            db::set_playlist_background(&conn, p, Some(&media::Backdrop { media_id: used.clone(), ..Default::default() })).unwrap();
+        }
+        let keep: HashSet<String> = [skin.clone()].into_iter().collect();
+        assert_eq!(lib.sweep_media(&keep).unwrap(), 2, "the unused file and the refused import");
+        assert!(lib.media.file(&used).is_some() && lib.media.file(&skin).is_some());
+        assert!(lib.media.file(&unused).is_none() && lib.media.file(&staged).is_none());
+        let mut left: Vec<String> = db::media(&lib.db.lock()).unwrap().into_iter().map(|m| m.id).collect();
+        left.sort();
+        let mut want = vec![used, skin];
+        want.sort();
+        assert_eq!(left, want, "rows for deleted or missing files are gone too");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

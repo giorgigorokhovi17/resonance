@@ -181,6 +181,23 @@ export function useLiveCover(t: Track | null | undefined): string | undefined {
   return known ? known.coverId : t.coverId;
 }
 
+/** GIF or video artwork for a track, as the library currently knows it (see liveCoverId). */
+export function liveMotionId(t: Track | null | undefined): string | undefined {
+  if (!t) return undefined;
+  const lib = useLibrary.getState();
+  const known = t.id > 0 ? lib.byId.get(t.id) : lib.byPath.get(t.path);
+  return known ? known.motionId : t.motionId;
+}
+
+/** Hook version of liveMotionId. */
+export function useLiveMotion(t: Track | null | undefined): string | undefined {
+  const byId = useLibrary((s) => s.byId);
+  const byPath = useLibrary((s) => s.byPath);
+  if (!t) return undefined;
+  const known = t.id > 0 ? byId.get(t.id) : byPath.get(t.path);
+  return known ? known.motionId : t.motionId;
+}
+
 /** Tracks matching every whitespace-separated token of `q`. */
 export function searchTracks(q: string, limit = 500): Track[] {
   const { tracks, haystack } = useLibrary.getState();

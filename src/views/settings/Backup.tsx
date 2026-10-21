@@ -33,7 +33,7 @@ function restoreUiPrefs(ui: Record<string, string> | null) {
   }
 }
 
-const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n === 1 ? "" : "s"}`;
+const plural = (n: number, word: string, many = `${word}s`) => `${n.toLocaleString()} ${n === 1 ? word : many}`;
 
 export function BackupSection() {
   const [busy, setBusy] = useState<"export" | "import" | null>(null);
@@ -51,9 +51,11 @@ export function BackupSection() {
     setBusy("export");
     try {
       const s = await api.exportBackup(path, uiPrefs());
+      const media = s.media ? `, ${plural(s.media, "custom media file")}` : "";
+      const left = s.mediaSkipped ? ` ${plural(s.mediaSkipped, "large media file was", "large media files were")} left out.` : "";
       toast(
         "info",
-        `Backup saved: ${plural(s.playlists, "playlist")}, ${plural(s.presets, "EQ preset")}, ${plural(s.artwork, "artwork image")} (${(s.bytes / 1048576).toFixed(1)} MB).`,
+        `Backup saved: ${plural(s.playlists, "playlist")}, ${plural(s.presets, "EQ preset")}, ${plural(s.artwork, "artwork image")}${media} (${(s.bytes / 1048576).toFixed(1)} MB).${left}`,
       );
     } catch (e) {
       toast("error", String(e));
@@ -90,7 +92,7 @@ export function BackupSection() {
   return (
     <Section
       title="Backup & restore"
-      description="Save your playlists, EQ presets, custom artwork, library folders and settings to one file, then restore it on a new PC. Music files aren't included; if they live on a different drive or folder there, playlists are matched to them automatically."
+      description="Save your playlists, EQ presets, custom artwork, library folders and settings to one file, then restore it on a new PC. Music files aren't included; if they live on a different drive or folder there, playlists are matched to them automatically. Custom GIFs, videos and background photos are included up to 25 MB each and 200 MB in all."
     >
       <div className="flex flex-wrap gap-2">
         <SecondaryButton onClick={doExport}>
@@ -119,6 +121,16 @@ export function BackupSection() {
             <div className="text-warn">
               Not on this PC: {result.foldersMissing.join(", ")}. Add the folder where that music is now (Library folders, above)
               and restore again to relink playlists.
+            </div>
+          )}
+          {result.skippedMedia.length > 0 && (
+            <div className="text-warn">
+              Not restored (animated covers show their still frame instead):
+              <ul className="ml-4 list-disc">
+                {result.skippedMedia.map((m) => (
+                  <li key={m}>{m}</li>
+                ))}
+              </ul>
             </div>
           )}
           {result.unresolved > 0 && (

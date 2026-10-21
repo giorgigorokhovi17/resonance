@@ -94,6 +94,9 @@ export const DEFAULT_APPEARANCE: Appearance = {
   backdropBlur: 90,
   corners: "default",
   uiScale: 1,
+  background: null,
+  backgroundScope: "app",
+  animatedArt: "everywhere",
 };
 
 export const CORNER_SCALE: Record<Appearance["corners"], number> = { sharp: 0.35, default: 1, round: 1.6 };
@@ -265,4 +268,35 @@ export function resolveTheme(a: Appearance, dark: boolean, coverColor: string | 
     buttonContrast: Math.min(contrast(onAccent, accent), contrast(onAccent, accent2)),
     adjusted,
   };
+}
+
+// ---- custom backgrounds -------------------------------------------------------------------------
+
+/** Scrim strength used when the user hasn't chosen one. */
+export const DIM_DEFAULT = { dark: 0.55, light: 0.35 } as const;
+/** WCAG AA for normal-size text. */
+export const TEXT_MIN_CONTRAST = 4.5;
+
+export interface BackdropReadability {
+  /** Scrim opacity to use, 0..1: the chosen one, raised if text would be hard to read. */
+  dim: number;
+  raised: boolean;
+  /** Contrast of the weakest text colour over the dimmed backdrop (0 while unknown). */
+  contrast: number;
+}
+
+/**
+ * How strong the scrim over a photo or video must be so `text` stays readable. `sample` is the
+ * backdrop's riskiest tone (its bright parts in dark mode, dark parts in light mode); `scrim` is
+ * the colour laid over it at `dim` opacity.
+ */
+export function readableDim(sample: string | null, scrim: string, text: string[], dim: number): BackdropReadability {
+  const s = sample ? parseColor(sample) : null;
+  const bg = parseColor(scrim);
+  if (!s || !bg) return { dim, raised: false, contrast: 0 };
+  const colours = text.map((t) => parseColor(t)).filter((c): c is Rgb => !!c);
+  const worst = (d: number) => Math.min(...colours.map((c) => contrast(c, mix(s, bg, d))));
+  let d = Math.min(1, Math.max(0, dim));
+  while (d < 1 && worst(d) < TEXT_MIN_CONTRAST) d = Math.min(1, d + 0.01);
+  return { dim: d, raised: d > dim + 1e-6, contrast: worst(d) };
 }

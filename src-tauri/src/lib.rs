@@ -8,6 +8,7 @@ pub mod settings;
 pub mod smtc;
 pub mod sources;
 
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -44,6 +45,15 @@ fn serve_cover(app: &AppHandle, uri: &tauri::http::Uri) -> Option<Vec<u8>> {
     std::fs::read(path).ok()
 }
 
+/// Custom GIFs, videos and background photos, with HTTP Range support (video needs it to loop and
+/// seek reliably).
+fn serve_media(app: &AppHandle, uri: &tauri::http::Uri, range: Option<&str>) -> Option<library::media::Served> {
+    let id = uri.path().trim_start_matches('/');
+    let state = app.try_state::<AppState>()?;
+    let (path, mime) = state.library.media.file(id)?;
+    library::media::serve(&path, mime, range).ok()
+}
+
 /// Shrinks the window to fit the screen's work area and centres it there. On small or scaled
 /// screens the configured size can be taller than the space above the taskbar.
 fn fit_to_work_area(w: &tauri::WebviewWindow) {
@@ -67,6 +77,9 @@ fn show_main(app: &AppHandle) {
         let _ = w.unminimize();
         let _ = w.set_focus();
     }
+    // WebView2 keeps reporting the page as visible while the window is hidden; tell the
+    // frontend so GIF and video artwork stops and starts with the window.
+    let _ = app.emit("window:hidden", false);
 }
 
 /// Audio files/folders passed on the command line ("Open with", drag onto the .exe).
@@ -152,6 +165,29 @@ pub fn run() {
                 }
             });
         })
+        .register_asynchronous_uri_scheme_protocol("media", |ctx, request, responder| {
+            let app = ctx.app_handle().clone();
+            let uri = request.uri().clone();
+            let range = request.headers().get("range").and_then(|v| v.to_str().ok()).map(str::to_string);
+            std::thread::spawn(move || {
+                let resp = match serve_media(&app, &uri, range.as_deref()) {
+                    Some(served) => {
+                        let mut b = tauri::http::Response::builder().status(served.status);
+                        for (k, v) in served.headers {
+                            b = b.header(k, v);
+                        }
+                        b.body(served.body)
+                    }
+                    None => tauri::http::Response::builder()
+                        .status(404)
+                        .header("Access-Control-Allow-Origin", "*")
+                        .body(Vec::new()),
+                };
+                if let Ok(r) = resp {
+                    responder.respond(r);
+                }
+            });
+        })
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 let to_tray = window
@@ -162,6 +198,7 @@ pub fn run() {
                 if to_tray {
                     api.prevent_close();
                     let _ = window.hide();
+                    let _ = window.app_handle().emit("window:hidden", true);
                 }
             }
         })
@@ -179,6 +216,7 @@ pub fn run() {
             let library = Library::open(
                 &data_dir.join("library.db"),
                 cache_dir.join("covers"),
+                cache_dir.join("media"),
                 Arc::new(move |ev| match ev {
                     LibraryEvent::Progress(p) => {
                         let _ = lib_handle.emit("library:progress", p);
@@ -192,6 +230,13 @@ pub fn run() {
                 }),
             )
             .map_err(|e| format!("cannot open library database: {e}"))?;
+            // Custom media nothing uses any more (removed backgrounds, refused imports).
+            let skin: HashSet<String> = s.appearance.background.iter().map(|b| b.media_id.clone()).collect();
+            match library.sweep_media(&skin) {
+                Ok(0) => {}
+                Ok(n) => log::info!("removed {n} unused media file(s)"),
+                Err(e) => log::warn!("media clean-up failed: {e}"),
+            }
             library.set_watching(s.watch_folders);
             // Quick incremental rescan on startup picks up changes made while the app was closed.
             library.request_scan(library::ScanRequest::All { force: false });
@@ -373,7 +418,11 @@ pub fn run() {
             commands::quit_app,
             commands::update_playlist,
             commands::set_playlist_cover,
-            commands::import_cover_image,
+            commands::stage_media,
+            commands::commit_media,
+            commands::discard_media,
+            commands::get_media,
+            commands::set_playlist_background,
             commands::set_tracks_cover_hidden,
             commands::set_tracks_cover,
             commands::export_backup,

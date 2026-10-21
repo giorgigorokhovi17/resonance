@@ -48,12 +48,13 @@ function PlaylistCard({ p }: { p: Playlist }) {
   const setView = useUi((s) => s.setView);
   return (
     <div
+      data-motion-hover
       onClick={() => setView({ kind: "playlist", id: p.id })}
       onContextMenu={(e) => openMenu(e, playlistItemMenu(p))}
       className="group min-w-0 cursor-pointer rounded-lg p-2.5 transition-colors duration-200 hover:bg-hover"
     >
       <div className="relative aspect-square w-full">
-        <PlaylistCover playlist={p} className="h-full w-full shadow-[0_8px_24px_-8px_rgba(0,0,0,0.5)]" iconSize={48} />
+        <PlaylistCover playlist={p} motion="tile" className="h-full w-full shadow-[0_8px_24px_-8px_rgba(0,0,0,0.5)]" iconSize={48} />
         <button
           aria-label={`Play ${p.name}`}
           onClick={(e) => {
