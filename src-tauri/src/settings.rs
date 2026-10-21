@@ -72,7 +72,8 @@ pub struct Appearance {
     pub background: Option<Backdrop>,
     /// Where the custom background shows: "app" (behind everything) | "nowPlaying".
     pub background_scope: String,
-    /// Where GIF and video artwork moves: "everywhere" | "nowPlaying" | "off".
+    /// Where GIF and video artwork moves: "everywhere" | "nowPlaying" | "off" (the default: it
+    /// costs CPU, GPU and battery, so it's opt-in).
     pub animated_art: String,
 }
 
@@ -91,7 +92,7 @@ impl Default for Appearance {
             ui_scale: 1.0,
             background: None,
             background_scope: "app".into(),
-            animated_art: "everywhere".into(),
+            animated_art: "off".into(),
         }
     }
 }
@@ -250,7 +251,7 @@ mod tests {
         // Settings saved before custom backgrounds existed.
         let s: Settings = serde_json::from_str(r#"{"appearance":{"preset":"ocean"}}"#).unwrap();
         assert_eq!((s.appearance.background.as_ref(), s.appearance.background_scope.as_str()), (None, "app"));
-        assert_eq!(s.appearance.animated_art, "everywhere");
+        assert_eq!(s.appearance.animated_art, "off", "GIFs and videos don't move until turned on");
 
         let s: Settings = serde_json::from_str(
             r#"{"appearance":{"background":{"mediaId":"ab12","fit":"contain","dim":0.9,"blur":80},
@@ -269,7 +270,7 @@ mod tests {
             ..Appearance::default()
         }
         .normalized();
-        assert_eq!((a.background, a.background_scope.as_str(), a.animated_art.as_str()), (None, "app", "everywhere"));
+        assert_eq!((a.background, a.background_scope.as_str(), a.animated_art.as_str()), (None, "app", "off"));
     }
 
     #[test]

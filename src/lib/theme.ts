@@ -96,7 +96,7 @@ export const DEFAULT_APPEARANCE: Appearance = {
   uiScale: 1,
   background: null,
   backgroundScope: "app",
-  animatedArt: "everywhere",
+  animatedArt: "off",
 };
 
 export const CORNER_SCALE: Record<Appearance["corners"], number> = { sharp: 0.35, default: 1, round: 1.6 };

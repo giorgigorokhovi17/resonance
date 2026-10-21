@@ -4,6 +4,7 @@ import { create } from "zustand";
 import { api } from "../lib/api";
 import { importBackground, importCover, importError, pickMedia } from "../lib/mediaImport";
 import type { Backdrop as BackdropOptions, Playlist, Track } from "../lib/types";
+import { useMedia } from "../store/media";
 import { usePlayer } from "../store/player";
 import { useUi } from "../store/ui";
 import { Backdrop, useBackdropReadability } from "./Backdrop";
@@ -33,6 +34,8 @@ export function PlaylistEditorHost() {
   const [importing, setImporting] = useState<"cover" | "background" | null>(null);
   const [busy, setBusy] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
+  const animationOff = usePlayer((s) => (s.settings?.appearance.animatedArt ?? "off") === "off");
+  const backgroundMoves = useMedia((s) => (background ? (s.byId.get(background.mediaId)?.kind ?? "image") !== "image" : false));
 
   useEffect(() => {
     if (!open) return;
@@ -187,6 +190,7 @@ export function PlaylistEditorHost() {
         <div className="mt-5 flex items-center justify-between gap-4">
           <p className="text-[11px] text-faint">
             Pictures, GIFs and videos are copied into Undertone; the original file isn't needed afterwards. Videos never play sound.
+            {animationOff && (motionId || backgroundMoves) && " GIFs and videos show a still frame until you turn them on in Settings → Visual."}
           </p>
           <button
             onClick={save}

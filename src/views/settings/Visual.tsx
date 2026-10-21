@@ -159,17 +159,6 @@ export function VisualSettings({ settings }: { settings: Settings }) {
               onChange={(v) => setAppearance({ ambientIntensity: v })}
             />
           </Row>
-          <Row label="Animated artwork" hint="Where GIF and video covers and backgrounds move. Elsewhere they show a still frame.">
-            <Segmented<AnimatedArt>
-              value={a.animatedArt}
-              onChange={(v) => setAppearance({ animatedArt: v })}
-              options={[
-                { value: "everywhere", label: "Everywhere" },
-                { value: "nowPlaying", label: "Now playing only" },
-                { value: "off", label: "Off", hint: "Still frames only. Windows' reduce-motion setting does the same." },
-              ]}
-            />
-          </Row>
           <Row label="Now Playing background blur">
             <Slider
               value={a.backdropBlur}
@@ -180,6 +169,36 @@ export function VisualSettings({ settings }: { settings: Settings }) {
               onChange={(v) => setAppearance({ backdropBlur: v })}
             />
           </Row>
+        </div>
+      </Section>
+
+      <Section
+        title="GIFs and videos"
+        description="Let GIF and video covers and backgrounds move. Turning this on may use more resources (CPU, GPU and battery) while they play. When it's off, they show a still frame."
+      >
+        <div className="space-y-4">
+          <Row label="Play GIFs and videos" hint="Off by default.">
+            <Toggle
+              label="Play GIFs and videos"
+              checked={a.animatedArt !== "off"}
+              onChange={(v) => setAppearance({ animatedArt: v ? "everywhere" : "off" })}
+            />
+          </Row>
+          {a.animatedArt !== "off" && (
+            <Row
+              label="Where"
+              hint="Grid tiles move while the pointer is over them. Nothing moves while Undertone is minimised or in the tray, or when Windows is set to show fewer animations."
+            >
+              <Segmented<AnimatedArt>
+                value={a.animatedArt}
+                onChange={(v) => setAppearance({ animatedArt: v })}
+                options={[
+                  { value: "everywhere", label: "Everywhere" },
+                  { value: "nowPlaying", label: "Now Playing only" },
+                ]}
+              />
+            </Row>
+          )}
         </div>
       </Section>
 
@@ -404,6 +423,9 @@ function BackgroundSettings({ a, dark }: { a: Appearance; dark: boolean }) {
           />
         </div>
       </Row>
+      {bg && media && media.kind !== "image" && a.animatedArt === "off" && (
+        <p className="text-[12px] text-faint">GIFs and videos are turned off (above), so this shows as a still frame.</p>
+      )}
       {bg && media && (
         <>
           <div className="flex flex-wrap items-start gap-5">

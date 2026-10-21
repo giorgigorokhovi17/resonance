@@ -32,9 +32,15 @@ async function chooseArtwork(tracks: Track[]) {
   try {
     const art = await importCover(picked);
     await api.setTracksCover(ids, art.coverId, art.motionId);
+    const still = art.motionId && (usePlayer.getState().settings?.appearance.animatedArt ?? "off") === "off";
     usePlayer
       .getState()
-      .pushToast("info", `Set artwork for ${ids.length === 1 ? `"${tracks[0].title}"` : `${ids.length} songs`}.`);
+      .pushToast(
+        "info",
+        `Set artwork for ${ids.length === 1 ? `"${tracks[0].title}"` : `${ids.length} songs`}.${
+          still ? " GIFs and videos show a still frame until you turn them on in Settings → Visual." : ""
+        }`,
+      );
   } catch (e) {
     usePlayer.getState().pushToast("error", importError(e));
   }

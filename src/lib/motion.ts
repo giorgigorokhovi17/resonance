@@ -40,7 +40,7 @@ let minimized = false;
 /** Hidden to the tray. */
 let hidden = false;
 let reducedMotion = false;
-let mode: AnimatedArt = "everywhere";
+let mode: AnimatedArt = "off";
 let nowPlayingOpen = false;
 let scheduled = false;
 let observer: IntersectionObserver | null = null;
@@ -89,7 +89,7 @@ function start() {
     reducedMotion = mq.matches;
     schedule();
   });
-  const readMode = () => usePlayer.getState().settings?.appearance.animatedArt ?? "everywhere";
+  const readMode = () => usePlayer.getState().settings?.appearance.animatedArt ?? "off";
   mode = readMode();
   usePlayer.subscribe(() => {
     const m = readMode();
