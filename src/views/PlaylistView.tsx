@@ -1,5 +1,5 @@
 import { save } from "@tauri-apps/plugin-dialog";
-import { AlertTriangle, Download, FileOutput, GripVertical, ListChecks, ListMusic, MoreHorizontal, Pause, Pencil, Play, Shuffle, Trash2, X } from "lucide-react";
+import { AlertTriangle, AudioLines, Download, FileOutput, GripVertical, ListChecks, ListMusic, MoreHorizontal, Pause, Pencil, Play, Shuffle, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { openMenu, SEP, type MenuItem } from "../components/ContextMenu";
 import { Cover } from "../components/Cover";
@@ -343,7 +343,35 @@ export function PlaylistView({ id }: { id: number }) {
           >
             <GripVertical size={14} className="shrink-0 cursor-grab text-faint opacity-0 transition-opacity group-hover:opacity-100" />
             <span className="tabular w-6 shrink-0 text-right text-[12.5px] text-muted">{index + 1}</span>
-            <Cover coverId={liveCoverId(t)} className="h-10 w-10 shrink-0" rounded="rounded" iconSize={16} />
+            <div className="relative h-10 w-10 shrink-0">
+              <Cover coverId={liveCoverId(t)} className="h-10 w-10" rounded="rounded" iconSize={16} />
+              {!entry.missing && (
+                // One click plays the song; it fades in over the cover while the pointer is on the row.
+                <button
+                  aria-label={isCur && playing ? `Pause ${t.title}` : `Play ${t.title}`}
+                  title={isCur && playing ? "Pause" : "Play"}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (isCur) api.togglePlay();
+                    else playPlaylist(id, at, false);
+                  }}
+                  className={`absolute inset-0 flex items-center justify-center rounded bg-black/50 transition-opacity duration-200 focus-visible:opacity-100 ${
+                    isCur ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                  }`}
+                >
+                  <span className="flex h-7 w-7 scale-75 items-center justify-center rounded-full bg-accent text-on-accent shadow-md transition-transform duration-200 ease-out group-hover:scale-100">
+                    {isCur && playing ? (
+                      <>
+                        <AudioLines size={14} className="animate-pulse group-hover:hidden" />
+                        <Pause size={13} fill="currentColor" strokeWidth={0} className="hidden group-hover:block" />
+                      </>
+                    ) : (
+                      <Play size={13} fill="currentColor" strokeWidth={0} className="translate-x-px" />
+                    )}
+                  </span>
+                </button>
+              )}
+            </div>
             <div className="min-w-0 flex-1">
               <div className={`truncate text-[13.5px] ${isCur ? "font-medium text-accent" : ""}`}>
                 {entry.missing && <AlertTriangle size={12} className="mr-1 inline text-warn" />}
