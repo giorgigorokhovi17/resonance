@@ -130,13 +130,40 @@ export interface Settings {
   theme: "dark" | "light" | "system";
   closeToTray: boolean;
   watchFolders: boolean;
-  minimizeToMini: boolean;
-  /** The Dynamic Island at the top of the screen. */
+  /** The Dynamic Island. */
   island: boolean;
+  islandOptions: IslandOptions;
   eq: EqSettings;
   appearance: Appearance;
   soulseek: SoulseekSettings;
   youtube: { enabled: boolean };
+}
+
+export type IslandPosition =
+  | "topLeft"
+  | "topCenter"
+  | "topRight"
+  | "middleLeft"
+  | "middleRight"
+  | "bottomLeft"
+  | "bottomCenter"
+  | "bottomRight"
+  | "custom";
+
+export interface IslandOptions {
+  /** "custom" is where it was dragged to (`x`, `y`: the collapsed island's top-left, screen px). */
+  position: IslandPosition;
+  x: number | null;
+  y: number | null;
+  locked: boolean;
+  clickThrough: boolean;
+  onlyWhenMinimized: boolean;
+  showTitle: boolean;
+  showArtist: boolean;
+  expandOnHover: boolean;
+  /** "cover", a palette id from lib/island.ts, or "custom" (`customColors`). */
+  colors: string;
+  customColors: string[];
 }
 
 export interface Appearance {

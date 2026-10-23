@@ -67,7 +67,7 @@ own update key.
   - Backgrounds get a scrim (dim 0–80%, blur 0–40 px, fill or whole picture). The dim is raised automatically when needed so text meets WCAG AA contrast over the picture in dark and light mode.
 - **Playlist page designs** (Settings → Visual → Playlist page): **Classic**, with the cover and title above the songs, or **Cover and lyrics**, with the cover on the left, the playing song and its lyrics below it, and the songs on the right. Lyrics come from a `.lrc` file with the same name next to the song, or from its tags; timed lyrics follow the song and a click jumps to that line.
 - **Lyrics window** (the microphone button in the player bar, or L): the playing song's lyrics over the app. When a song has none, **Search lyrics** looks it up on [LRCLIB](https://lrclib.net) (free, no account), sending only the title, artist, album and length. A result is used only if its title matches and its length is within 3 s. Found lyrics are kept in the app's database (the song file isn't changed); **Wrong lyrics? Remove** forgets them. Nothing is searched unless you click.
-- **Dynamic Island** (Settings → Dynamic Island, off by default): a small bar at the top of the screen with the playing song, its background a moving gradient of the cover's colours. Point at it to open it into the cover, the current lyric line, a progress bar you can click, and play/pause, previous and next; it also opens for a few seconds when a new song starts. Click the cover to bring Undertone up. It hides when nothing is playing and while another app is full screen.
+- **Dynamic Island** (Settings → Dynamic Island, off by default): a small always-on-top bar with the playing song, by default only while Undertone is minimised or in the tray. Its background is a moving gradient of the cover's colours or a palette you pick (built-in or your own three colours). Point at it to open it into the cover, the current lyric line, a progress bar you can click, and play/pause, previous and next; it also opens for a few seconds when a new song starts. Drag it anywhere or snap it to a corner or edge, double-click it to bring Undertone up, and right-click it to lock it, let clicks through, hide the title or artist, change its colours and more. It hides when nothing is playing and while another app is full screen.
 - **Sleep timer** (the moon button in the player bar): pause after 15 minutes to 1.5 hours, fading out over the last 10 seconds, or stop at the end of the playing song.
 - **Queue** (drag to reorder, remove, save as playlist) as a full view and a slide-over panel.
 - **Playlists**: create, rename, delete, reorder. **Import M3U/M3U8, PLS, XSPF and WPL**: importing the same file again updates its playlist instead of adding a copy. **Export to M3U8, XSPF, or CSV with ISRC** (for spreadsheets; cells are guarded against formula injection). ISRCs and MusicBrainz recording ids are read from tags (invalid values, such as barcodes in the ISRC field, are ignored).
@@ -75,7 +75,7 @@ own update key.
 - **Import from link** (like Riff): paste a public Spotify, YouTube / YouTube Music or Apple Music playlist or album link, with no sign-in. Only track info is read, and songs are matched to your files. When importing, choose what happens to the songs you don't have: **look on Soulseek first** (FLAC first, else MP3 at 320 kbps, same title, artist and version, length within 3 s; YouTube for what Soulseek doesn't have, when it's on), **download from YouTube** at YouTube's quality right away, or just import. Soulseek-first results wait on the playlist's review page: you tick what to download, and each finished download replaces its missing entry in every playlist. These services' web endpoints are undocumented and can change; when one does, its import says so instead of guessing.
 - Shuffle, repeat one/all, and the queue plus position are restored on the next launch.
 - Live format info: codec, sample rate, bit depth, bitrate, output mode and bit depth, device, bit-perfect / resampled / EQ / ReplayGain badges.
-- Output device picker, **media keys + Windows media overlay (SMTC)**, **system tray** (with optional close-to-tray), **mini-player** (Ctrl+M), and keyboard shortcuts.
+- Output device picker, **media keys + Windows media overlay (SMTC)**, **system tray** (with optional close-to-tray), and keyboard shortcuts.
 - Drag files or folders onto the window, or open audio files with Undertone from Explorer.
 
 **Sources**
@@ -179,7 +179,6 @@ cargo run --release --example probe -- song.flac          # decode a file and pr
 | F | Now Playing view |
 | Q | Queue panel |
 | Ctrl+F | Search |
-| Ctrl+M | Mini player |
 | Alt+← / Alt+→ | Back / forward |
 
 Hardware media keys work through Windows' media controls, even when the window is hidden.

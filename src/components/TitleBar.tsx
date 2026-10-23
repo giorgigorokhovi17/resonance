@@ -2,8 +2,6 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Minus, Square, X, Copy } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import logo from "../assets/logo.png";
-import { toggleMiniPlayer } from "../lib/window";
-import { usePlayer } from "../store/player";
 
 /**
  * Custom frameless title bar. Everything that isn't a control carries `data-tauri-drag-region`,
@@ -13,7 +11,6 @@ import { usePlayer } from "../store/player";
 export function TitleBar({ children }: { children?: ReactNode }) {
   const win = getCurrentWindow();
   const [maximized, setMaximized] = useState(false);
-  const minimizeToMini = usePlayer((s) => s.settings?.minimizeToMini ?? false);
 
   useEffect(() => {
     let un: (() => void) | undefined;
@@ -35,10 +32,7 @@ export function TitleBar({ children }: { children?: ReactNode }) {
         </div>
       </div>
       <div className="flex h-full">
-        <WinButton
-          label={minimizeToMini ? "Mini player" : "Minimize"}
-          onClick={() => (minimizeToMini ? toggleMiniPlayer() : win.minimize())}
-        >
+        <WinButton label="Minimize" onClick={() => win.minimize()}>
           <Minus size={15} strokeWidth={1.5} />
         </WinButton>
         <WinButton label={maximized ? "Restore" : "Maximize"} onClick={() => win.toggleMaximize()}>

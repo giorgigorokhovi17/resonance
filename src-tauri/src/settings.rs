@@ -23,10 +23,9 @@ pub struct Settings {
     pub theme: String,
     pub close_to_tray: bool,
     pub watch_folders: bool,
-    /// The minimize button switches to the mini player instead of hiding the window.
-    pub minimize_to_mini: bool,
-    /// The Dynamic Island at the top of the screen (src/island.rs).
+    /// The Dynamic Island (src/island.rs).
     pub island: bool,
+    pub island_options: IslandOptions,
     pub eq: EqSettings,
     pub appearance: Appearance,
     pub soulseek: SoulseekSettings,
@@ -113,6 +112,73 @@ impl Default for Appearance {
     }
 }
 
+/// Where the Dynamic Island sits and what it shows. Changed from its right-click menu and from
+/// Settings; the island window (src/views/Island.tsx) applies them.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct IslandOptions {
+    /// "topLeft" | "topCenter" | "topRight" | "middleLeft" | "middleRight" | "bottomLeft" |
+    /// "bottomCenter" | "bottomRight", or "custom" (where it was dragged to: `x`, `y`).
+    pub position: String,
+    /// Top-left corner of the collapsed island, in screen (physical) pixels, for "custom".
+    pub x: Option<f64>,
+    pub y: Option<f64>,
+    /// It can't be dragged.
+    pub locked: bool,
+    /// Clicks go to whatever is underneath (undone from Settings or the tray menu).
+    pub click_through: bool,
+    /// Only shows while Undertone is minimised or in the tray.
+    pub only_when_minimized: bool,
+    pub show_title: bool,
+    pub show_artist: bool,
+    /// Grows into controls when pointed at.
+    pub expand_on_hover: bool,
+    /// "cover" (from the playing song's artwork), a built-in palette id, or "custom".
+    pub colors: String,
+    /// Three `#rrggbb` colours for "custom".
+    pub custom_colors: Vec<String>,
+}
+
+pub const ISLAND_POSITIONS: [&str; 9] =
+    ["topLeft", "topCenter", "topRight", "middleLeft", "middleRight", "bottomLeft", "bottomCenter", "bottomRight", "custom"];
+
+impl Default for IslandOptions {
+    fn default() -> Self {
+        Self {
+            position: "topCenter".into(),
+            x: None,
+            y: None,
+            locked: false,
+            click_through: false,
+            only_when_minimized: true,
+            show_title: true,
+            show_artist: true,
+            expand_on_hover: true,
+            colors: "cover".into(),
+            custom_colors: vec!["#5a3cc8".into(), "#c83c8c".into(), "#2864c8".into()],
+        }
+    }
+}
+
+impl IslandOptions {
+    pub fn normalized(mut self) -> Self {
+        let d = Self::default();
+        let finite = |v: Option<f64>| v.filter(|v| v.is_finite() && v.abs() < 100_000.0);
+        self.x = finite(self.x);
+        self.y = finite(self.y);
+        let custom_ok = self.x.is_some() && self.y.is_some();
+        if !ISLAND_POSITIONS.contains(&self.position.as_str()) || (self.position == "custom" && !custom_ok) {
+            self.position = d.position;
+        }
+        if self.colors.is_empty() || self.colors.len() > 32 {
+            self.colors = d.colors;
+        }
+        let colors: Vec<String> = self.custom_colors.into_iter().filter_map(|c| hex_color(Some(c))).take(3).collect();
+        self.custom_colors = if colors.len() == 3 { colors } else { d.custom_colors };
+        self
+    }
+}
+
 fn hex_color(c: Option<String>) -> Option<String> {
     let c = c?.trim().to_ascii_lowercase();
     let ok = c.len() == 7 && c.starts_with('#') && c[1..].chars().all(|ch| ch.is_ascii_hexdigit());
@@ -160,8 +226,8 @@ impl Default for Settings {
             theme: "dark".into(),
             close_to_tray: false,
             watch_folders: true,
-            minimize_to_mini: false,
             island: false,
+            island_options: IslandOptions::default(),
             eq: EqSettings::default(),
             appearance: Appearance::default(),
             soulseek: SoulseekSettings::default(),
@@ -183,6 +249,7 @@ impl SettingsStore {
             .map(|mut s| {
                 s.eq = s.eq.clone().normalized();
                 s.appearance = s.appearance.clone().normalized();
+                s.island_options = s.island_options.clone().normalized();
                 s
             })
             .unwrap_or_default();
@@ -225,7 +292,7 @@ mod tests {
         assert_eq!(s.theme, "light");
         assert!(s.close_to_tray);
         assert_eq!(s.appearance, Appearance::default());
-        assert!(!s.minimize_to_mini);
+        assert_eq!(s.island_options, IslandOptions::default());
         assert_eq!(s.soulseek, SoulseekSettings::default());
         assert!(!s.youtube.enabled, "YouTube downloads are off until turned on");
     }
@@ -304,6 +371,30 @@ mod tests {
         }
         .normalized();
         assert_eq!((a.background, a.background_scope.as_str(), a.animated_art.as_str()), (None, "app", "off"));
+    }
+
+    #[test]
+    fn island_options() {
+        // Settings from 0.7.x: the old mini player switch is ignored, the island keeps its defaults.
+        let s: Settings = serde_json::from_str(r#"{"minimizeToMini":true,"island":true}"#).unwrap();
+        assert!(s.island);
+        let o = &s.island_options;
+        assert_eq!((o.position.as_str(), o.colors.as_str()), ("topCenter", "cover"));
+        assert!(o.only_when_minimized && o.show_title && o.show_artist && o.expand_on_hover);
+        assert!(!o.locked && !o.click_through);
+
+        let o: IslandOptions =
+            serde_json::from_str(r##"{"position":"custom","x":120.5,"y":40,"customColors":["#AABBCC","#000000","#ffffff"]}"##).unwrap();
+        let o = o.normalized();
+        assert_eq!((o.position.as_str(), o.x, o.y), ("custom", Some(120.5), Some(40.0)));
+        assert_eq!(o.custom_colors, ["#aabbcc", "#000000", "#ffffff"]);
+
+        // A custom position without coordinates, unknown positions and bad colours fall back.
+        let o = IslandOptions { position: "custom".into(), x: Some(f64::NAN), y: Some(3.0), ..IslandOptions::default() }.normalized();
+        assert_eq!((o.position.as_str(), o.x), ("topCenter", None));
+        let o = IslandOptions { position: "sideways".into(), custom_colors: vec!["red".into()], ..IslandOptions::default() }.normalized();
+        assert_eq!(o.position, "topCenter");
+        assert_eq!(o.custom_colors, IslandOptions::default().custom_colors);
     }
 
     #[test]

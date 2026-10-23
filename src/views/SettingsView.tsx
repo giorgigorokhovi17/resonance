@@ -5,6 +5,7 @@ import type { DeviceInfo, OutputMode, Settings } from "../lib/types";
 import { usePlayer } from "../store/player";
 import { FormatBadge } from "../components/FormatBadge";
 import { BackupSection } from "./settings/Backup";
+import { IslandSection } from "./settings/Island";
 import { LibraryFoldersSection } from "./settings/LibraryFolders";
 import { UpdatesSection } from "./settings/Updates";
 import { VisualSettings } from "./settings/Visual";
@@ -12,6 +13,11 @@ import { VisualSettings } from "./settings/Visual";
 type Tab = "general" | "visual";
 // Remembered while the app runs, so leaving Settings and coming back keeps the tab.
 let lastTab: Tab = "general";
+
+/** Opens Settings on this tab next time (for links into Settings from elsewhere). */
+export function showSettingsTab(t: Tab) {
+  lastTab = t;
+}
 
 export function Section({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
   return (
@@ -208,14 +214,7 @@ export function SettingsView() {
             </div>
           </Section>
 
-          <Section
-            title="Dynamic Island"
-            description="A small bar at the top of the screen with the playing song, coloured from its cover. Point at it for controls, progress and the current lyric line. It hides while another app is full screen."
-          >
-            <Row label="Show the Dynamic Island">
-              <Toggle label="Dynamic Island" checked={settings.island} onChange={(v) => patch({ island: v })} />
-            </Row>
-          </Section>
+          <IslandSection settings={settings} />
 
           <Section
             title="Crossfade"
@@ -247,9 +246,6 @@ export function SettingsView() {
             <div className="space-y-4">
               <Row label="Close button minimizes to tray">
                 <Toggle label="Close to tray" checked={settings.closeToTray} onChange={(v) => patch({ closeToTray: v })} />
-              </Row>
-              <Row label="Minimize to mini player">
-                <Toggle label="Minimize to mini player" checked={settings.minimizeToMini} onChange={(v) => patch({ minimizeToMini: v })} />
               </Row>
               <Row label="Watch library folders for changes">
                 <Toggle label="Watch folders" checked={settings.watchFolders} onChange={(v) => patch({ watchFolders: v })} />
@@ -307,7 +303,6 @@ const SHORTCUTS: [string, string][] = [
   ["F", "Now playing"],
   ["Q", "Queue panel"],
   ["Ctrl + F", "Search"],
-  ["Ctrl + M", "Mini player"],
   ["Alt + ← / →", "Back / forward"],
 ];
 

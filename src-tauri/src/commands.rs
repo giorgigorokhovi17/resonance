@@ -340,8 +340,8 @@ pub struct SettingsPatch {
     pub theme: Option<String>,
     pub close_to_tray: Option<bool>,
     pub watch_folders: Option<bool>,
-    pub minimize_to_mini: Option<bool>,
     pub island: Option<bool>,
+    pub island_options: Option<crate::settings::IslandOptions>,
     pub replay_gain: Option<ReplayGainMode>,
     pub replay_gain_preamp: Option<f64>,
     pub crossfade: Option<f64>,
@@ -369,11 +369,11 @@ pub fn update_settings(app: AppHandle, state: State<'_, AppState>, patch: Settin
         if let Some(v) = patch.watch_folders {
             s.watch_folders = v;
         }
-        if let Some(v) = patch.minimize_to_mini {
-            s.minimize_to_mini = v;
-        }
         if let Some(v) = patch.island {
             s.island = v;
+        }
+        if let Some(v) = patch.island_options {
+            s.island_options = v.normalized();
         }
         if let Some(v) = patch.replay_gain {
             s.replay_gain = v;
@@ -727,6 +727,12 @@ pub fn import_autoeq(path: String) -> CmdResult<AutoEqImport> {
 #[tauri::command]
 pub fn show_main_window(app: AppHandle) {
     crate::show_main(&app);
+}
+
+/// Whether the main window is minimised or in the tray (the island may show only then).
+#[tauri::command]
+pub fn island_main_away(app: AppHandle) -> bool {
+    crate::island::main_away(&app)
 }
 
 /// Open an https:// link (e.g. the donate page) in the default browser.

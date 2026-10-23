@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { CORNER_SCALE, DEFAULT_APPEARANCE, resolveTheme } from "../lib/theme";
 import { usePlayer } from "../store/player";
-import { useUi } from "../store/ui";
 
 /** Whether the app is currently dark, following the theme setting and the Windows theme. */
 export function useIsDark(): boolean {
@@ -24,7 +23,6 @@ export function useIsDark(): boolean {
 export function useAppearance(coverColor: string | null) {
   const dark = useIsDark();
   const a = usePlayer((s) => s.settings?.appearance) ?? DEFAULT_APPEARANCE;
-  const mini = useUi((s) => s.mini);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -36,8 +34,7 @@ export function useAppearance(coverColor: string | null) {
     root.style.setProperty("--np-blur", `${a.backdropBlur}px`);
   }, [a, dark, coverColor]);
 
-  // The mini player has a fixed window size, so it always renders at 100%.
-  const zoom = mini ? 1 : a.uiScale;
+  const zoom = a.uiScale;
   useEffect(() => {
     getCurrentWebview()
       .setZoom(zoom)
