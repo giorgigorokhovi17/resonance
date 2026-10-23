@@ -131,6 +131,8 @@ export interface Settings {
   closeToTray: boolean;
   watchFolders: boolean;
   minimizeToMini: boolean;
+  /** The Dynamic Island at the top of the screen. */
+  island: boolean;
   eq: EqSettings;
   appearance: Appearance;
   soulseek: SoulseekSettings;

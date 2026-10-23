@@ -1,6 +1,7 @@
 ﻿pub mod audio;
 pub mod backup;
 pub mod commands;
+pub mod island;
 pub mod library;
 pub mod persist;
 pub mod queue;
@@ -77,7 +78,7 @@ fn fit_to_work_area(w: &tauri::WebviewWindow) {
     let _ = w.set_position(tauri::PhysicalPosition::new(x, y));
 }
 
-fn show_main(app: &AppHandle) {
+pub fn show_main(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.show();
         let _ = w.unminimize();
@@ -195,6 +196,13 @@ pub fn run() {
             });
         })
         .on_window_event(|window, event| {
+            if window.label() != "main" {
+                return;
+            }
+            // The island window alone mustn't keep the app running.
+            if let WindowEvent::Destroyed = event {
+                window.app_handle().exit(0);
+            }
             if let WindowEvent::CloseRequested { api, .. } = event {
                 let to_tray = window
                     .app_handle()
@@ -370,6 +378,9 @@ pub fn run() {
             }
 
             let sleep = sleep::SleepTimer::new(engine.clone(), app.handle().clone());
+            if s.island {
+                island::open(app.handle());
+            }
             app.manage(AppState { engine, settings, library, queue_dirty, queue_file, soulseek, finder, youtube, plays, sleep });
 
             // Files passed on the command line start playing right away.
@@ -431,6 +442,7 @@ pub fn run() {
             commands::delete_eq_preset,
             commands::import_autoeq,
             commands::open_url,
+            commands::show_main_window,
             commands::quit_app,
             commands::update_playlist,
             commands::set_playlist_cover,

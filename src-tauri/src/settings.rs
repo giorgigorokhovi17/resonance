@@ -25,6 +25,8 @@ pub struct Settings {
     pub watch_folders: bool,
     /// The minimize button switches to the mini player instead of hiding the window.
     pub minimize_to_mini: bool,
+    /// The Dynamic Island at the top of the screen (src/island.rs).
+    pub island: bool,
     pub eq: EqSettings,
     pub appearance: Appearance,
     pub soulseek: SoulseekSettings,
@@ -159,6 +161,7 @@ impl Default for Settings {
             close_to_tray: false,
             watch_folders: true,
             minimize_to_mini: false,
+            island: false,
             eq: EqSettings::default(),
             appearance: Appearance::default(),
             soulseek: SoulseekSettings::default(),

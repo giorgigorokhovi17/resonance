@@ -341,6 +341,7 @@ pub struct SettingsPatch {
     pub close_to_tray: Option<bool>,
     pub watch_folders: Option<bool>,
     pub minimize_to_mini: Option<bool>,
+    pub island: Option<bool>,
     pub replay_gain: Option<ReplayGainMode>,
     pub replay_gain_preamp: Option<f64>,
     pub crossfade: Option<f64>,
@@ -371,6 +372,9 @@ pub fn update_settings(app: AppHandle, state: State<'_, AppState>, patch: Settin
         if let Some(v) = patch.minimize_to_mini {
             s.minimize_to_mini = v;
         }
+        if let Some(v) = patch.island {
+            s.island = v;
+        }
         if let Some(v) = patch.replay_gain {
             s.replay_gain = v;
         }
@@ -386,6 +390,13 @@ pub fn update_settings(app: AppHandle, state: State<'_, AppState>, patch: Settin
     });
     if rg_changed {
         state.engine.send(Command::SetReplayGain { mode: s.replay_gain, preamp_db: s.replay_gain_preamp });
+    }
+    if let Some(on) = patch.island {
+        if on {
+            crate::island::open(&app);
+        } else {
+            crate::island::close(&app);
+        }
     }
     if crossfade_changed {
         state.engine.send(Command::SetCrossfade(s.crossfade));
@@ -705,6 +716,12 @@ pub fn import_autoeq(path: String) -> CmdResult<AutoEqImport> {
     let name = if name.is_empty() { "AutoEQ".to_string() } else { name };
     eq.preset_name = Some(name.clone());
     Ok(AutoEqImport { eq, name, warnings })
+}
+
+/// Brings the main window up (from the island).
+#[tauri::command]
+pub fn show_main_window(app: AppHandle) {
+    crate::show_main(&app);
 }
 
 /// Open an https:// link (e.g. the donate page) in the default browser.

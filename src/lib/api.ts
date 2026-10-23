@@ -177,9 +177,10 @@ export const api = {
 
   // misc
   openUrl: (url: string) => invoke<void>("open_url", { url }),
+  showMainWindow: () => invoke<void>("show_main_window"),
 
   // settings
   getSettings: () => invoke<Settings>("get_settings"),
-  updateSettings: (patch: Partial<Pick<Settings, "theme" | "closeToTray" | "watchFolders" | "minimizeToMini" | "replayGain" | "replayGainPreamp" | "crossfade" | "appearance">>) =>
+  updateSettings: (patch: Partial<Pick<Settings, "theme" | "closeToTray" | "watchFolders" | "minimizeToMini" | "island" | "replayGain" | "replayGainPreamp" | "crossfade" | "appearance">>) =>
     invoke<Settings>("update_settings", { patch }),
 };

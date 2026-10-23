@@ -209,6 +209,15 @@ export function SettingsView() {
           </Section>
 
           <Section
+            title="Dynamic Island"
+            description="A small bar at the top of the screen with the playing song, coloured from its cover. Point at it for controls, progress and the current lyric line. It hides while another app is full screen."
+          >
+            <Row label="Show the Dynamic Island">
+              <Toggle label="Dynamic Island" checked={settings.island} onChange={(v) => patch({ island: v })} />
+            </Row>
+          </Section>
+
+          <Section
             title="Crossfade"
             description="Fades each song into the next. Songs from the same album still play gaplessly, with no fade. While the songs overlap, the output isn't bit-perfect."
           >
