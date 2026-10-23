@@ -157,7 +157,7 @@ export function PlayerBar() {
             </span>
           )}
         </button>
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           {track ? (
             <>
               <div className="truncate text-[13.5px] font-semibold">{track.title}</div>
