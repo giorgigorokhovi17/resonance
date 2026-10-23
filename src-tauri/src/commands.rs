@@ -392,11 +392,16 @@ pub fn update_settings(app: AppHandle, state: State<'_, AppState>, patch: Settin
         state.engine.send(Command::SetReplayGain { mode: s.replay_gain, preamp_db: s.replay_gain_preamp });
     }
     if let Some(on) = patch.island {
-        if on {
-            crate::island::open(&app);
-        } else {
-            crate::island::close(&app);
-        }
+        // This command runs on the main thread, and building a window there waits on the main
+        // thread itself: on Windows the app freezes. Do it from another thread.
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            if on {
+                crate::island::open(&app);
+            } else {
+                crate::island::close(&app);
+            }
+        });
     }
     if crossfade_changed {
         state.engine.send(Command::SetCrossfade(s.crossfade));
