@@ -1,6 +1,6 @@
 # Undertone
 
-A personal, **local-only** music player for Windows. No telemetry. The only network use is the update check, reading playlist links you paste, and, once you sign in, Soulseek.
+A personal, **local-only** music player for Windows. No telemetry. The only network use is the update check, reading playlist links you paste, Soulseek once you sign in, and YouTube downloads once you turn them on.
 
 Formerly called Resonance. The data folder (`app.resonance.player`) and backup file format still
 use the old name so existing libraries and backups keep working.
@@ -64,14 +64,15 @@ own update key.
 - **Queue** (drag to reorder, remove, save as playlist) as a full view and a slide-over panel.
 - **Playlists**: create, rename, delete, reorder. **Import M3U/M3U8, PLS, XSPF and WPL**: importing the same file again updates its playlist instead of adding a copy. **Export to M3U8, XSPF, or CSV with ISRC** (for spreadsheets; cells are guarded against formula injection). ISRCs and MusicBrainz recording ids are read from tags (invalid values, such as barcodes in the ISRC field, are ignored).
 - **Playlist matcher**: every imported entry is matched to a local file by path, folder + file name, ISRC, MusicBrainz id, then fuzzy title/artist/version/duration (SQLite FTS5 narrows candidates). Only unambiguous, fully confirmed matches are accepted automatically. A remix, slowed or extended version is never taken for the original. **Export unmatched report…** on an imported playlist lists what wasn't matched and why.
-- **Import from link** (like Riff): paste a public Spotify, YouTube / YouTube Music or Apple Music playlist or album link, with no sign-in. Only track info is read, and songs are matched to your files. On the playlist's review page, **Get missing songs from Soulseek** searches for the rest (FLAC first, else MP3 at 320 kbps, same title, artist and version, length within 3 s) and lists the best file for each. You tick what to download, and each finished download replaces its missing entry in every playlist. These services' web endpoints are undocumented and can change; when one does, its import says so instead of guessing.
+- **Import from link** (like Riff): paste a public Spotify, YouTube / YouTube Music or Apple Music playlist or album link, with no sign-in. Only track info is read, and songs are matched to your files. When importing, choose what happens to the songs you don't have: **look on Soulseek first** (FLAC first, else MP3 at 320 kbps, same title, artist and version, length within 3 s; YouTube for what Soulseek doesn't have, when it's on), **download from YouTube** at YouTube's quality right away, or just import. Soulseek-first results wait on the playlist's review page: you tick what to download, and each finished download replaces its missing entry in every playlist. These services' web endpoints are undocumented and can change; when one does, its import says so instead of guessing.
 - Shuffle, repeat one/all, and the queue plus position are restored on the next launch.
 - Live format info: codec, sample rate, bit depth, bitrate, output mode and bit depth, device, bit-perfect / resampled / EQ / ReplayGain badges.
 - Output device picker, **media keys + Windows media overlay (SMTC)**, **system tray** (with optional close-to-tray), **mini-player** (Ctrl+M), and keyboard shortcuts.
 - Drag files or folders onto the window, or open audio files with Undertone from Explorer.
 
 **Sources**
-- **Soulseek**: sign in, search (results grouped by user and folder, with format, bitrate or bit depth/sample rate, length and size), and download single files or whole folders. A queue shows progress, with cancel and retry. Downloads go to a `Soulseek` folder in your first library folder (or a folder you pick), are marked read-only, and appear in the library through the folder watcher. Nothing is shared or uploaded. See `docs/soulseek-design.md`.
+- **Soulseek**: sign in, search (results grouped by user and folder, with format, bitrate or bit depth/sample rate, length and size), and download single files or whole folders. A queue shows progress, with cancel and retry. Downloads go to a `Soulseek` folder in your first library folder (or a folder you pick), are marked read-only, and appear in the library through the folder watcher. Nothing is shared or uploaded. See `docs/soulseek-design.md`. A saved sign-in is used at startup and again after the connection drops, retrying until it works.
+- **YouTube downloads** (off until you turn them on in **Sources**): songs Soulseek doesn't have are found on YouTube Music and downloaded with [yt-dlp](https://github.com/yt-dlp/yt-dlp) as AAC at about 128 kbps, tagged with title, artist, album and cover. They go into a `YouTube` folder inside the download folder, read-only. Turning it on downloads yt-dlp and QuickJS (about 20 MB) from their GitHub releases, checked against their SHA-256; yt-dlp updates itself weekly.
 
 ## Measured performance
 
@@ -184,8 +185,9 @@ Hardware media keys work through Windows' media controls, even when the window i
 | Album-art cache (and the still frames of GIFs and videos) | `%LOCALAPPDATA%\app.resonance.player\covers\` |
 | Custom GIFs, videos and background photos (copies; ones nothing uses are deleted on startup) | `%LOCALAPPDATA%\app.resonance.player\media\` |
 | Soulseek sign-in | Windows Credential Manager, generic credential `Resonance/Soulseek` |
+| yt-dlp and QuickJS (YouTube downloads) | `%LOCALAPPDATA%\app.resonance.player\tools\` |
 
-Music files are only ever read, never modified. Soulseek downloads are new files, saved once and then marked read-only.
+Music files are only ever read, never modified. Soulseek and YouTube downloads are new files, saved once and then marked read-only.
 
 ## Architecture
 
@@ -204,7 +206,8 @@ src-tauri/src
 │                  matcher/ (normalize.rs rules, tiers, FTS5 candidates, decisions)
 ├─ queue.rs        queue, shuffle, repeat
 ├─ sources/       Soulseek: wrapper around soulseek-rs-lib, Credential Manager, result grouping;
-│                  links/ (Spotify, YouTube, Apple Music link readers), missing.rs (finding missing songs)
+│                  links/ (Spotify, YouTube, Apple Music link readers), missing.rs (finding missing songs),
+│                  youtube.rs (yt-dlp: install, YouTube Music search, downloads)
 ├─ smtc.rs         Windows media overlay / media keys (souvlaki)
 ├─ persist.rs      queue persistence
 └─ commands.rs     Tauri command API
@@ -227,7 +230,10 @@ affiliated with, endorsed by, or connected to Spotify, YouTube, Google, Apple or
 - **Playlist links:** importing a Spotify, YouTube or Apple Music link only reads the public
   track list (titles, artists, durations), the same information the services' own web pages show.
   It uses those pages' undocumented web endpoints, which can change or stop working at any time,
-  and which the services' terms may not allow. Nothing is streamed or downloaded from them.
+  and which the services' terms may not allow. Nothing is downloaded from them unless you turn on
+  YouTube downloads.
+- **YouTube downloads:** downloading from YouTube may be against YouTube's terms of service, and
+  is entirely your decision and responsibility. Only download music you have the right to.
 - **Soulseek:** downloading from Soulseek is entirely your decision and your responsibility. Only
   download music you have the right to. Copyright law differs between countries, and sharing or
   downloading copyrighted music without permission is illegal in many of them. Undertone doesn't
@@ -240,6 +246,8 @@ affiliated with, endorsed by, or connected to Spotify, YouTube, Google, Apple or
 - The paste-a-link import follows the approach of [Riff](https://github.com/rootscripts/riff)
   (MIT), including the Spotify web player's persisted-query hash.
 - Soulseek protocol: [soulseek-rs-lib](https://crates.io/crates/soulseek-rs-lib) (MIT).
+- YouTube downloads: [yt-dlp](https://github.com/yt-dlp/yt-dlp) (Unlicense) with
+  [QuickJS-NG](https://github.com/quickjs-ng/quickjs) (MIT), downloaded when you turn it on.
 - Decoding: [Symphonia](https://github.com/pdeljanov/Symphonia) and libopus; tags:
   [lofty](https://github.com/Serial-ATA/lofty-rs); headphone EQ presets:
   [AutoEq](https://github.com/jaakkopasanen/AutoEq).

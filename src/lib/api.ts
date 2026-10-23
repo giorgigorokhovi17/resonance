@@ -31,6 +31,8 @@ import type {
   SlskStatus,
   SoulseekSettings,
   Track,
+  FindMode,
+  YtStatus,
 } from "./types";
 
 export const api = {
@@ -129,6 +131,10 @@ export const api = {
   slskSignIn: (username: string, password: string, remember: boolean) =>
     invoke<SlskStatus>("slsk_sign_in", { username, password, remember }),
   slskSignOut: (forget: boolean) => invoke<void>("slsk_sign_out", { forget }),
+  slskReconnect: () => invoke<SlskStatus>("slsk_reconnect"),
+  ytStatus: () => invoke<YtStatus>("yt_status"),
+  ytSetEnabled: (enabled: boolean) => invoke<YtStatus>("yt_set_enabled", { enabled }),
+  ytInstall: () => invoke<void>("yt_install"),
   slskSearch: (query: string) => invoke<number>("slsk_search", { query }),
   slskStopSearch: () => invoke<void>("slsk_stop_search"),
   slskDownloads: () => invoke<SlskJob[]>("slsk_downloads"),
@@ -143,7 +149,8 @@ export const api = {
   checkLink: (url: string) => invoke<LinkInfo | null>("check_link", { url }),
   /** Public Spotify / YouTube / Apple Music playlist or album link. Re-importing updates it. */
   importLink: (url: string) => invoke<LinkImport>("import_link", { url }),
-  findMissing: (playlistId: number, keys: string[] | null = null) => invoke<number>("find_missing", { playlistId, keys }),
+  findMissing: (playlistId: number, keys: string[] | null = null, mode: FindMode = "soulseekFirst") =>
+    invoke<number>("find_missing", { playlistId, keys, mode }),
   stopFind: (playlistId: number) => invoke<void>("stop_find", { playlistId }),
   /** Cancel one song's Soulseek search. */
   skipFind: (key: string) => invoke<void>("skip_find", { key }),

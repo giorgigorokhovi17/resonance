@@ -16,9 +16,10 @@ use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
 use serde::Serialize;
-use soulseek_rs::{Client, ClientSettings, DownloadStatus, SearchResult};
+use soulseek_rs::{Client, ClientSettings, DownloadStatus, SearchResult, SessionLoss};
 use tauri::{AppHandle, Emitter};
 
+use super::youtube::{self, YouTube};
 use crate::settings::SoulseekSettings;
 use credentials::Credentials;
 use model::{DownloadState, RawFile, RawResponse, ResultUser};
@@ -85,6 +86,9 @@ pub struct DownloadRequest {
     /// Link the finished file to this imported playlist entry (matcher ref key).
     #[serde(default)]
     pub link_key: Option<String>,
+    /// File name for a YouTube download ("Artist - Title.m4a").
+    #[serde(default)]
+    pub name: Option<String>,
 }
 
 /// Called with (ref key, file path) when a linked download finishes.
@@ -108,6 +112,14 @@ pub struct Soulseek {
     search_id: AtomicU64,
     search_cancel: Mutex<Option<Arc<AtomicBool>>>,
     on_linked_done: Mutex<Option<OnLinkedDone>>,
+    /// YouTube downloads share this queue (their jobs have `username` = "YouTube").
+    youtube: Mutex<Option<Arc<YouTube>>>,
+    yt_cancel: Mutex<std::collections::HashMap<u64, Arc<AtomicBool>>>,
+    /// The user signed out: don't sign back in on our own.
+    signed_out_by_user: AtomicBool,
+    /// A saved-account sign-in loop is running.
+    retrying: AtomicBool,
+    settings: Mutex<SoulseekSettings>,
 }
 
 fn err(e: impl std::fmt::Display) -> String {
@@ -125,6 +137,11 @@ impl Soulseek {
             search_id: AtomicU64::new(0),
             search_cancel: Mutex::new(None),
             on_linked_done: Mutex::new(None),
+            youtube: Mutex::new(None),
+            yt_cancel: Mutex::new(Default::default()),
+            signed_out_by_user: AtomicBool::new(false),
+            retrying: AtomicBool::new(false),
+            settings: Mutex::new(SoulseekSettings::default()),
         })
     }
 
@@ -147,18 +164,61 @@ impl Soulseek {
         self.conn.lock().client.clone().ok_or_else(|| "Sign in to Soulseek first.".to_string())
     }
 
-    /// Signs in with the saved account, if there is one. Used at startup.
+    pub fn set_youtube(&self, yt: Arc<YouTube>) {
+        *self.youtube.lock() = Some(yt);
+    }
+
+    /// Signs in with the saved account, if there is one, and keeps trying. Used at startup.
     pub fn sign_in_saved(self: &Arc<Self>, settings: SoulseekSettings) {
-        if let Some(c) = credentials::load(&self.target) {
-            let me = self.clone();
-            std::thread::spawn(move || {
-                let _ = me.sign_in(c.username, c.password, true, settings);
-            });
+        *self.settings.lock() = settings;
+        self.keep_signed_in(Duration::ZERO);
+    }
+
+    /// Signs in with the saved account, retrying with growing pauses: the network may not be up
+    /// yet at startup, or the server may be busy. Stops once signed in, when the user signs out
+    /// or forgets the account, or when Soulseek rejects the password.
+    fn keep_signed_in(self: &Arc<Self>, first_delay: Duration) {
+        if self.retrying.swap(true, Ordering::AcqRel) {
+            return;
         }
+        let me = self.clone();
+        std::thread::spawn(move || {
+            const PAUSES_S: [u64; 6] = [5, 15, 30, 60, 120, 300];
+            std::thread::sleep(first_delay);
+            for attempt in 0.. {
+                if me.signed_out_by_user.load(Ordering::Relaxed) || me.conn.lock().state == ConnState::SignedIn {
+                    break;
+                }
+                let Some(c) = credentials::load(&me.target) else { break };
+                let settings = me.settings.lock().clone();
+                match me.connect(c.username, c.password, true, settings) {
+                    Ok(_) => break,
+                    Err(e) if e.contains("rejected") => break,
+                    Err(e) => log::info!("Soulseek sign-in attempt {} failed: {e}", attempt + 1),
+                }
+                std::thread::sleep(Duration::from_secs(PAUSES_S[attempt.min(PAUSES_S.len() - 1)]));
+            }
+            me.retrying.store(false, Ordering::Release);
+        });
+    }
+
+    /// Signs in again with the saved account, now (the "Reconnect" button).
+    pub fn reconnect(self: &Arc<Self>) -> Result<Status, String> {
+        let c = credentials::load(&self.target).ok_or("No saved sign-in. Enter your username and password.")?;
+        self.signed_out_by_user.store(false, Ordering::Relaxed);
+        let settings = self.settings.lock().clone();
+        self.connect(c.username, c.password, true, settings)
+    }
+
+    /// Signs in with what the user typed.
+    pub fn sign_in(self: &Arc<Self>, username: String, password: String, remember: bool, settings: SoulseekSettings) -> Result<Status, String> {
+        self.signed_out_by_user.store(false, Ordering::Relaxed);
+        *self.settings.lock() = settings.clone();
+        self.connect(username, password, remember, settings)
     }
 
     /// Connects and logs in. Blocks for up to the server's login timeout.
-    pub fn sign_in(self: &Arc<Self>, username: String, password: String, remember: bool, settings: SoulseekSettings) -> Result<Status, String> {
+    fn connect(self: &Arc<Self>, username: String, password: String, remember: bool, settings: SoulseekSettings) -> Result<Status, String> {
         let username = username.trim().to_string();
         if username.is_empty() || password.is_empty() {
             return Err("Enter your Soulseek username and password.".into());
@@ -238,11 +298,18 @@ impl Soulseek {
             c.error = Some(format!("Disconnected: {loss}."));
             drop(c);
             me.emit_status();
+            // Dropped by the network: sign back in with the saved account. Not when the account
+            // signed in somewhere else, or the two would keep pushing each other off.
+            let displaced = matches!(loss, SessionLoss::Displaced);
+            if !displaced && !me.signed_out_by_user.load(Ordering::Relaxed) && credentials::load(&me.target).is_some() {
+                me.keep_signed_in(Duration::from_secs(10));
+            }
             return;
         });
     }
 
     pub fn sign_out(&self, forget: bool) {
+        self.signed_out_by_user.store(true, Ordering::Relaxed);
         self.cancel_search();
         let client = {
             let mut c = self.conn.lock();
@@ -364,6 +431,12 @@ impl Soulseek {
     /// Queues files for download into `folder` (each into a subfolder named after the remote
     /// folder). Files already queued or downloading are skipped.
     pub fn download(self: &Arc<Self>, folder: &Path, items: Vec<DownloadRequest>) -> Result<usize, String> {
+        let (yt, items): (Vec<_>, Vec<_>) = items.into_iter().partition(|i| i.username == youtube::SOURCE);
+        let from_youtube = self.download_youtube(folder, yt)?;
+        if items.is_empty() {
+            self.emit_jobs();
+            return Ok(from_youtube);
+        }
         let client = self.client()?;
         let mut started = Vec::new();
         {
@@ -403,15 +476,126 @@ impl Soulseek {
             self.start(&client, id);
         }
         self.emit_jobs();
-        Ok(n)
+        Ok(n + from_youtube)
+    }
+
+    /// Queues YouTube downloads into a "YouTube" folder inside `folder`.
+    fn download_youtube(self: &Arc<Self>, folder: &Path, items: Vec<DownloadRequest>) -> Result<usize, String> {
+        if items.is_empty() {
+            return Ok(0);
+        }
+        let yt = self
+            .youtube
+            .lock()
+            .clone()
+            .filter(|y| y.ready())
+            .ok_or("Turn on YouTube downloads in Settings → Sources first.")?;
+        let dir = folder.join(youtube::SOURCE);
+        let mut started = Vec::new();
+        {
+            let mut jobs = self.jobs.lock();
+            for it in items {
+                let Some(video) = youtube::video_id_of(&it.path) else { continue };
+                if jobs.iter().any(|j| j.username == youtube::SOURCE && j.remote_path == it.path && !j.state.is_finished()) {
+                    continue;
+                }
+                let name = it
+                    .name
+                    .clone()
+                    .filter(|n| n.ends_with(".m4a") && model::is_safe_component(n))
+                    .unwrap_or_else(|| format!("{video}.m4a"));
+                let id = self.next_job.fetch_add(1, Ordering::Relaxed);
+                jobs.push(Job {
+                    id,
+                    username: youtube::SOURCE.into(),
+                    remote_path: it.path.clone(),
+                    name,
+                    size: it.size,
+                    folder: dir.to_string_lossy().into_owned(),
+                    state: DownloadState::Queued,
+                    link_key: it.link_key,
+                    bytes: 0,
+                    speed: 0.0,
+                    error: None,
+                });
+                started.push(id);
+            }
+        }
+        for id in &started {
+            self.start_youtube(&yt, *id);
+        }
+        Ok(started.len())
+    }
+
+    /// Runs one YouTube download on its own thread.
+    fn start_youtube(self: &Arc<Self>, yt: &Arc<YouTube>, id: u64) {
+        let Some(job) = self.jobs.lock().iter().find(|j| j.id == id).cloned() else { return };
+        let cancel = Arc::new(AtomicBool::new(false));
+        self.yt_cancel.lock().insert(id, cancel.clone());
+        let (me, yt) = (self.clone(), yt.clone());
+        std::thread::spawn(move || {
+            me.update_job(id, |j| j.state = DownloadState::Downloading);
+            me.emit_jobs();
+            let (title, artist) = youtube::tags_from_name(&job.name);
+            let mut last = Instant::now();
+            let result = yt.download(&job.remote_path, Path::new(&job.folder), &job.name, (&title, &artist), cancel.clone(), |bytes, total, speed| {
+                me.update_job(id, |j| {
+                    j.bytes = bytes;
+                    if total > 0 {
+                        j.size = total;
+                    }
+                    j.speed = speed;
+                });
+                if last.elapsed() >= Duration::from_millis(250) {
+                    last = Instant::now();
+                    me.emit_jobs();
+                }
+            });
+            me.yt_cancel.lock().remove(&id);
+            match result {
+                Ok(path) => {
+                    me.update_job(id, |j| {
+                        j.state = DownloadState::Done;
+                        j.bytes = j.size;
+                        j.speed = 0.0;
+                    });
+                    set_read_only(&path);
+                    let link = me.jobs.lock().iter().find(|j| j.id == id).and_then(|j| j.link_key.clone());
+                    let hook = me.on_linked_done.lock().clone();
+                    if let (Some(key), Some(hook)) = (link, hook) {
+                        hook(key, path);
+                    }
+                }
+                Err(e) => {
+                    let cancelled = cancel.load(Ordering::Relaxed);
+                    me.update_job(id, |j| {
+                        j.state = if cancelled { DownloadState::Cancelled } else { DownloadState::Failed };
+                        j.error = (!cancelled).then_some(e);
+                        j.speed = 0.0;
+                    });
+                }
+            }
+            me.emit_jobs();
+        });
     }
 
     pub fn retry(self: &Arc<Self>, id: u64) -> Result<(), String> {
-        let client = self.client()?;
         let job = self.jobs.lock().iter().find(|j| j.id == id).cloned().ok_or("Download not found.")?;
         if !job.state.can_retry() {
             return Ok(());
         }
+        if job.username == youtube::SOURCE {
+            let yt = self.youtube.lock().clone().filter(|y| y.ready()).ok_or("Turn on YouTube downloads in Settings → Sources first.")?;
+            self.update_job(id, |j| {
+                j.state = DownloadState::Queued;
+                j.error = None;
+                j.bytes = 0;
+            });
+            self.start_youtube(&yt, id);
+            self.emit_jobs();
+            return Ok(());
+        }
+        let client = self.client()?;
         let _ = client.remove_download(&job.username, &job.remote_path);
         self.update_job(id, |j| {
             j.state = DownloadState::Queued;
@@ -426,6 +610,17 @@ impl Soulseek {
     pub fn cancel(&self, id: u64) {
         let Some(job) = self.jobs.lock().iter().find(|j| j.id == id).cloned() else { return };
         if !job.state.can_cancel() {
+            return;
+        }
+        if job.username == youtube::SOURCE {
+            if let Some(flag) = self.yt_cancel.lock().get(&id) {
+                flag.store(true, Ordering::Relaxed);
+            }
+            self.update_job(id, |j| {
+                j.state = DownloadState::Cancelled;
+                j.speed = 0.0;
+            });
+            self.emit_jobs();
             return;
         }
         if let Some(client) = self.conn.lock().client.clone() {

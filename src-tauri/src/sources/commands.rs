@@ -52,6 +52,32 @@ pub async fn slsk_sign_in(state: State<'_, AppState>, username: String, password
         .map_err(|e| e.to_string())?
 }
 
+/// Sign in again with the saved account.
+#[tauri::command]
+pub async fn slsk_reconnect(state: State<'_, AppState>) -> CmdResult<Status> {
+    let slsk = state.soulseek.clone();
+    tauri::async_runtime::spawn_blocking(move || slsk.reconnect()).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub fn yt_status(state: State<'_, AppState>) -> super::youtube::YtStatus {
+    state.youtube.status()
+}
+
+/// Turn YouTube downloads on (installing yt-dlp and QuickJS when needed) or off.
+#[tauri::command]
+pub fn yt_set_enabled(state: State<'_, AppState>, enabled: bool) -> super::youtube::YtStatus {
+    state.settings.update(|s| s.youtube.enabled = enabled);
+    state.youtube.set_enabled(enabled);
+    state.youtube.status()
+}
+
+/// Try installing the YouTube tools again after a failure.
+#[tauri::command]
+pub fn yt_install(state: State<'_, AppState>) {
+    state.youtube.install();
+}
+
 #[tauri::command]
 pub fn slsk_sign_out(state: State<'_, AppState>, forget: bool) {
     state.soulseek.sign_out(forget);
@@ -155,13 +181,28 @@ pub async fn import_link(app: tauri::AppHandle, state: State<'_, AppState>, url:
 
 // ---- missing songs → Soulseek -----------------------------------------------------------------
 
-/// Search Soulseek for the songs an imported playlist is missing: entries with nothing like them
-/// in the library, plus ones waiting for review (they may be a different version). `keys` limits
-/// it to some entries. Results arrive as `slsk:find` events; nothing downloads until approved.
+/// Find the songs an imported playlist is missing: entries with nothing like them in the library,
+/// plus (Soulseek first) ones waiting for review, which may be a different version. `keys` limits
+/// it to some entries. Results arrive as `slsk:find` events. With `mode` "soulseekFirst" nothing
+/// downloads until approved; with "youtube" (the user's choice when importing a YouTube playlist)
+/// every song found downloads right away.
 #[tauri::command]
-pub async fn find_missing(state: State<'_, AppState>, playlist_id: i64, keys: Option<Vec<String>>) -> CmdResult<usize> {
-    if state.soulseek.status().state != soulseek::ConnState::SignedIn {
-        return Err("Sign in to Soulseek first (Sources page).".into());
+pub async fn find_missing(
+    state: State<'_, AppState>,
+    playlist_id: i64,
+    keys: Option<Vec<String>>,
+    mode: Option<super::missing::FindMode>,
+) -> CmdResult<usize> {
+    use super::missing::FindMode;
+    let mode = mode.unwrap_or_default();
+    let signed_in = state.soulseek.status().state == soulseek::ConnState::SignedIn;
+    let yt_ready = state.youtube.ready();
+    match mode {
+        FindMode::YouTube if !yt_ready => return Err("Turn on YouTube downloads in Settings → Sources first.".into()),
+        FindMode::SoulseekFirst if !signed_in && !yt_ready => {
+            return Err("Sign in to Soulseek, or turn on YouTube downloads (Sources page).".into())
+        }
+        _ => {}
     }
     let lib = state.library.clone();
     let review = tauri::async_runtime::spawn_blocking(move || {
@@ -169,17 +210,33 @@ pub async fn find_missing(state: State<'_, AppState>, playlist_id: i64, keys: Op
     })
     .await
     .map_err(|e| e.to_string())??;
+    // Taking YouTube's copy is for songs not in the library at all.
+    let pending = if mode == FindMode::YouTube { Vec::new() } else { review.pending };
     let refs: Vec<(String, crate::library::interchange::TrackRef)> = review
         .missing
         .into_iter()
-        .chain(review.pending)
+        .chain(pending)
         .filter(|i| keys.as_ref().is_none_or(|k| k.contains(&i.result.ref_key)))
         .map(|i| (i.result.ref_key, i.reference))
         .collect();
     if refs.is_empty() {
         return Err("Nothing in this playlist is missing.".into());
     }
-    Ok(state.finder.start(state.soulseek.clone(), playlist_id, refs))
+    let on_found: Option<super::missing::OnFound> = if mode == FindMode::YouTube {
+        let folder = settings_view(&state)
+            .effective_folder
+            .ok_or("Choose a download folder first, or add a library folder in Settings.")?;
+        let slsk = state.soulseek.clone();
+        Some(std::sync::Arc::new(move |key: &str, f: &super::missing::Found| {
+            let req = DownloadRequest { username: f.username.clone(), path: f.path.clone(), size: f.size, link_key: Some(key.into()), name: Some(f.name.clone()) };
+            if let Err(e) = slsk.download(std::path::Path::new(&folder), vec![req]) {
+                log::warn!("couldn't start a YouTube download: {e}");
+            }
+        }))
+    } else {
+        None
+    };
+    Ok(state.finder.start(state.soulseek.clone(), Some(state.youtube.clone()), playlist_id, refs, mode, on_found))
 }
 
 #[tauri::command]

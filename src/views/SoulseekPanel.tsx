@@ -39,8 +39,43 @@ function shortFolder(path: string): string {
 
 export function SoulseekPanel() {
   const status = useSoulseek((s) => s.status);
-  if (status.state !== "signedIn") return <SignIn />;
-  return <SignedIn />;
+  const jobs = useSoulseek((s) => s.jobs);
+  const [otherAccount, setOtherAccount] = useState(false);
+  if (status.state === "signedIn") return <SignedIn />;
+  const saved = status.remembered && !!status.username && !otherAccount;
+  return (
+    <div className="space-y-4">
+      {saved ? <Reconnect onOther={() => setOtherAccount(true)} /> : <SignIn />}
+      {/* YouTube downloads share the queue, so it shows while signed out too. */}
+      {jobs.length > 0 && <Queue jobs={jobs} />}
+    </div>
+  );
+}
+
+/** Signed out with a saved account: it signs in on its own; this is the button to do it now. */
+function Reconnect({ onOther }: { onOther: () => void }) {
+  const status = useSoulseek((s) => s.status);
+  const connecting = status.state === "connecting";
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-3 text-[12.5px] text-muted">
+        {connecting ? <Loader2 size={14} className="animate-spin text-accent" /> : <span className="h-2 w-2 rounded-full bg-faint" />}
+        {connecting ? "Signing in as " : "Not connected. Saved account: "}
+        <span className="font-medium text-fg">{status.username}</span>
+        <button className="ml-auto text-faint hover:text-fg" onClick={onOther} disabled={connecting}>
+          Use another account
+        </button>
+        <button className={primary} disabled={connecting} onClick={() => api.slskReconnect().catch(() => {})}>
+          {connecting ? "Signing in…" : "Reconnect"}
+        </button>
+      </div>
+      {status.error && !connecting && (
+        <div className="text-[12.5px] text-[#d64545]">
+          {status.error} {!status.error.includes("rejected") && "Undertone keeps trying in the background."}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function SignIn() {

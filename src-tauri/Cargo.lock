@@ -3926,7 +3926,7 @@ dependencies = [
 
 [[package]]
 name = "resonance"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -3950,6 +3950,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "sha2",
  "soulseek-rs-lib",
  "souvlaki",
  "symphonia",

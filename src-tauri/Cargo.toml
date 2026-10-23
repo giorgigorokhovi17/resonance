@@ -1,6 +1,6 @@
 [package]
 name = "resonance"
-version = "0.6.0"
+version = "0.7.0"
 description = "Local-only high-fidelity music player"
 license = "MIT"
 edition = "2021"
@@ -46,6 +46,8 @@ blake3 = "1"
 # playlist interchange (both already in the dependency tree via tauri)
 quick-xml = "0.42"
 percent-encoding = "2"
+# checksums of the tools YouTube downloads need (already in the build through tauri)
+sha2 = "0.10"
 # playlist matcher: NFKC/NFKD text normalisation
 unicode-normalization = "0.1"
 

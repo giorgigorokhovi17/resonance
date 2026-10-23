@@ -2,11 +2,15 @@ import { Link2, Loader2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { create } from "zustand";
 import { api } from "../lib/api";
-import type { LinkInfo } from "../lib/types";
+import type { FindMode, LinkInfo } from "../lib/types";
 import { usePlayer } from "../store/player";
+import { useSoulseek } from "../store/soulseek";
 import { useUi } from "../store/ui";
 
 const useLinkDialog = create<{ open: boolean }>(() => ({ open: false }));
+
+/** What to do with the songs the library doesn't have. */
+type MissingChoice = FindMode | "later";
 
 /** Opens the "Import from link" dialog. */
 export function openLinkImport() {
@@ -23,6 +27,9 @@ export function LinkImportHost() {
   const [info, setInfo] = useState<LinkInfo | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [missingChoice, setMissingChoice] = useState<MissingChoice>("soulseekFirst");
+  const signedIn = useSoulseek((s) => s.status.state === "signedIn");
+  const ytReady = useSoulseek((s) => s.yt.enabled && s.yt.state === "ready");
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -68,12 +75,40 @@ export function LinkImportHost() {
         .pushToast(r.note ? "error" : "info", `${r.updated ? "Updated" : "Imported"} "${r.name}" from ${r.service}: ${parts.join(", ")}.${r.note ? ` ${r.note}` : ""}`);
       useLinkDialog.setState({ open: false });
       useUi.getState().setView(missing > 0 ? { kind: "review", id: r.id } : { kind: "playlist", id: r.id });
+      const mode = choice(missingChoice);
+      if (missing > 0 && mode) {
+        try {
+          const total = await api.findMissing(r.id, null, mode);
+          useSoulseek.setState((s) => ({ findRuns: { ...s.findRuns, [r.id]: { done: 0, total, running: true } } }));
+        } catch (e) {
+          usePlayer.getState().pushToast("error", String(e));
+        }
+      }
     } catch (e) {
       setError(String(e));
     } finally {
       setBusy(false);
     }
   };
+
+  // A choice that isn't available right now falls back to doing nothing.
+  const choice = (c: MissingChoice): FindMode | null =>
+    c === "youTube" ? (ytReady ? "youTube" : null) : c === "soulseekFirst" ? (signedIn || ytReady ? "soulseekFirst" : null) : null;
+  const options: { value: MissingChoice; label: string; note: string; off?: string }[] = [
+    {
+      value: "soulseekFirst",
+      label: "Look on Soulseek first (better quality)",
+      note: ytReady ? "YouTube for the rest. You choose what to download." : "You choose what to download.",
+      off: signedIn || ytReady ? undefined : "Sign in to Soulseek on the Sources page first.",
+    },
+    {
+      value: "youTube",
+      label: "Download from YouTube (YouTube's quality)",
+      note: "AAC at about 128 kbps. Starts right away.",
+      off: ytReady ? undefined : "Turn on YouTube downloads on the Sources page first.",
+    },
+    { value: "later", label: "Just import", note: "Find them later from the playlist's review page." },
+  ];
 
   const hint = !url.trim()
     ? "Spotify, YouTube, YouTube Music or Apple Music: playlists and albums. The link has to be public."
@@ -99,7 +134,7 @@ export function LinkImportHost() {
           <Link2 size={17} className="text-accent" /> Import from link
         </h2>
         <p className="mt-1.5 text-[12.5px] leading-relaxed text-muted">
-          Songs you have are matched to your files. The rest stay in the playlist as missing, and you can find them on Soulseek.
+          Songs you have are matched to your files. The rest stay in the playlist as missing until you get them.
         </p>
         <input
           ref={inputRef}
@@ -111,6 +146,30 @@ export function LinkImportHost() {
           className="mt-4 h-10 w-full rounded-md bg-bg px-3 text-[13px] outline-none ring-1 ring-line focus:ring-accent disabled:opacity-60"
         />
         <div className={`mt-2 min-h-[18px] text-[12px] ${url.trim() && !info ? "text-warn" : info ? "text-ok" : "text-faint"}`}>{hint}</div>
+        <fieldset className="mt-3" disabled={busy}>
+          <legend className="text-[12px] font-semibold uppercase tracking-wider text-faint">Songs you don't have</legend>
+          <div className="mt-1.5 space-y-1">
+            {options.map((o) => (
+              <label
+                key={o.value}
+                className={`flex items-start gap-2.5 rounded-md px-2 py-1.5 text-[12.5px] ${o.off ? "opacity-50" : "cursor-pointer hover:bg-hover"}`}
+              >
+                <input
+                  type="radio"
+                  name="missing"
+                  className="mt-0.5 accent-[var(--c-accent)]"
+                  checked={missingChoice === o.value}
+                  disabled={!!o.off}
+                  onChange={() => setMissingChoice(o.value)}
+                />
+                <span>
+                  <span className="text-fg">{o.label}</span>
+                  <span className="block text-[11.5px] text-faint">{o.off ?? o.note}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
         {error && <p className="mt-2 text-[12.5px] leading-snug text-warn">{error}</p>}
         <div className="mt-4 flex justify-end gap-2">
           <button onClick={close} disabled={busy} className="rounded-full px-4 py-1.5 text-[12.5px] font-medium text-muted ring-1 ring-line hover:bg-hover disabled:opacity-40">
