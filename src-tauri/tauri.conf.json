@@ -53,7 +53,8 @@
     "shortDescription": "Local-only high-fidelity music player",
     "longDescription": "A personal, offline music player with bit-perfect WASAPI exclusive output, parametric EQ and a fast local library.",
     "windows": {
-      "webviewInstallMode": { "type": "embedBootstrapper" }
+      "webviewInstallMode": { "type": "embedBootstrapper" },
+      "nsis": { "installerIcon": "icons/icon.ico" }
     }
   }
 }
