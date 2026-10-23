@@ -1,6 +1,8 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
+import { Island } from "./views/Island";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import logo from "./assets/logo.png";
 import "./index.css";
 
@@ -26,7 +28,7 @@ const inTauri = "__TAURI_INTERNALS__" in window;
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     {inTauri ? (
-      <App />
+      getCurrentWindow().label === "island" ? <Island /> : <App />
     ) : (
       <div className="flex h-full flex-col items-center justify-center gap-3 px-8 text-center">
         <img src={logo} alt="" className="h-12 w-12" />

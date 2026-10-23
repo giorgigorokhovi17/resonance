@@ -11,6 +11,7 @@ export type View =
   | { kind: "queue" }
   | { kind: "eq" }
   | { kind: "sources" }
+  | { kind: "stats" }
   | { kind: "settings" };
 
 interface UiStore {
@@ -21,6 +22,8 @@ interface UiStore {
   queueOpen: boolean;
   downloadsOpen: boolean;
   mini: boolean;
+  /** The lyrics window over the app. */
+  lyricsOpen: boolean;
   setView: (v: View, replace?: boolean) => void;
   goBack: () => void;
   goForward: () => void;
@@ -29,6 +32,7 @@ interface UiStore {
   toggleQueue: () => void;
   toggleDownloads: () => void;
   setMini: (v: boolean) => void;
+  setLyricsOpen: (v: boolean) => void;
 }
 
 const same = (a: View, b: View) => JSON.stringify(a) === JSON.stringify(b);
@@ -41,6 +45,7 @@ export const useUi = create<UiStore>((set, get) => ({
   queueOpen: false,
   downloadsOpen: false,
   mini: false,
+  lyricsOpen: false,
   setView: (v, replace) => {
     const cur = get().view;
     if (same(cur, v)) {
@@ -65,4 +70,5 @@ export const useUi = create<UiStore>((set, get) => ({
   toggleQueue: () => set((s) => ({ queueOpen: !s.queueOpen, downloadsOpen: false })),
   toggleDownloads: () => set((s) => ({ downloadsOpen: !s.downloadsOpen, queueOpen: false })),
   setMini: (v) => set({ mini: v }),
+  setLyricsOpen: (v) => set({ lyricsOpen: v }),
 }));

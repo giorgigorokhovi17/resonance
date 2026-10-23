@@ -1,10 +1,12 @@
 ﻿pub mod audio;
 pub mod backup;
 pub mod commands;
+pub mod island;
 pub mod library;
 pub mod persist;
 pub mod queue;
 pub mod settings;
+pub mod sleep;
 pub mod smtc;
 pub mod sources;
 
@@ -37,6 +39,9 @@ pub struct AppState {
     pub finder: Arc<sources::missing::Finder>,
     /// YouTube downloads through yt-dlp (off until turned on).
     pub youtube: Arc<sources::youtube::YouTube>,
+    /// Listening history for the stats page.
+    pub plays: Arc<library::stats::PlayTracker>,
+    pub sleep: Arc<sleep::SleepTimer>,
 }
 
 fn serve_cover(app: &AppHandle, uri: &tauri::http::Uri) -> Option<Vec<u8>> {
@@ -73,7 +78,7 @@ fn fit_to_work_area(w: &tauri::WebviewWindow) {
     let _ = w.set_position(tauri::PhysicalPosition::new(x, y));
 }
 
-fn show_main(app: &AppHandle) {
+pub fn show_main(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.show();
         let _ = w.unminimize();
@@ -191,6 +196,13 @@ pub fn run() {
             });
         })
         .on_window_event(|window, event| {
+            if window.label() != "main" {
+                return;
+            }
+            // The island window alone mustn't keep the app running.
+            if let WindowEvent::Destroyed = event {
+                window.app_handle().exit(0);
+            }
             if let WindowEvent::CloseRequested { api, .. } = event {
                 let to_tray = window
                     .app_handle()
@@ -253,6 +265,8 @@ pub fn run() {
             let last_playback = Mutex::new((PlayState::Stopped, 0.0f64, Instant::now()));
             let handle = app.handle().clone();
             let smtc_slot = smtc_tx.clone();
+            let plays = library::stats::PlayTracker::new(library.clone());
+            let tracker = plays.clone();
             let engine = Engine::new(
                 EngineConfig {
                     mode: s.output_mode,
@@ -261,10 +275,12 @@ pub fn run() {
                     eq: s.eq.clone(),
                     rg_mode: s.replay_gain,
                     rg_preamp: s.replay_gain_preamp,
+                    crossfade: s.crossfade,
                 },
                 queue,
                 move |ev| match ev {
                     EngineEvent::Status(st) => {
+                        tracker.update(st.current_uid, st.track.as_ref(), st.state == PlayState::Playing);
                         if let Some(tx) = smtc_slot.lock().as_ref() {
                             let mut last = last_playback.lock();
                             let expected = last.1
@@ -361,7 +377,11 @@ pub fn run() {
                 youtube.set_enabled(true);
             }
 
-            app.manage(AppState { engine, settings, library, queue_dirty, queue_file, soulseek, finder, youtube });
+            let sleep = sleep::SleepTimer::new(engine.clone(), app.handle().clone());
+            if s.island {
+                island::open(app.handle());
+            }
+            app.manage(AppState { engine, settings, library, queue_dirty, queue_file, soulseek, finder, youtube, plays, sleep });
 
             // Files passed on the command line start playing right away.
             let args: Vec<String> = std::env::args().collect();
@@ -422,6 +442,7 @@ pub fn run() {
             commands::delete_eq_preset,
             commands::import_autoeq,
             commands::open_url,
+            commands::show_main_window,
             commands::quit_app,
             commands::update_playlist,
             commands::set_playlist_cover,
@@ -430,6 +451,12 @@ pub fn run() {
             commands::discard_media,
             commands::get_media,
             commands::get_lyrics,
+            commands::search_lyrics,
+            commands::remove_found_lyrics,
+            commands::get_stats,
+            commands::clear_play_history,
+            commands::get_sleep_timer,
+            commands::set_sleep_timer,
             commands::set_playlist_background,
             commands::set_tracks_cover_hidden,
             commands::set_tracks_cover,
@@ -465,6 +492,7 @@ pub fn run() {
             if let tauri::RunEvent::Exit = event {
                 if let Some(state) = app.try_state::<AppState>() {
                     persist::save_queue(&state.queue_file, &state.engine);
+                    state.plays.finish(&state.library);
                     state.engine.shutdown();
                 }
             }

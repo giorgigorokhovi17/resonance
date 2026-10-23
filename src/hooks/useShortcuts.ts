@@ -84,8 +84,15 @@ export function useShortcuts(focusSearch: () => void, toggleMini: () => void) {
         case "Q":
           useUi.getState().toggleQueue();
           break;
+        case "l":
+        case "L": {
+          const ui = useUi.getState();
+          ui.setLyricsOpen(!ui.lyricsOpen);
+          break;
+        }
         case "Escape":
-          useUi.getState().setNowPlaying(false);
+          if (useUi.getState().lyricsOpen) useUi.getState().setLyricsOpen(false);
+          else useUi.getState().setNowPlaying(false);
           break;
       }
     };

@@ -1,5 +1,5 @@
-import { Download, ListMusic, Maximize2, Pause, PictureInPicture2, Play, Repeat, Repeat1, Shuffle, SkipBack, SkipForward, Volume1, Volume2, VolumeX } from "lucide-react";
-import type { ReactNode } from "react";
+import { Download, ListMusic, Maximize2, Mic2, Moon, Pause, PictureInPicture2, Play, Repeat, Repeat1, Shuffle, SkipBack, SkipForward, Volume1, Volume2, VolumeX } from "lucide-react";
+import { useEffect, useState, type MouseEvent, type ReactNode } from "react";
 import { api } from "../lib/api";
 import { useDownloadsBadge } from "./DownloadsPanel";
 import { displayArtist } from "../lib/format";
@@ -10,6 +10,8 @@ import { Cover } from "./Cover";
 import { FormatBadge } from "./FormatBadge";
 import { Seekbar } from "./Seekbar";
 import { toggleMiniPlayer } from "../lib/window";
+import { openMenu, SEP, type MenuItem } from "./ContextMenu";
+import { setSleepTimer, sleepRemaining, useSleep } from "../store/sleep";
 
 export function IconButton({
   children,
@@ -20,7 +22,7 @@ export function IconButton({
   disabled,
 }: {
   children: ReactNode;
-  onClick?: () => void;
+  onClick?: (e: MouseEvent<HTMLButtonElement>) => void;
   label: string;
   active?: boolean;
   size?: "sm" | "md";
@@ -124,6 +126,53 @@ export function VolumeControl({ width = "w-28" }: { width?: string }) {
   );
 }
 
+const SLEEP_MINUTES = [15, 30, 45, 60, 90];
+
+function fmtLeft(secs: number) {
+  const m = Math.ceil(secs / 60);
+  return m >= 60 ? `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}m` : ""}` : `${m}m`;
+}
+
+/** Sleep timer: pause after a while, or stop when this song ends. */
+function SleepButton() {
+  const status = useSleep((s) => s.status);
+  const [left, setLeft] = useState(sleepRemaining);
+  useEffect(() => {
+    setLeft(sleepRemaining());
+    if (status.mode !== "minutes") return;
+    const id = window.setInterval(() => setLeft(sleepRemaining()), 1000);
+    return () => window.clearInterval(id);
+  }, [status]);
+  const active = status.mode !== "off";
+  const label =
+    status.mode === "minutes" && left != null
+      ? `Sleep timer: pauses in ${fmtLeft(left)}`
+      : status.mode === "endOfSong"
+        ? "Sleep timer: stops after this song"
+        : "Sleep timer";
+  const run = (p: Promise<void>) => p.catch((e) => usePlayer.getState().pushToast("error", String(e)));
+  const items: MenuItem[] = [
+    ...SLEEP_MINUTES.map((m) => ({
+      label: m < 60 ? `${m} minutes` : m === 60 ? "1 hour" : `${m / 60} hours`,
+      onClick: () => run(setSleepTimer(m)),
+    })),
+    { label: "End of this song", onClick: () => run(setSleepTimer(null, true)) },
+    ...(active ? [SEP, { label: "Turn off", onClick: () => run(setSleepTimer(null)) }] : []),
+  ];
+  return (
+    <div className="flex items-center">
+      <IconButton label={label} active={active} onClick={(e) => openMenu(e, items)}>
+        <Moon size={16} />
+      </IconButton>
+      {status.mode === "minutes" && left != null && (
+        <span className="tabular -ml-0.5 mr-1 text-[11px] font-semibold text-accent" title={label}>
+          {fmtLeft(left)}
+        </span>
+      )}
+    </div>
+  );
+}
+
 export function PlayerBar() {
   // When stopped (e.g. right after launch) show the restored queue's current track.
   const track = usePlayer(
@@ -140,6 +189,8 @@ export function PlayerBar() {
   const downloadsOpen = useUi((s) => s.downloadsOpen);
   const toggleDownloads = useUi((s) => s.toggleDownloads);
   const downloadsBadge = useDownloadsBadge();
+  const lyricsOpen = useUi((s) => s.lyricsOpen);
+  const setLyricsOpen = useUi((s) => s.setLyricsOpen);
 
   return (
     <div className="skin-clear grid h-[84px] shrink-0 grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)_minmax(0,1fr)] items-center gap-4 bg-bg px-4">
@@ -186,6 +237,10 @@ export function PlayerBar() {
         <IconButton label="Now playing (F)" active={nowPlaying} onClick={toggleNowPlaying}>
           <Maximize2 size={16} />
         </IconButton>
+        <IconButton label="Lyrics (L)" active={lyricsOpen} onClick={() => setLyricsOpen(!lyricsOpen)}>
+          <Mic2 size={16} />
+        </IconButton>
+        <SleepButton />
         <div className="relative">
           <IconButton label="Downloads" active={downloadsOpen} onClick={toggleDownloads}>
             <Download size={17} />

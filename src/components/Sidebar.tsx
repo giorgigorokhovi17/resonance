@@ -1,4 +1,4 @@
-import { ArrowDownToLine, Download, FolderTree, Heart, LayoutGrid, ListMusic, ListOrdered, Music2, Plus, Settings2, SlidersHorizontal } from "lucide-react";
+import { ArrowDownToLine, BarChart3, Download, FolderTree, Heart, LayoutGrid, ListMusic, ListOrdered, Music2, Plus, Settings2, SlidersHorizontal } from "lucide-react";
 import type { ReactNode } from "react";
 import { api } from "../lib/api";
 import { usePlayer } from "../store/player";
@@ -95,6 +95,7 @@ export function Sidebar() {
         />
         <NavItem icon={<FolderTree size={18} />} label="Folders" view={{ kind: "folders" }} match={["folders"]} />
         <NavItem icon={<Download size={18} />} label="Sources" view={{ kind: "sources" }} match={["sources"]} />
+        <NavItem icon={<BarChart3 size={18} />} label="Your stats" view={{ kind: "stats" }} match={["stats"]} />
       </div>
 
       <div className="mx-4 my-2 h-px bg-line/70" />

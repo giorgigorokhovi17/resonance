@@ -12,6 +12,7 @@ import type {
   LibraryFolder,
   Backdrop,
   Lyrics,
+  LyricsSearch,
   Media,
   MediaPurpose,
   StagedMedia,
@@ -25,7 +26,9 @@ import type {
   RepeatMode,
   RestoreSummary,
   Settings,
+  SleepStatus,
   SlskDownloadRequest,
+  Stats,
   SlskJob,
   SlskSettingsView,
   SlskStatus,
@@ -112,6 +115,20 @@ export const api = {
   getMedia: () => invoke<Media[]>("get_media"),
   /** From a .lrc file next to the song or its tags; null when it has none. */
   getLyrics: (path: string) => invoke<Lyrics | null>("get_lyrics", { path }),
+  /** Looks the song up on LRCLIB and keeps what's found (the file isn't changed). */
+  searchLyrics: (path: string) => invoke<LyricsSearch>("search_lyrics", { path }),
+  removeFoundLyrics: (path: string) => invoke<void>("remove_found_lyrics", { path }),
+
+  // listening stats
+  /** Plays started in from..to (unix seconds). */
+  getStats: (from: number, to: number) =>
+    invoke<Stats>("get_stats", { from, to, tzOffsetMin: -new Date().getTimezoneOffset() }),
+  clearPlayHistory: () => invoke<void>("clear_play_history"),
+
+  // sleep timer
+  getSleepTimer: () => invoke<SleepStatus>("get_sleep_timer"),
+  /** `minutes` pauses after that long, `endOfSong` stops when this song ends; neither = off. */
+  setSleepTimer: (minutes: number | null, endOfSong = false) => invoke<SleepStatus>("set_sleep_timer", { minutes, endOfSong }),
   setShuffle: (shuffle: boolean) => invoke<void>("set_shuffle", { shuffle }),
   setRepeat: (repeat: RepeatMode) => invoke<void>("set_repeat", { repeat }),
 
@@ -160,9 +177,10 @@ export const api = {
 
   // misc
   openUrl: (url: string) => invoke<void>("open_url", { url }),
+  showMainWindow: () => invoke<void>("show_main_window"),
 
   // settings
   getSettings: () => invoke<Settings>("get_settings"),
-  updateSettings: (patch: Partial<Pick<Settings, "theme" | "closeToTray" | "watchFolders" | "minimizeToMini" | "replayGain" | "replayGainPreamp" | "appearance">>) =>
+  updateSettings: (patch: Partial<Pick<Settings, "theme" | "closeToTray" | "watchFolders" | "minimizeToMini" | "island" | "replayGain" | "replayGainPreamp" | "crossfade" | "appearance">>) =>
     invoke<Settings>("update_settings", { patch }),
 };

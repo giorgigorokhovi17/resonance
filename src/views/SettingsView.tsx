@@ -208,6 +208,35 @@ export function SettingsView() {
             </div>
           </Section>
 
+          <Section
+            title="Dynamic Island"
+            description="A small bar at the top of the screen with the playing song, coloured from its cover. Point at it for controls, progress and the current lyric line. It hides while another app is full screen."
+          >
+            <Row label="Show the Dynamic Island">
+              <Toggle label="Dynamic Island" checked={settings.island} onChange={(v) => patch({ island: v })} />
+            </Row>
+          </Section>
+
+          <Section
+            title="Crossfade"
+            description="Fades each song into the next. Songs from the same album still play gaplessly, with no fade. While the songs overlap, the output isn't bit-perfect."
+          >
+            <label className="flex items-center gap-3 text-[12.5px] text-muted">
+              <input
+                type="range"
+                min={0}
+                max={10}
+                step={1}
+                value={settings.crossfade}
+                aria-label="Crossfade length"
+                className="slider w-56"
+                style={{ ["--fill" as string]: `${(settings.crossfade / 10) * 100}%` }}
+                onChange={(e) => patch({ crossfade: parseFloat(e.target.value) })}
+              />
+              <span className="tabular w-28 text-fg">{settings.crossfade > 0 ? `${settings.crossfade} s` : "Off (gapless)"}</span>
+            </label>
+          </Section>
+
           <LibraryFoldersSection />
 
           <BackupSection />

@@ -7,8 +7,9 @@ file; keep project rules here so they stay in one place.
 
 A personal, **local-only Windows** music player: Tauri 2 (Rust backend in `src-tauri/`) with
 React + TypeScript + Tailwind (frontend in `src/`). No telemetry; the network is used only for the
-update check, pasted playlist links, Soulseek after the user signs in, and YouTube downloads after
-the user turns them on. Music files are only ever read, never modified. See `README.md` for
+update check, pasted playlist links, lyrics searches the user clicks (LRCLIB,
+`src-tauri/src/sources/lyrics_search.rs`), Soulseek after the user signs in, and YouTube downloads
+after the user turns them on. Music files are only ever read, never modified. See `README.md` for
 features, architecture and data locations.
 
 ## Commands
@@ -29,8 +30,14 @@ Before saying a change works, run the tests and the typecheck, and report the ac
 
 - The app targets **Windows only** (WASAPI output, SMTC media keys, MSVC toolchain).
 - `windows` and `wasapi` are currently unconditional dependencies, so **the crate does not build on
-  Linux or macOS**. Cloud agents running Linux can edit code but can't build or test it until those
-  dependencies are made Windows-only in `src-tauri/Cargo.toml`.
+  Linux or macOS**. On Linux, cross-check and test against the Windows GNU target instead:
+  install `gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 cmake ninja-build wine64`, run
+  `rustup target add x86_64-pc-windows-gnu`, then in `src-tauri/`
+  `CMAKE=/usr/bin/cmake cargo check --target x86_64-pc-windows-gnu --all-targets`. For tests, build
+  with `cargo test --target x86_64-pc-windows-gnu --no-run`, copy `WebView2Loader.dll` (under
+  `target/x86_64-pc-windows-gnu/debug/build/webview2-com-sys-*/out/x64/`) next to the test exe in
+  `target/x86_64-pc-windows-gnu/debug/deps/`, and run it with `wine`. Audio output can't be tried
+  this way.
 
 ## Rules
 

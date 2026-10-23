@@ -34,6 +34,7 @@ fn main() {
             eq: EqSettings::default(),
             rg_mode: ReplayGainMode::Off,
             rg_preamp: 0.0,
+            crossfade: 0.0,
         },
         queue,
         move |ev| {

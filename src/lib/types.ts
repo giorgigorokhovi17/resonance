@@ -125,10 +125,14 @@ export interface Settings {
   volume: number;
   replayGain: ReplayGainMode;
   replayGainPreamp: number;
+  /** Seconds of crossfade between songs; 0 = off (gapless). */
+  crossfade: number;
   theme: "dark" | "light" | "system";
   closeToTray: boolean;
   watchFolders: boolean;
   minimizeToMini: boolean;
+  /** The Dynamic Island at the top of the screen. */
+  island: boolean;
   eq: EqSettings;
   appearance: Appearance;
   soulseek: SoulseekSettings;
@@ -169,8 +173,64 @@ export interface Lyrics {
   lines: LyricLine[];
   /** Every line has a time. */
   synced: boolean;
-  /** "lrc" (a file next to the song) or "tags". */
+  /** "lrc" (a file next to the song), "tags", or "lrclib" (found online). */
   source: string;
+}
+
+export interface LyricsSearch {
+  lyrics: Lyrics | null;
+  /** Why there are none, in plain words. */
+  message: string | null;
+}
+
+export interface SleepStatus {
+  mode: "off" | "minutes" | "endOfSong";
+  /** Seconds left, for "minutes". */
+  remaining: number | null;
+}
+
+export interface TopSong {
+  path: string;
+  title: string;
+  artist: string;
+  plays: number;
+  seconds: number;
+  /** The song in the library now, if it's still there. */
+  track: Track | null;
+}
+
+export interface TopArtist {
+  name: string;
+  plays: number;
+  seconds: number;
+  songs: number;
+}
+
+export interface TopAlbum {
+  album: string;
+  artist: string;
+  plays: number;
+  seconds: number;
+  track: Track | null;
+}
+
+export interface Stats {
+  plays: number;
+  seconds: number;
+  songs: number;
+  artists: number;
+  albums: number;
+  topSongs: TopSong[];
+  topArtists: TopArtist[];
+  topAlbums: TopAlbum[];
+  /** Seconds per hour of the day, local time. */
+  byHour: number[];
+  /** Seconds per weekday, Monday first. */
+  byWeekday: number[];
+  /** [unix seconds at local midnight, seconds listened] */
+  topDay: [number, number] | null;
+  longestStreak: number;
+  firstPlay: number | null;
 }
 
 export type AnimatedArt = "everywhere" | "nowPlaying" | "off";

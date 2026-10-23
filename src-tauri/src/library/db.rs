@@ -166,6 +166,28 @@ fn migrate(conn: &Connection) -> Result<()> {
     add_column(conn, "playlists", "background_fit", "TEXT NOT NULL DEFAULT 'cover'")?;
     add_column(conn, "playlists", "background_dim", "REAL")?;
     add_column(conn, "playlists", "background_blur", "REAL NOT NULL DEFAULT 0")?;
+    // v8: listening history for the stats page (library/stats.rs), and lyrics found online. Plays
+    // keep the song's names as they were, so stats survive rescans and removed files. Music files
+    // are never written to, so found lyrics are stored here, by path.
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS plays(
+            id INTEGER PRIMARY KEY,
+            path TEXT NOT NULL,
+            title TEXT NOT NULL,
+            artist TEXT NOT NULL,
+            album TEXT NOT NULL,
+            album_artist TEXT NOT NULL,
+            played_at INTEGER NOT NULL,
+            listened REAL NOT NULL
+         );
+         CREATE INDEX IF NOT EXISTS idx_plays_at ON plays(played_at);
+         CREATE TABLE IF NOT EXISTS saved_lyrics(
+            path TEXT PRIMARY KEY,
+            lrc TEXT NOT NULL,
+            source TEXT NOT NULL,
+            saved_at INTEGER NOT NULL
+         );",
+    )?;
     Ok(())
 }
 
@@ -754,6 +776,27 @@ pub fn prune_media(conn: &Connection, also_keep: &HashSet<String>) -> Result<Has
 // ---- matcher storage --------------------------------------------------------------------------
 
 /// Store references by key (JSON of `interchange::TrackRef`).
+/// Lyrics found online for a song, with where they came from.
+pub fn saved_lyrics(conn: &Connection, path: &str) -> Result<Option<(String, String)>> {
+    Ok(conn
+        .query_row("SELECT lrc, source FROM saved_lyrics WHERE path = ?1", params![path], |r| Ok((r.get(0)?, r.get(1)?)))
+        .optional()?)
+}
+
+pub fn save_lyrics(conn: &Connection, path: &str, lrc: &str, source: &str) -> Result<()> {
+    conn.execute(
+        "INSERT INTO saved_lyrics(path, lrc, source, saved_at) VALUES(?1, ?2, ?3, ?4)
+         ON CONFLICT(path) DO UPDATE SET lrc = excluded.lrc, source = excluded.source, saved_at = excluded.saved_at",
+        params![path, lrc, source, now()],
+    )?;
+    Ok(())
+}
+
+pub fn delete_saved_lyrics(conn: &Connection, path: &str) -> Result<()> {
+    conn.execute("DELETE FROM saved_lyrics WHERE path = ?1", params![path])?;
+    Ok(())
+}
+
 pub fn put_match_refs(conn: &mut Connection, refs: &[(String, String)]) -> Result<()> {
     let tx = conn.transaction()?;
     {
@@ -887,6 +930,21 @@ mod tests {
         let p = create_playlist(&conn, "P").unwrap();
         set_playlist_paths(&mut conn, p, &[t.path.clone()]).unwrap();
         assert_eq!(playlists(&conn).unwrap()[0].preview_covers, vec!["ee".to_string()]);
+    }
+
+    #[test]
+    fn plays_and_saved_lyrics_tables_migrate() {
+        let (conn, file) = reopen_after("v8", "DROP TABLE plays; DROP TABLE saved_lyrics;");
+        assert_eq!(playlists(&conn).unwrap()[0].name, "Old", "older data is kept");
+        save_lyrics(&conn, r"C:\Music\a.flac", "[00:01.00]Hi", "lrclib").unwrap();
+        save_lyrics(&conn, r"C:\Music\a.flac", "[00:02.00]Hello", "lrclib").unwrap();
+        assert_eq!(saved_lyrics(&conn, r"C:\Music\a.flac").unwrap(), Some(("[00:02.00]Hello".into(), "lrclib".into())));
+        delete_saved_lyrics(&conn, r"C:\Music\a.flac").unwrap();
+        assert_eq!(saved_lyrics(&conn, r"C:\Music\a.flac").unwrap(), None);
+        let n: i64 = conn.query_row("SELECT COUNT(*) FROM plays", [], |r| r.get(0)).unwrap();
+        assert_eq!(n, 0);
+        drop(conn);
+        remove_db(file);
     }
 
     /// Opens a database file, lets `downgrade` turn it back into an older schema, and reopens it.
