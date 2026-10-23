@@ -178,9 +178,10 @@ export const api = {
   // misc
   openUrl: (url: string) => invoke<void>("open_url", { url }),
   showMainWindow: () => invoke<void>("show_main_window"),
+  islandMainAway: () => invoke<boolean>("island_main_away"),
 
   // settings
   getSettings: () => invoke<Settings>("get_settings"),
-  updateSettings: (patch: Partial<Pick<Settings, "theme" | "closeToTray" | "watchFolders" | "minimizeToMini" | "island" | "replayGain" | "replayGainPreamp" | "crossfade" | "appearance">>) =>
+  updateSettings: (patch: Partial<Pick<Settings, "theme" | "closeToTray" | "watchFolders" | "island" | "islandOptions" | "replayGain" | "replayGainPreamp" | "crossfade" | "appearance">>) =>
     invoke<Settings>("update_settings", { patch }),
 };

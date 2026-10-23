@@ -21,7 +21,6 @@ interface UiStore {
   nowPlaying: boolean;
   queueOpen: boolean;
   downloadsOpen: boolean;
-  mini: boolean;
   /** The lyrics window over the app. */
   lyricsOpen: boolean;
   setView: (v: View, replace?: boolean) => void;
@@ -31,7 +30,6 @@ interface UiStore {
   setNowPlaying: (v: boolean) => void;
   toggleQueue: () => void;
   toggleDownloads: () => void;
-  setMini: (v: boolean) => void;
   setLyricsOpen: (v: boolean) => void;
 }
 
@@ -44,7 +42,6 @@ export const useUi = create<UiStore>((set, get) => ({
   nowPlaying: false,
   queueOpen: false,
   downloadsOpen: false,
-  mini: false,
   lyricsOpen: false,
   setView: (v, replace) => {
     const cur = get().view;
@@ -69,6 +66,5 @@ export const useUi = create<UiStore>((set, get) => ({
   setNowPlaying: (v) => set({ nowPlaying: v }),
   toggleQueue: () => set((s) => ({ queueOpen: !s.queueOpen, downloadsOpen: false })),
   toggleDownloads: () => set((s) => ({ downloadsOpen: !s.downloadsOpen, queueOpen: false })),
-  setMini: (v) => set({ mini: v }),
   setLyricsOpen: (v) => set({ lyricsOpen: v }),
 }));

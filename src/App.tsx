@@ -1,4 +1,5 @@
 ﻿import { useCallback, useEffect, useRef } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api } from "./lib/api";
@@ -23,7 +24,7 @@ import { PlaylistEditorHost } from "./components/PlaylistEditor";
 import { LyricsDialog } from "./components/LyricsPanel";
 import { Ambient } from "./components/Ambient";
 import { Backdrop } from "./components/Backdrop";
-import { SettingsView } from "./views/SettingsView";
+import { SettingsView, showSettingsTab } from "./views/SettingsView";
 import { SongsView } from "./views/SongsView";
 import { TracksView } from "./views/TracksView";
 import { FoldersView } from "./views/FoldersView";
@@ -36,8 +37,6 @@ import { EqView } from "./views/EqView";
 import { SourcesView } from "./views/SourcesView";
 import { StatsView } from "./views/StatsView";
 import { NowPlaying } from "./views/NowPlaying";
-import { MiniPlayer } from "./views/MiniPlayer";
-import { resumeMiniAfterReload, toggleMiniPlayer } from "./lib/window";
 import { useShortcuts } from "./hooks/useShortcuts";
 import { useCoverColor } from "./hooks/useCoverColor";
 import { useAppearance } from "./hooks/useAppearance";
@@ -153,15 +152,20 @@ export default function App() {
     initUpdater();
     initSoulseek().catch((e) => console.error(e));
     initSleep().catch((e) => console.error(e));
-    resumeMiniAfterReload();
     // Files dropped from Explorer start playing.
     const un = getCurrentWebview().onDragDropEvent((e) => {
       if (e.payload.type === "drop" && e.payload.paths.length) {
         api.playFiles(e.payload.paths).catch((err) => usePlayer.getState().pushToast("error", String(err)));
       }
     });
+    // "Dynamic Island settings" from the tray or the island's menu.
+    const unIsland = listen("ui:island-settings", () => {
+      showSettingsTab("general");
+      useUi.getState().setView({ kind: "settings" });
+    });
     return () => {
       un.then((f) => f());
+      unIsland.then((f) => f());
     };
   }, []);
 
@@ -169,19 +173,7 @@ export default function App() {
     searchRef.current?.focus();
     searchRef.current?.select();
   }, []);
-  const toggleMini = useCallback(() => {
-    toggleMiniPlayer().catch((e) => usePlayer.getState().pushToast("error", String(e)));
-  }, []);
-  useShortcuts(focusSearch, toggleMini);
-  const mini = useUi((s) => s.mini);
-
-  if (mini) {
-    return (
-      <div className="h-full bg-elev text-fg">
-        <MiniPlayer onExit={toggleMini} />
-      </div>
-    );
-  }
+  useShortcuts(focusSearch);
 
   return (
     <div className={`relative isolate flex h-full flex-col text-fg ${backgrounds.skin ? "" : "bg-bg"}`}>

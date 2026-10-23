@@ -243,7 +243,7 @@ export function VisualSettings({ settings }: { settings: Settings }) {
               ]}
             />
           </Row>
-          <Row label="Interface size" hint="Scales text and controls. The mini player always stays at 100%.">
+          <Row label="Interface size" hint="Scales text and controls.">
             <Segmented
               value={String(a.uiScale)}
               onChange={(v) => setAppearance({ uiScale: parseFloat(v) })}

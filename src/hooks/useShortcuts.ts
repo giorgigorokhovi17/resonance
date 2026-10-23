@@ -9,17 +9,12 @@ function isTyping(e: KeyboardEvent) {
 }
 
 /** Global in-app keyboard shortcuts. Media keys are handled natively through SMTC. */
-export function useShortcuts(focusSearch: () => void, toggleMini: () => void) {
+export function useShortcuts(focusSearch: () => void) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.key.toLowerCase() === "f") {
         e.preventDefault();
         focusSearch();
-        return;
-      }
-      if (e.ctrlKey && e.key.toLowerCase() === "m") {
-        e.preventDefault();
-        toggleMini();
         return;
       }
       if (e.altKey && e.key === "ArrowLeft") {
@@ -98,5 +93,5 @@ export function useShortcuts(focusSearch: () => void, toggleMini: () => void) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [focusSearch, toggleMini]);
+  }, [focusSearch]);
 }

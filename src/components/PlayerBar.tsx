@@ -1,4 +1,4 @@
-import { Download, ListMusic, Maximize2, Mic2, Moon, Pause, PictureInPicture2, Play, Repeat, Repeat1, Shuffle, SkipBack, SkipForward, Volume1, Volume2, VolumeX } from "lucide-react";
+import { Download, ListMusic, Maximize2, Mic2, Moon, Pause, Play, Repeat, Repeat1, Shuffle, SkipBack, SkipForward, Volume1, Volume2, VolumeX } from "lucide-react";
 import { useEffect, useState, type MouseEvent, type ReactNode } from "react";
 import { api } from "../lib/api";
 import { useDownloadsBadge } from "./DownloadsPanel";
@@ -9,7 +9,6 @@ import { useLiveCover, useLiveMotion } from "../store/library";
 import { Cover } from "./Cover";
 import { FormatBadge } from "./FormatBadge";
 import { Seekbar } from "./Seekbar";
-import { toggleMiniPlayer } from "../lib/window";
 import { openMenu, SEP, type MenuItem } from "./ContextMenu";
 import { setSleepTimer, sleepRemaining, useSleep } from "../store/sleep";
 
@@ -253,9 +252,6 @@ export function PlayerBar() {
         </div>
         <IconButton label="Queue (Q)" active={queueOpen || view.kind === "queue"} onClick={toggleQueue}>
           <ListMusic size={18} />
-        </IconButton>
-        <IconButton label="Mini player (Ctrl+M)" onClick={() => toggleMiniPlayer()}>
-          <PictureInPicture2 size={16} />
         </IconButton>
         <VolumeControl />
       </div>

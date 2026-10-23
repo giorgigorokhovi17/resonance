@@ -1,12 +1,16 @@
-//! The Dynamic Island: a small always-on-top window at the top of the screen with the playing
-//! song (src/views/Island.tsx). Off until turned on in Settings. It hides itself while another
-//! app is full screen (games, videos, presentations).
+//! The Dynamic Island: a small always-on-top window with the playing song (src/views/Island.tsx).
+//! Off until turned on in Settings. By default it shows only while Undertone is minimised or in
+//! the tray, and it hides itself while another app is full screen (games, videos, presentations).
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
 pub const LABEL: &str = "island";
+
+/// The last "main window away" state sent to the island.
+static AWAY: AtomicBool = AtomicBool::new(false);
 
 /// Opens the island window (hidden; the page shows it once it has a song) and starts watching
 /// for full-screen apps.
@@ -41,6 +45,8 @@ pub fn open(app: &AppHandle) {
                 last = Some(busy);
                 let _ = handle.emit_to(LABEL, "island:fullscreen", busy);
             }
+            // Window events cover minimising and the tray; this catches anything they miss.
+            main_changed(&handle);
             std::thread::sleep(Duration::from_millis(1500));
         }
     });
@@ -49,6 +55,21 @@ pub fn open(app: &AppHandle) {
 pub fn close(app: &AppHandle) {
     if let Some(w) = app.get_webview_window(LABEL) {
         let _ = w.destroy();
+    }
+}
+
+/// The main window is minimised or hidden in the tray.
+pub fn main_away(app: &AppHandle) -> bool {
+    app.get_webview_window("main")
+        .map(|w| w.is_minimized().unwrap_or(false) || !w.is_visible().unwrap_or(true))
+        .unwrap_or(true)
+}
+
+/// Tells the island when the main window is minimised, hidden or brought back.
+pub fn main_changed(app: &AppHandle) {
+    let away = main_away(app);
+    if AWAY.swap(away, Ordering::Relaxed) != away {
+        let _ = app.emit_to(LABEL, "island:main-away", away);
     }
 }
 

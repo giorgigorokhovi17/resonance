@@ -87,6 +87,7 @@ pub fn show_main(app: &AppHandle) {
     // WebView2 keeps reporting the page as visible while the window is hidden; tell the
     // frontend so GIF and video artwork stops and starts with the window.
     let _ = app.emit("window:hidden", false);
+    island::main_changed(app);
 }
 
 /// Audio files/folders passed on the command line ("Open with", drag onto the .exe).
@@ -107,10 +108,12 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let prev = MenuItem::with_id(app, "prev", "Previous", true, None::<&str>)?;
     let next = MenuItem::with_id(app, "next", "Next", true, None::<&str>)?;
     let show = MenuItem::with_id(app, "show", "Show Undertone", true, None::<&str>)?;
+    // Also the way back when the island lets clicks through and can't be right-clicked.
+    let island = MenuItem::with_id(app, "island", "Dynamic Island settings", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let sep = PredefinedMenuItem::separator(app)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
-    let menu = Menu::with_items(app, &[&toggle, &prev, &next, &sep, &show, &sep2, &quit])?;
+    let menu = Menu::with_items(app, &[&toggle, &prev, &next, &sep, &show, &island, &sep2, &quit])?;
     let mut builder = TrayIconBuilder::with_id("main")
         .tooltip("Undertone")
         .menu(&menu)
@@ -122,6 +125,10 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
                 "prev" => state.map(|s| s.engine.send(Command::Previous)).unwrap_or_default(),
                 "next" => state.map(|s| s.engine.send(Command::Next)).unwrap_or_default(),
                 "show" => show_main(app),
+                "island" => {
+                    show_main(app);
+                    let _ = app.emit_to("main", "ui:island-settings", ());
+                }
                 "quit" => app.exit(0),
                 _ => {}
             }
@@ -203,6 +210,10 @@ pub fn run() {
             if let WindowEvent::Destroyed = event {
                 window.app_handle().exit(0);
             }
+            // Minimising and restoring resize the window; restoring also focuses it.
+            if let WindowEvent::Resized(_) | WindowEvent::Focused(_) = event {
+                island::main_changed(window.app_handle());
+            }
             if let WindowEvent::CloseRequested { api, .. } = event {
                 let to_tray = window
                     .app_handle()
@@ -213,6 +224,7 @@ pub fn run() {
                     api.prevent_close();
                     let _ = window.hide();
                     let _ = window.app_handle().emit("window:hidden", true);
+                    island::main_changed(window.app_handle());
                 }
             }
         })
@@ -443,6 +455,7 @@ pub fn run() {
             commands::import_autoeq,
             commands::open_url,
             commands::show_main_window,
+            commands::island_main_away,
             commands::quit_app,
             commands::update_playlist,
             commands::set_playlist_cover,
