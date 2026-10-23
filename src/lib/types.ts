@@ -132,6 +132,7 @@ export interface Settings {
   eq: EqSettings;
   appearance: Appearance;
   soulseek: SoulseekSettings;
+  youtube: { enabled: boolean };
 }
 
 export interface Appearance {
@@ -448,7 +449,22 @@ export interface SlskDownloadRequest {
   size: number;
   /** Link the finished file to this imported playlist entry. */
   linkKey?: string;
+  /** File name for a YouTube download. */
+  name?: string;
 }
+
+/** YouTube downloads (yt-dlp). `username` "YouTube" marks their files and jobs. */
+export interface YtStatus {
+  enabled: boolean;
+  state: "missing" | "installing" | "ready" | "failed";
+  version: string | null;
+  error: string | null;
+}
+
+export const YOUTUBE = "YouTube";
+
+/** Where missing songs are looked for. */
+export type FindMode = "soulseekFirst" | "youTube";
 
 /** A public link Undertone can import. */
 export interface LinkInfo {

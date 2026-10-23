@@ -26,6 +26,14 @@ pub struct Settings {
     pub eq: EqSettings,
     pub appearance: Appearance,
     pub soulseek: SoulseekSettings,
+    pub youtube: YouTubeSettings,
+}
+
+/// YouTube downloads (sources/youtube.rs). Off until the user turns them on.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct YouTubeSettings {
+    pub enabled: bool,
 }
 
 /// Soulseek options. The account itself is in Windows Credential Manager, not here.
@@ -151,6 +159,7 @@ impl Default for Settings {
             eq: EqSettings::default(),
             appearance: Appearance::default(),
             soulseek: SoulseekSettings::default(),
+            youtube: YouTubeSettings::default(),
         }
     }
 }
@@ -212,6 +221,7 @@ mod tests {
         assert_eq!(s.appearance, Appearance::default());
         assert!(!s.minimize_to_mini);
         assert_eq!(s.soulseek, SoulseekSettings::default());
+        assert!(!s.youtube.enabled, "YouTube downloads are off until turned on");
     }
 
     #[test]

@@ -7,7 +7,8 @@ file; keep project rules here so they stay in one place.
 
 A personal, **local-only Windows** music player: Tauri 2 (Rust backend in `src-tauri/`) with
 React + TypeScript + Tailwind (frontend in `src/`). No telemetry; the network is used only for the
-update check and, after the user signs in, Soulseek. Music files are only ever read, never modified. See `README.md` for
+update check, pasted playlist links, Soulseek after the user signs in, and YouTube downloads after
+the user turns them on. Music files are only ever read, never modified. See `README.md` for
 features, architecture and data locations.
 
 ## Commands
@@ -37,8 +38,12 @@ Before saying a change works, run the tests and the typecheck, and report the ac
   (`%USERPROFILE%\.tauri\resonance-updater.key`).
 - Never download or stream audio from any service. **Exception (owner's decision, 2026-10-19):**
   Soulseek downloading (`src-tauri/src/sources/soulseek/`, design in `docs/soulseek-design.md`).
-  Nothing is shared or uploaded, and downloaded files are marked read-only. Spotify, YouTube
-  Music and SoundCloud stay playlist imports that match against local files, never downloads.
+  Nothing is shared or uploaded, and downloaded files are marked read-only. **Second exception
+  (owner's decision, 2026-10-23):** YouTube downloads through yt-dlp (`src-tauri/src/sources/youtube.rs`),
+  off by default, for songs Soulseek doesn't have or when the user picks YouTube's quality on import.
+  yt-dlp and QuickJS are fetched from their GitHub releases (SHA-256 checked) into
+  `%LOCALAPPDATA%\app.resonance.player\tools`, never bundled. Spotify and SoundCloud stay playlist
+  imports that match against local files, never downloads.
 - **Database:** SQLite at `%APPDATA%\app.resonance.player\library.db`, migrated in
   `src-tauri/src/library/db.rs` (`migrate`). Schema changes are additive (`add_column` /
   `CREATE ... IF NOT EXISTS`), never destructive. Add a test for each migration.

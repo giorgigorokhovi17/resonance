@@ -1,8 +1,8 @@
-import { Check, Download, Loader2, RotateCw, Search, Square, X } from "lucide-react";
+import { Check, Download, Loader2, RotateCw, Search, Square, X, TvMinimalPlay } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api";
 import { fmtTime } from "../lib/format";
-import type { FoundFile, ReviewItem, SlskJob } from "../lib/types";
+import { YOUTUBE, type FindMode, type FoundFile, type ReviewItem, type SlskJob } from "../lib/types";
 import { usePlayer } from "../store/player";
 import { useSoulseek } from "../store/soulseek";
 import { useUi } from "../store/ui";
@@ -14,6 +14,8 @@ export function mb(bytes: number) {
 }
 
 export function FormatBadge({ f }: { f: FoundFile }) {
+  if (f.username === YOUTUBE)
+    return <span className="shrink-0 rounded bg-warn/10 px-1.5 py-0.5 text-[10.5px] font-semibold tracking-wide text-warn ring-1 ring-warn/30">AAC ~128</span>;
   const lossless = f.format === "FLAC";
   const label = lossless ? (f.bitDepth && f.sampleRate ? `FLAC ${f.bitDepth}/${f.sampleRate / 1000}` : "FLAC") : `MP3 ${f.bitrate ?? 320}`;
   return (
@@ -57,7 +59,9 @@ export function JobStatus({ job }: { job: SlskJob }) {
       <span className="h-1 w-20 overflow-hidden rounded-full bg-hover">
         <span className="block h-full bg-accent transition-[width]" style={{ width: `${job.state === "queued" ? 0 : pct}%` }} />
       </span>
-      <span className="tabular w-[110px]">{job.state === "queued" ? "Waiting for the user…" : `${pct}% · ${mb(job.speed)}/s`}</span>
+      <span className="tabular w-[110px]">
+        {job.state === "queued" ? (job.username === YOUTUBE ? "Starting…" : "Waiting for the user…") : `${pct}% · ${mb(job.speed)}/s`}
+      </span>
       <button aria-label="Cancel download" title="Cancel" onClick={() => api.slskCancel(job.id).catch(toastErr)} className="rounded p-0.5 text-faint hover:text-fg">
         <X size={12} />
       </button>
@@ -66,11 +70,13 @@ export function JobStatus({ job }: { job: SlskJob }) {
 }
 
 /**
- * Songs an imported playlist is missing, found on Soulseek. Searching is automatic; downloading
- * is not: you choose a file per song (or none). A finished download replaces its missing entry.
+ * Songs an imported playlist is missing, found on Soulseek (or YouTube, for what Soulseek doesn't
+ * have). Searching is automatic; downloading is not: you choose a file per song (or none), unless
+ * you ask for everything from YouTube. A finished download replaces its missing entry.
  */
 export function SoulseekMissing({ playlistId, items }: { playlistId: number; items: ReviewItem[] }) {
   const status = useSoulseek((s) => s.status);
+  const yt = useSoulseek((s) => s.yt);
   const jobs = useSoulseek((s) => s.jobs);
   const finds = useSoulseek((s) => s.finds);
   const run = useSoulseek((s) => s.findRuns[playlistId]);
@@ -104,9 +110,9 @@ export function SoulseekMissing({ playlistId, items }: { playlistId: number; ite
   };
   const selected = keys.filter((k) => finds[k]?.state === "found" && !jobFor(k) && chosen(k));
 
-  const find = async () => {
+  const find = async (mode: FindMode = "soulseekFirst") => {
     try {
-      const total = await api.findMissing(playlistId);
+      const total = await api.findMissing(playlistId, null, mode);
       useSoulseek.setState((s) => ({ findRuns: { ...s.findRuns, [playlistId]: { done: 0, total, running: true } } }));
     } catch (e) {
       toastErr(e);
@@ -115,7 +121,7 @@ export function SoulseekMissing({ playlistId, items }: { playlistId: number; ite
   const download = async () => {
     const reqs = selected.map((k) => {
       const f = chosen(k)!;
-      return { username: f.username, path: f.path, size: f.size, linkKey: k };
+      return { username: f.username, path: f.path, size: f.size, linkKey: k, name: f.name };
     });
     try {
       const n = await api.downloadFound(reqs);
@@ -127,22 +133,24 @@ export function SoulseekMissing({ playlistId, items }: { playlistId: number; ite
 
   if (!items.length) return null;
   const signedIn = status.state === "signedIn";
+  const ytReady = yt.enabled && yt.state === "ready";
   const found = keys.filter((k) => finds[k]?.state === "found").length;
   const searched = keys.some((k) => finds[k]);
 
   return (
-    <section className="rounded-xl bg-panel/70 ring-1 ring-line animate-in" aria-label="Missing songs on Soulseek">
+    <section className="rounded-xl bg-panel/70 ring-1 ring-line animate-in" aria-label="Missing songs">
       <div className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-3">
         <div className="min-w-0 flex-1">
-          <div className="text-[14.5px] font-semibold">Get missing songs from Soulseek</div>
+          <div className="text-[14.5px] font-semibold">Get missing songs</div>
           <div className="text-[12px] text-muted">
             {items.length} song{items.length === 1 ? "" : "s"} not in your library.
-            {searched && ` ${found} found.`} FLAC first, otherwise MP3 at 320 kbps. Nothing downloads until you choose.
+            {searched && ` ${found} found.`} {signedIn ? "Soulseek first: FLAC, otherwise MP3 at 320 kbps" : "Soulseek isn't signed in"}
+            {ytReady ? "; YouTube for the rest." : "."} Nothing downloads until you choose.
           </div>
         </div>
-        {!signedIn ? (
+        {!signedIn && !ytReady ? (
           <button onClick={() => setView({ kind: "sources" })} className="rounded-full px-3 py-1.5 text-[12.5px] font-medium ring-1 ring-line hover:bg-hover">
-            Sign in to Soulseek
+            Sign in to Soulseek or turn on YouTube
           </button>
         ) : running ? (
           <>
@@ -155,9 +163,20 @@ export function SoulseekMissing({ playlistId, items }: { playlistId: number; ite
             </button>
           </>
         ) : (
-          <button onClick={find} className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12.5px] font-medium ring-1 ring-line hover:bg-hover">
-            <Search size={14} /> {searched ? "Search again" : "Find on Soulseek"}
-          </button>
+          <>
+            <button onClick={() => find()} className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12.5px] font-medium ring-1 ring-line hover:bg-hover">
+              <Search size={14} /> {searched ? "Search again" : signedIn ? "Find on Soulseek" : "Find on YouTube"}
+            </button>
+            {ytReady && (
+              <button
+                onClick={() => find("youTube")}
+                title="Download every missing song from YouTube now, at YouTube's quality"
+                className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12.5px] font-medium ring-1 ring-line hover:bg-hover"
+              >
+                <TvMinimalPlay size={14} /> Get all from YouTube
+              </button>
+            )}
+          </>
         )}
         {selected.length > 0 && (
           <button onClick={download} className="accent-gradient text-on-accent inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-[12.5px] font-semibold">

@@ -22,11 +22,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use parking_lot::Mutex;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 
 use super::soulseek::model::{format_of, split_remote, FileAttrs, RawResponse};
-use super::soulseek::Soulseek;
+use super::soulseek::{ConnState, Soulseek};
+use super::youtube::YouTube;
 use crate::library::interchange::TrackRef;
 use crate::library::matcher::normalize::{key, parse_title, readings, tokens, Reading};
 
@@ -131,7 +132,7 @@ fn quality(format: &str, attrs: &FileAttrs, size: u64) -> Option<u8> {
     }
 }
 
-fn title_matches(file: &[Reading], wanted: &[Reading]) -> bool {
+pub fn title_matches(file: &[Reading], wanted: &[Reading]) -> bool {
     file.iter().any(|f| wanted.iter().any(|w| !w.title_key.is_empty() && f.title_key == w.title_key && f.versions == w.versions))
 }
 
@@ -269,6 +270,20 @@ pub struct FindProgress {
     pub running: bool,
 }
 
+/// Where to look for a missing song.
+#[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum FindMode {
+    /// Soulseek (better quality), then YouTube for songs Soulseek doesn't have.
+    #[default]
+    SoulseekFirst,
+    /// YouTube only, at YouTube's quality.
+    YouTube,
+}
+
+/// Called with (ref key, best file) for each song found, to download it right away.
+pub type OnFound = Arc<dyn Fn(&str, &Found) + Send + Sync>;
+
 pub struct Finder {
     app: AppHandle,
     /// Cancel flags of running searches, by playlist.
@@ -325,8 +340,17 @@ impl Finder {
         let _ = self.app.emit("slsk:find", FindProgress { playlist_id, result, done, total, running });
     }
 
-    /// Search Soulseek for each reference, one after another, on a background thread.
-    pub fn start(self: &Arc<Self>, slsk: Arc<Soulseek>, playlist_id: i64, refs: Vec<(String, TrackRef)>) -> usize {
+    /// Search for each reference, one after another, on a background thread: Soulseek first when
+    /// signed in, then YouTube (when it's on) for what Soulseek doesn't have.
+    pub fn start(
+        self: &Arc<Self>,
+        slsk: Arc<Soulseek>,
+        youtube: Option<Arc<YouTube>>,
+        playlist_id: i64,
+        refs: Vec<(String, TrackRef)>,
+        mode: FindMode,
+        on_found: Option<OnFound>,
+    ) -> usize {
         self.stop(playlist_id);
         let cancel = Arc::new(AtomicBool::new(false));
         self.running.lock().insert(playlist_id, cancel.clone());
@@ -368,7 +392,8 @@ impl Finder {
                 let song_cancel = Arc::new(AtomicBool::new(false));
                 *me.current.lock() = Some((k.clone(), song_cancel.clone()));
                 me.set(playlist_id, result.clone(), i, total, true);
-                for q in &qs {
+                let use_slsk = mode == FindMode::SoulseekFirst && slsk.status().state == ConnState::SignedIn;
+                for q in qs.iter().filter(|_| use_slsk) {
                     result.query = q.clone();
                     if song_cancel.load(Ordering::Relaxed) {
                         break;
@@ -390,6 +415,22 @@ impl Finder {
                     }
                     std::thread::sleep(BETWEEN_SEARCHES);
                 }
+                // Not on Soulseek (or not looking there): YouTube, when it's on.
+                let yt = youtube.as_ref().filter(|y| y.ready());
+                if let Some(yt) = yt.filter(|_| result.files.is_empty() && !song_cancel.load(Ordering::Relaxed) && !cancel.load(Ordering::Relaxed)) {
+                    result.query = format!("YouTube: {}", qs.first().cloned().unwrap_or_else(|| r.title.clone()));
+                    me.set(playlist_id, result.clone(), i, total, true);
+                    match yt.find(&r, &song_cancel) {
+                        Ok(files) => {
+                            if !files.is_empty() {
+                                result.error = None;
+                            }
+                            result.files = files;
+                        }
+                        Err(e) if result.error.is_none() => result.error = Some(format!("YouTube: {e}")),
+                        Err(e) => log::warn!("YouTube search failed: {e}"),
+                    }
+                }
                 *me.current.lock() = None;
                 result.state = if song_cancel.load(Ordering::Relaxed) {
                     FindState::Skipped
@@ -400,16 +441,21 @@ impl Finder {
                 } else {
                     FindState::Found
                 };
-                if qs.is_empty() {
+                if qs.is_empty() && result.files.is_empty() {
                     result.error = Some("The title is too short to search for.".into());
                     result.state = FindState::Failed;
                 }
-                let stop_now = result.error.as_deref().is_some_and(|e| e.contains("Sign in"));
+                let stop_now = yt.is_none() && result.error.as_deref().is_some_and(|e| e.contains("Sign in"));
+                if let (FindState::Found, Some(cb)) = (result.state, on_found.as_ref()) {
+                    cb(&k, &result.files[0]);
+                }
                 me.set(playlist_id, result, i + 1, total, true);
                 if stop_now {
                     break;
                 }
-                std::thread::sleep(BETWEEN_SEARCHES);
+                if use_slsk {
+                    std::thread::sleep(BETWEEN_SEARCHES);
+                }
             }
             me.running.lock().remove(&playlist_id);
             let _ = me.app.emit("slsk:find-done", playlist_id);

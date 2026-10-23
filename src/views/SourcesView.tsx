@@ -1,8 +1,9 @@
-import { Cloud, Download, Link2, ListPlus } from "lucide-react";
+import { Cloud, Download, Link2, ListPlus, TvMinimalPlay } from "lucide-react";
 import type { ReactNode } from "react";
 import { openLinkImport } from "../components/LinkImportDialog";
 import { ViewHeader } from "../components/ViewHeader";
 import { SoulseekPanel } from "./SoulseekPanel";
+import { YouTubePanel } from "./YouTubePanel";
 
 /**
  * Getting music in from elsewhere. Soulseek downloads go into a library folder; playlist links
@@ -25,10 +26,20 @@ export function SourcesView() {
           </SourceCard>
 
           <SourceCard
+            icon={<TvMinimalPlay size={20} />}
+            name="YouTube"
+            kind="Download"
+            body="For songs Soulseek doesn't have: finds them on YouTube Music and downloads the audio with yt-dlp. Lower quality, but almost everything is there."
+            live
+          >
+            <YouTubePanel />
+          </SourceCard>
+
+          <SourceCard
             icon={<ListPlus size={20} />}
             name="Spotify, YouTube and Apple Music"
             kind="Playlist import"
-            body="Paste a public playlist or album link; no sign-in. Songs you have are matched to your files. The rest stay in the playlist as missing, and you can find them on Soulseek from the playlist's review page."
+            body="Paste a public playlist or album link; no sign-in. Songs you have are matched to your files. The rest stay in the playlist as missing, and you can get them from Soulseek or YouTube."
             live
           >
             <button

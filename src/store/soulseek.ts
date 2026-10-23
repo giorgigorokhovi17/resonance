@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { listen } from "@tauri-apps/api/event";
 import { api } from "../lib/api";
-import type { FindProgress, FindResult, SlskJob, SlskSearchUpdate, SlskStatus } from "../lib/types";
+import type { FindProgress, FindResult, SlskJob, SlskSearchUpdate, SlskStatus, YtStatus } from "../lib/types";
 import { usePlayer } from "./player";
 
 interface SoulseekStore {
@@ -15,6 +15,8 @@ interface SoulseekStore {
   finds: Record<string, FindResult & { playlistId: number }>;
   /** Progress of each playlist's search run. */
   findRuns: Record<number, { done: number; total: number; running: boolean }>;
+  /** YouTube downloads, which share the download queue. */
+  yt: YtStatus;
 }
 
 export const useSoulseek = create<SoulseekStore>((set) => ({
@@ -24,6 +26,7 @@ export const useSoulseek = create<SoulseekStore>((set) => ({
   searchId: null,
   finds: {},
   findRuns: {},
+  yt: { enabled: false, state: "missing", version: null, error: null },
   startSearch: async (query) => {
     try {
       const id = await api.slskSearch(query);
@@ -62,6 +65,7 @@ export async function initSoulseek() {
   await listen<SlskSearchUpdate>("slsk:search", (e) => {
     if (e.payload.id === useSoulseek.getState().searchId) useSoulseek.setState({ search: e.payload });
   });
-  const [status, jobs] = await Promise.all([api.slskStatus(), api.slskDownloads()]);
-  useSoulseek.setState({ status, jobs });
+  await listen<YtStatus>("yt:status", (e) => useSoulseek.setState({ yt: e.payload }));
+  const [status, jobs, yt] = await Promise.all([api.slskStatus(), api.slskDownloads(), api.ytStatus()]);
+  useSoulseek.setState({ status, jobs, yt });
 }

@@ -35,6 +35,8 @@ pub struct AppState {
     pub soulseek: Arc<sources::soulseek::Soulseek>,
     /// Finds songs missing from imported playlists on Soulseek.
     pub finder: Arc<sources::missing::Finder>,
+    /// YouTube downloads through yt-dlp (off until turned on).
+    pub youtube: Arc<sources::youtube::YouTube>,
 }
 
 fn serve_cover(app: &AppHandle, uri: &tauri::http::Uri) -> Option<Vec<u8>> {
@@ -353,8 +355,13 @@ pub fn run() {
                 }));
             }
             let finder = sources::missing::Finder::new(app.handle().clone());
+            let youtube = sources::youtube::YouTube::new(app.handle().clone(), cache_dir.join("tools"), s.youtube.enabled);
+            soulseek.set_youtube(youtube.clone());
+            if s.youtube.enabled {
+                youtube.set_enabled(true);
+            }
 
-            app.manage(AppState { engine, settings, library, queue_dirty, queue_file, soulseek, finder });
+            app.manage(AppState { engine, settings, library, queue_dirty, queue_file, soulseek, finder, youtube });
 
             // Files passed on the command line start playing right away.
             let args: Vec<String> = std::env::args().collect();
@@ -431,6 +438,10 @@ pub fn run() {
             sources::commands::slsk_status,
             sources::commands::slsk_sign_in,
             sources::commands::slsk_sign_out,
+            sources::commands::slsk_reconnect,
+            sources::commands::yt_status,
+            sources::commands::yt_set_enabled,
+            sources::commands::yt_install,
             sources::commands::slsk_search,
             sources::commands::slsk_stop_search,
             sources::commands::slsk_downloads,

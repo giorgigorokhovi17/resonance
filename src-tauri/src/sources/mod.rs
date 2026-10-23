@@ -5,3 +5,4 @@ pub mod commands;
 pub mod links;
 pub mod missing;
 pub mod soulseek;
+pub mod youtube;
