@@ -1,6 +1,6 @@
 [package]
 name = "resonance"
-version = "0.7.1"
+version = "0.7.2"
 description = "Local-only high-fidelity music player"
 license = "MIT"
 edition = "2021"
