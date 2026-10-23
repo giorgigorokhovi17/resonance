@@ -1,6 +1,7 @@
 //! Lyrics from the music files themselves: a `.lrc` file next to the song (same name), or the
-//! lyrics stored in its tags. Nothing is fetched from the network. Timed LRC lines let the UI
-//! follow the song; plain text is shown as it is.
+//! lyrics stored in its tags. Lyrics the user looked up online (sources/lyrics_search.rs) are kept
+//! in the database and used when the files have none. Timed LRC lines let the UI follow the song;
+//! plain text is shown as it is.
 
 use std::path::Path;
 
@@ -23,7 +24,7 @@ pub struct Lyrics {
     pub lines: Vec<LyricLine>,
     /// Every line has a time.
     pub synced: bool,
-    /// "lrc" (a file next to the song) or "tags".
+    /// "lrc" (a file next to the song), "tags", or where they were found online ("lrclib").
     pub source: String,
 }
 
@@ -128,7 +129,7 @@ pub fn parse(text: &str) -> Vec<LyricLine> {
     lines[first..last].to_vec()
 }
 
-fn from_text(text: &str, source: &str) -> Option<Lyrics> {
+pub fn from_text(text: &str, source: &str) -> Option<Lyrics> {
     let lines = parse(text);
     if lines.iter().all(|l| l.text.is_empty()) {
         return None;
@@ -161,11 +162,13 @@ fn from_tags(path: &Path) -> Option<String> {
         .map(str::to_string)
 }
 
-/// Lyrics for a song: the `.lrc` file next to it first, then its tags.
-pub fn read(path: &Path) -> Option<Lyrics> {
+/// Lyrics for a song: the `.lrc` file next to it first, then its tags, then lyrics found online
+/// earlier (`saved`: their text and source).
+pub fn read(path: &Path, saved: Option<(String, String)>) -> Option<Lyrics> {
     sidecar(path)
         .and_then(|t| from_text(&t, "lrc"))
         .or_else(|| from_tags(path).and_then(|t| from_text(&t, "tags")))
+        .or_else(|| saved.and_then(|(text, source)| from_text(&text, &source)))
 }
 
 #[cfg(test)]
@@ -217,9 +220,11 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let song = dir.join("01 Song.flac");
         std::fs::write(&song, b"not really audio").unwrap();
-        assert_eq!(read(&song), None);
+        assert_eq!(read(&song, None), None);
+        let saved = read(&song, Some(("[00:03.00]Found".into(), "lrclib".into()))).unwrap();
+        assert_eq!((saved.source.as_str(), saved.lines), ("lrclib", vec![at(3_000, "Found")]));
         std::fs::write(dir.join("01 song.LRC"), "[00:01.00]Hello").unwrap();
-        let l = read(&song).unwrap();
+        let l = read(&song, Some(("[00:03.00]Found".into(), "lrclib".into()))).unwrap();
         assert_eq!((l.source.as_str(), l.lines), ("lrc", vec![at(1_000, "Hello")]));
         let _ = std::fs::remove_dir_all(&dir);
     }

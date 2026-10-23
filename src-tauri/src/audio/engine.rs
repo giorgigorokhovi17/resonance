@@ -1,5 +1,7 @@
 //! The player thread: decodes ahead into a lock-free ring buffer, tracks segment boundaries for
 //! gapless playback, handles seeking and (re)opens the output device when the format requires it.
+//! With crossfade on, the last seconds of each decoded track are held back and mixed with the
+//! start of the next one.
 
 use std::collections::VecDeque;
 use std::path::Path;
@@ -37,6 +39,10 @@ pub enum Command {
     QueueChanged,
     SetOutput { mode: OutputMode, device_id: Option<String> },
     SetReplayGain { mode: ReplayGainMode, preamp_db: f64 },
+    /// Crossfade length in seconds (0 = off, plain gapless).
+    SetCrossfade(f64),
+    /// Stop when the playing song ends instead of going on to the next one (sleep timer).
+    StopAfterCurrent(bool),
     /// Remember where to resume a restored queue item when playback is next started.
     SetResume { uid: u64, position: f64 },
     Shutdown,
@@ -75,7 +81,11 @@ pub struct EngineConfig {
     pub eq: EqSettings,
     pub rg_mode: ReplayGainMode,
     pub rg_preamp: f64,
+    pub crossfade: f64,
 }
+
+/// Longest crossfade, in seconds.
+pub const MAX_CROSSFADE: f64 = 10.0;
 
 pub struct Engine {
     tx: Sender<Command>,
@@ -112,6 +122,9 @@ impl Engine {
             device_id: cfg.device_id,
             rg_mode: cfg.rg_mode,
             rg_preamp: cfg.rg_preamp,
+            crossfade: cfg.crossfade.clamp(0.0, MAX_CROSSFADE),
+            stop_after: false,
+            stop_then: None,
             out: None,
             prod: None,
             dec: None,
@@ -121,6 +134,7 @@ impl Engine {
             pending: Vec::with_capacity(1 << 16),
             pending_pos: 0,
             scratch: Vec::with_capacity(1 << 15),
+            fresh: Vec::with_capacity(1 << 15),
             state: PlayState::Stopped,
             eos: false,
             last_emit: Instant::now(),
@@ -185,6 +199,12 @@ struct Decoding {
     resampler: Option<StreamResampler>,
     out_channels: usize,
     rg_gain: f64,
+    /// Samples kept back at the end of the track for a crossfade (0 = none).
+    hold: usize,
+    /// The newest `hold` decoded samples, not yet handed to the output.
+    tail: VecDeque<f64>,
+    /// Decoding reached the end (and the resampler was flushed).
+    ended: bool,
 }
 
 struct Segment {
@@ -210,6 +230,10 @@ struct Player {
     device_id: Option<String>,
     rg_mode: ReplayGainMode,
     rg_preamp: f64,
+    crossfade: f64,
+    stop_after: bool,
+    /// Where the queue continues after a stop-after-this-song, set when the stop is decided.
+    stop_then: Option<QueueItem>,
     out: Option<OutputHandle>,
     prod: Option<Producer<f64>>,
     dec: Option<Decoding>,
@@ -221,6 +245,7 @@ struct Player {
     pending: Vec<f64>,
     pending_pos: usize,
     scratch: Vec<f64>,
+    fresh: Vec<f64>,
     state: PlayState,
     /// Decoding finished and nothing follows in the queue.
     eos: bool,
@@ -296,6 +321,62 @@ fn map_channels(input: &[f64], in_ch: usize, out_ch: usize, dst: &mut Vec<f64>) 
                 dst.push(if c < in_ch { s[c] } else { 0.0 });
             }
         }
+    }
+}
+
+/// Decodes the next chunk of `dec` into `out`: channel-mapped, resampled and with ReplayGain.
+/// Returns whether the track ended, and an error message for the user.
+fn decode_into(dec: &mut Decoding, scratch: &mut Vec<f64>, out: &mut Vec<f64>) -> (bool, Option<String>) {
+    if dec.ended {
+        return (true, None);
+    }
+    let before = out.len();
+    let ch_out = dec.out_channels;
+    let ch_in = dec.decoder.channels();
+    let mut finished = false;
+    let mut error = None;
+    match dec.decoder.next_chunk() {
+        Ok(Some(chunk)) => {
+            map_channels(chunk, ch_in, ch_out, scratch);
+            match dec.resampler.as_mut() {
+                Some(r) => {
+                    if let Err(e) = r.process(scratch, out) {
+                        log::error!("{e}");
+                        finished = true;
+                    }
+                }
+                None => out.extend_from_slice(scratch),
+            }
+        }
+        Ok(None) => finished = true,
+        Err(e) => {
+            error = Some(format!("Error while decoding \"{}\": {e}", dec.item.track.title));
+            finished = true;
+        }
+    }
+    if finished {
+        if let Some(r) = dec.resampler.as_mut() {
+            let _ = r.finish(out);
+        }
+        dec.ended = true;
+    }
+    if dec.rg_gain != 1.0 {
+        let g = dec.rg_gain;
+        for s in &mut out[before..] {
+            *s *= g;
+        }
+    }
+    (finished, error)
+}
+
+/// Equal-power crossfade of `tail` (fading out) with `head` (fading in) into `dst`.
+fn mix_crossfade(tail: &VecDeque<f64>, head: &[f64], channels: usize, dst: &mut Vec<f64>) {
+    let frames = (tail.len() / channels).max(1) as f64;
+    dst.reserve(tail.len());
+    for (i, s) in tail.iter().enumerate() {
+        let t = (i / channels) as f64 / frames * std::f64::consts::FRAC_PI_2;
+        let h = head.get(i).copied().unwrap_or(0.0);
+        dst.push(s * t.cos() + h * t.sin());
     }
 }
 
@@ -429,6 +510,21 @@ impl Player {
                     self.seek(pos);
                 }
             }
+            // Applies from the next song decoded (the playing one keeps what it holds back), so
+            // dragging the slider never interrupts playback.
+            Command::SetCrossfade(secs) => self.crossfade = if secs.is_finite() { secs.clamp(0.0, MAX_CROSSFADE) } else { 0.0 },
+            Command::StopAfterCurrent(on) => {
+                let decided = self.stop_then.is_some();
+                if on != self.stop_after || (!on && decided) {
+                    self.stop_after = on;
+                    // Whatever was decoded ahead was decided without this: decode it again.
+                    let ahead = self.segments.len() > 1 || self.reopen.is_some() || self.eos;
+                    if ahead && (on || decided) {
+                        let pos = self.position();
+                        self.seek(pos);
+                    }
+                }
+            }
             Command::SetResume { uid, position } => self.resume = Some((uid, position)),
             Command::Shutdown => return false,
         }
@@ -480,6 +576,7 @@ impl Player {
         self.reopen = None;
         self.segments.clear();
         self.eos = false;
+        self.stop_then = None;
 
         let mut decoder = match Decoder::open(Path::new(&item.track.path)) {
             Ok(d) => d,
@@ -546,7 +643,21 @@ impl Player {
             None
         };
         let (rg, _) = rg_gain(&item.track, self.rg_mode, self.rg_preamp);
-        Ok(Decoding { item, decoder, resampler, out_channels: fmt.channels, rg_gain: rg })
+        let hold = if self.crossfade > 0.0 && item.track.duration > 2.0 * self.crossfade + 2.0 {
+            (self.crossfade * fmt.sample_rate as f64) as usize * fmt.channels
+        } else {
+            0
+        };
+        Ok(Decoding {
+            item,
+            decoder,
+            resampler,
+            out_channels: fmt.channels,
+            rg_gain: rg,
+            hold,
+            tail: VecDeque::new(),
+            ended: false,
+        })
     }
 
     fn seek(&mut self, secs: f64) {
@@ -571,6 +682,7 @@ impl Player {
         self.flush();
         self.reopen = None;
         self.eos = false;
+        self.stop_then = None;
         let base = match decoder.seek(secs) {
             Ok(b) => b,
             Err(e) => {
@@ -752,71 +864,106 @@ impl Player {
             }
             let Some(dec) = self.dec.as_mut() else { return };
             let ch_out = dec.out_channels;
-            let ch_in = dec.decoder.channels();
             let before = self.pending.len();
-            let mut finished = false;
-            match dec.decoder.next_chunk() {
-                Ok(Some(chunk)) => {
-                    map_channels(chunk, ch_in, ch_out, &mut self.scratch);
-                    match dec.resampler.as_mut() {
-                        Some(r) => {
-                            if let Err(e) = r.process(&self.scratch, &mut self.pending) {
-                                log::error!("{e}");
-                                finished = true;
-                            }
-                        }
-                        None => self.pending.extend_from_slice(&self.scratch),
-                    }
-                }
-                Ok(None) => finished = true,
-                Err(e) => {
-                    let title = dec.item.track.title.clone();
-                    self.error(format!("Error while decoding \"{title}\": {e}"));
-                    finished = true;
-                }
-            }
-            let dec = self.dec.as_mut().expect("decoder present");
-            if finished {
-                if let Some(r) = dec.resampler.as_mut() {
-                    let _ = r.finish(&mut self.pending);
-                }
-            }
-            if dec.rg_gain != 1.0 {
-                let g = dec.rg_gain;
-                for s in &mut self.pending[before..] {
-                    *s *= g;
-                }
+            let (finished, error) = if dec.hold == 0 {
+                decode_into(dec, &mut self.scratch, &mut self.pending)
+            } else {
+                // Keep the newest `hold` samples back for the crossfade; release the rest.
+                self.fresh.clear();
+                let r = decode_into(dec, &mut self.scratch, &mut self.fresh);
+                dec.tail.extend(self.fresh.drain(..));
+                let excess = dec.tail.len().saturating_sub(dec.hold);
+                self.pending.extend(dec.tail.drain(..excess));
+                r
+            };
+            if let Some(e) = error {
+                self.error(e);
             }
             self.produced += ((self.pending.len() - before) / ch_out) as u64;
             if finished {
                 let done = self.dec.take().expect("decoder present");
-                self.advance_decoder(done.item.uid);
+                self.advance_decoder(done.item, done.tail, ch_out);
             }
         }
     }
 
-    /// Current track fully decoded: open the next one for gapless continuation.
-    fn advance_decoder(&mut self, finished_uid: u64) {
-        let mut after = finished_uid;
+    /// Hands samples held back for a crossfade to the output unchanged.
+    fn release_tail(&mut self, tail: VecDeque<f64>, channels: usize) {
+        if tail.is_empty() {
+            return;
+        }
+        self.produced += (tail.len() / channels.max(1)) as u64;
+        self.pending.extend(tail);
+    }
+
+    /// Crossfade only between different songs that aren't from the same album (albums stay
+    /// gapless), and only into songs long enough for it.
+    fn crossfades(&self, from: &Track, to: &Track) -> bool {
+        let same_album = !from.album.is_empty()
+            && from.album == to.album
+            && from.album_artist_or_artist() == to.album_artist_or_artist();
+        self.crossfade > 0.0 && from.path != to.path && !same_album && to.duration > 2.0 * self.crossfade + 2.0
+    }
+
+    /// Mixes the end of the previous track (`tail`) with the start of `d`.
+    fn crossfade_into(&mut self, d: &mut Decoding, tail: VecDeque<f64>) {
+        let need = tail.len();
+        let mut head = Vec::with_capacity(need + (1 << 15));
+        while head.len() < need {
+            let (finished, error) = decode_into(d, &mut self.scratch, &mut head);
+            if let Some(e) = error {
+                self.error(e);
+            }
+            if finished {
+                break;
+            }
+        }
+        let ch = d.out_channels;
+        let before = self.pending.len();
+        mix_crossfade(&tail, &head, ch, &mut self.pending);
+        if head.len() > need {
+            self.pending.extend_from_slice(&head[need..]);
+        }
+        self.produced += ((self.pending.len() - before) / ch) as u64;
+    }
+
+    /// Current track fully decoded: open the next one for gapless continuation (or a crossfade
+    /// into it, with the held-back `tail`).
+    fn advance_decoder(&mut self, finished: QueueItem, mut tail: VecDeque<f64>, channels: usize) {
+        if self.stop_after {
+            // Sleep timer: this song is the last one. Play resumes with the next one.
+            self.stop_after = false;
+            self.release_tail(tail, channels);
+            self.stop_then = self.queue.lock().next_after(Some(finished.uid), true);
+            self.eos = true;
+            return;
+        }
+        let mut after = finished.uid;
         let max = self.queue.lock().len().max(1);
         for _ in 0..max {
             let next = self.queue.lock().next_after(Some(after), true);
-            let Some(item) = next else {
-                self.eos = true;
-                return;
-            };
+            let Some(item) = next else { break };
             match Decoder::open(Path::new(&item.track.path)) {
                 Ok(decoder) => {
                     if self.output_compatible(&decoder.source) {
                         match self.make_decoding(item.clone(), decoder) {
-                            Ok(d) => {
-                                self.push_segment(&d, 0.0);
+                            Ok(mut d) => {
+                                let tail = std::mem::take(&mut tail);
+                                if !tail.is_empty() && self.crossfades(&finished.track, &d.item.track) {
+                                    self.push_segment(&d, 0.0);
+                                    self.crossfade_into(&mut d, tail);
+                                } else {
+                                    self.release_tail(tail, channels);
+                                    self.push_segment(&d, 0.0);
+                                }
                                 self.dec = Some(d);
                                 return;
                             }
                             Err(e) => self.error(format!("Cannot play \"{}\": {e}", item.track.title)),
                         }
                     } else {
+                        let tail = std::mem::take(&mut tail);
+                        self.release_tail(tail, channels);
                         self.reopen = Some((item, decoder));
                         return;
                     }
@@ -830,6 +977,7 @@ impl Player {
             }
             after = item.uid;
         }
+        self.release_tail(tail, channels);
         self.eos = true;
     }
 
@@ -892,12 +1040,17 @@ impl Player {
                 }
                 Err(e) => {
                     self.error(format!("Cannot play \"{}\": {e}", item.track.title));
-                    self.advance_decoder(item.uid);
+                    self.advance_decoder(item, VecDeque::new(), 1);
                 }
             }
         } else if self.eos && self.dec.is_none() {
-            // End of the queue.
+            // End of the queue, or the song the sleep timer stops after.
+            let then = self.stop_then.take();
             self.hard_stop();
+            if let Some(item) = then {
+                self.queue.lock().set_current(Some(item.uid));
+                (self.emit)(EngineEvent::TrackChanged(Some(item)));
+            }
             self.emit_status();
         }
     }
@@ -970,5 +1123,28 @@ impl Player {
 
     fn volume_is_unity(&self) -> bool {
         self.shared.volume() == 1.0 && !self.shared.muted.load(Ordering::Relaxed)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn crossfade_fades_one_song_out_and_the_next_in() {
+        // Two channels, four frames: the old song at 1.0, the new one at 0.5.
+        let tail: VecDeque<f64> = std::iter::repeat_n(1.0, 8).collect();
+        let head = vec![0.5; 8];
+        let mut out = Vec::new();
+        mix_crossfade(&tail, &head, 2, &mut out);
+        assert_eq!(out.len(), 8);
+        assert_eq!((out[0], out[1]), (1.0, 1.0), "starts with only the old song");
+        let last = 6;
+        let t = 3.0 / 4.0 * std::f64::consts::FRAC_PI_2;
+        assert!((out[last] - (t.cos() + 0.5 * t.sin())).abs() < 1e-12);
+        // A next song shorter than the fade mixes with silence.
+        let mut out = Vec::new();
+        mix_crossfade(&tail, &head[..2], 2, &mut out);
+        assert!((out[7] - t.cos()).abs() < 1e-12);
     }
 }

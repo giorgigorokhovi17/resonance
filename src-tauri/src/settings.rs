@@ -17,6 +17,8 @@ pub struct Settings {
     pub volume: f64,
     pub replay_gain: ReplayGainMode,
     pub replay_gain_preamp: f64,
+    /// Crossfade between songs, in seconds (0 = off: songs follow each other gaplessly).
+    pub crossfade: f64,
     /// "dark" | "light" | "system"
     pub theme: String,
     pub close_to_tray: bool,
@@ -152,6 +154,7 @@ impl Default for Settings {
             volume: 0.8,
             replay_gain: ReplayGainMode::Off,
             replay_gain_preamp: 0.0,
+            crossfade: 0.0,
             theme: "dark".into(),
             close_to_tray: false,
             watch_folders: true,

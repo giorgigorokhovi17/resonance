@@ -4,7 +4,7 @@ use std::path::Path;
 
 use tauri::{AppHandle, Emitter, State};
 
-use crate::audio::engine::{Command, PlayerStatus};
+use crate::audio::engine::{Command, PlayerStatus, MAX_CROSSFADE};
 use crate::audio::eq::EqSettings;
 use crate::audio::output::{self, DeviceInfo};
 use crate::audio::types::{OutputMode, ReplayGainMode};
@@ -343,12 +343,14 @@ pub struct SettingsPatch {
     pub minimize_to_mini: Option<bool>,
     pub replay_gain: Option<ReplayGainMode>,
     pub replay_gain_preamp: Option<f64>,
+    pub crossfade: Option<f64>,
     pub appearance: Option<crate::settings::Appearance>,
 }
 
 #[tauri::command]
 pub fn update_settings(app: AppHandle, state: State<'_, AppState>, patch: SettingsPatch) -> Settings {
     let rg_changed = patch.replay_gain.is_some() || patch.replay_gain_preamp.is_some();
+    let crossfade_changed = patch.crossfade.is_some();
     let appearance = patch.appearance.map(|a| {
         let mut a = a.normalized();
         if a.background.as_ref().is_some_and(|b| !media_exists(&state, &b.media_id, false)) {
@@ -375,12 +377,18 @@ pub fn update_settings(app: AppHandle, state: State<'_, AppState>, patch: Settin
         if let Some(v) = patch.replay_gain_preamp {
             s.replay_gain_preamp = v.clamp(-15.0, 15.0);
         }
+        if let Some(v) = patch.crossfade.filter(|v| v.is_finite()) {
+            s.crossfade = v.clamp(0.0, MAX_CROSSFADE);
+        }
         if let Some(v) = appearance {
             s.appearance = v;
         }
     });
     if rg_changed {
         state.engine.send(Command::SetReplayGain { mode: s.replay_gain, preamp_db: s.replay_gain_preamp });
+    }
+    if crossfade_changed {
+        state.engine.send(Command::SetCrossfade(s.crossfade));
     }
     let _ = app.emit("settings:changed", &s);
     s
@@ -865,13 +873,96 @@ pub fn discard_media(state: State<'_, AppState>, id: String) -> CmdResult<()> {
 /// Lyrics for a song, from a `.lrc` file next to it or its tags (never from the network).
 /// `None` when it has none.
 #[tauri::command]
-pub async fn get_lyrics(path: String) -> CmdResult<Option<crate::library::lyrics::Lyrics>> {
+pub async fn get_lyrics(state: State<'_, AppState>, path: String) -> CmdResult<Option<crate::library::lyrics::Lyrics>> {
+    let library = state.library.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let p = Path::new(&path);
-        is_audio_file(p).then(|| crate::library::lyrics::read(p)).flatten()
+        if !is_audio_file(p) {
+            return None;
+        }
+        let saved = db::saved_lyrics(&library.db.lock(), &path).ok().flatten();
+        crate::library::lyrics::read(p, saved)
     })
     .await
     .map_err(err)
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LyricsSearch {
+    pub lyrics: Option<crate::library::lyrics::Lyrics>,
+    /// Why there are none, in plain words.
+    pub message: Option<String>,
+}
+
+/// Looks the song's lyrics up on LRCLIB (only when the user asks) and keeps what's found in the
+/// database. The music file is never changed.
+#[tauri::command]
+pub async fn search_lyrics(state: State<'_, AppState>, path: String) -> CmdResult<LyricsSearch> {
+    use crate::sources::lyrics_search::{find, Found};
+    let track = {
+        let conn = state.library.db.lock();
+        db::track_by_path(&conn, &path).map_err(err)?
+    };
+    let track = match track {
+        Some(t) => t,
+        None => {
+            // A file played from outside the library: its tags are enough to search with.
+            let p = Path::new(&path);
+            if !is_audio_file(p) {
+                return Err("That isn't a song.".into());
+            }
+            crate::library::tags::read_track(p, false).map_err(|_| "Couldn't read this song's tags.")?.0
+        }
+    };
+    let no = |m: &str| Ok(LyricsSearch { lyrics: None, message: Some(m.to_string()) });
+    match find(&track).await.map_err(err)? {
+        Found::Lyrics(text) => match crate::library::lyrics::from_text(&text, "lrclib") {
+            Some(lyrics) => {
+                db::save_lyrics(&state.library.db.lock(), &path, &text, "lrclib").map_err(err)?;
+                Ok(LyricsSearch { lyrics: Some(lyrics), message: None })
+            }
+            None => no("No lyrics found for this song."),
+        },
+        Found::Instrumental => no("LRCLIB lists this song as instrumental."),
+        Found::Nothing => no("No lyrics found for this song."),
+    }
+}
+
+/// Forgets lyrics found online for a song (when they're wrong).
+#[tauri::command]
+pub fn remove_found_lyrics(state: State<'_, AppState>, path: String) -> CmdResult<()> {
+    db::delete_saved_lyrics(&state.library.db.lock(), &path).map_err(err)
+}
+
+/// Listening stats for plays started in `from..to` (unix seconds).
+#[tauri::command]
+pub async fn get_stats(state: State<'_, AppState>, from: i64, to: i64, tz_offset_min: i64) -> CmdResult<crate::library::stats::Stats> {
+    let library = state.library.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::library::stats::stats(&library.db.lock(), from, to, tz_offset_min.clamp(-14 * 60, 14 * 60), 10)
+    })
+    .await
+    .map_err(err)?
+    .map_err(err)
+}
+
+#[tauri::command]
+pub fn clear_play_history(state: State<'_, AppState>) -> CmdResult<()> {
+    state.library.db.lock().execute("DELETE FROM plays", []).map_err(err)?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_sleep_timer(state: State<'_, AppState>) -> crate::sleep::SleepStatus {
+    state.sleep.status()
+}
+
+/// `minutes` pauses after that long; `end_of_song` stops when the playing song ends; neither
+/// turns the timer off.
+#[tauri::command]
+pub fn set_sleep_timer(state: State<'_, AppState>, minutes: Option<u32>, end_of_song: bool) -> crate::sleep::SleepStatus {
+    state.sleep.set(minutes, end_of_song)
 }
 
 /// Every stored photo, GIF and video, with its kind, size and poster.
@@ -972,6 +1063,7 @@ pub async fn import_backup(app: AppHandle, state: State<'_, AppState>, path: Str
         s.volume = from.volume.clamp(0.0, 1.0);
         s.replay_gain = from.replay_gain;
         s.replay_gain_preamp = from.replay_gain_preamp;
+        s.crossfade = from.crossfade.clamp(0.0, MAX_CROSSFADE);
         s.theme = from.theme.clone();
         s.close_to_tray = from.close_to_tray;
         s.watch_folders = from.watch_folders;
@@ -981,6 +1073,7 @@ pub async fn import_backup(app: AppHandle, state: State<'_, AppState>, path: Str
     state.engine.set_volume(s.volume);
     state.engine.set_eq(s.eq.clone());
     state.engine.send(Command::SetReplayGain { mode: s.replay_gain, preamp_db: s.replay_gain_preamp });
+    state.engine.send(Command::SetCrossfade(s.crossfade));
     state.library.set_watching(s.watch_folders);
     let _ = app.emit("settings:changed", &s);
     let _ = app.emit("library:changed", crate::library::scan::ScanSummary::default());

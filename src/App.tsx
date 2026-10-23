@@ -9,6 +9,7 @@ import { initMedia, useMedia } from "./store/media";
 import { useUi } from "./store/ui";
 import { initUpdater } from "./store/updater";
 import { initSoulseek } from "./store/soulseek";
+import { initSleep } from "./store/sleep";
 import { TitleBar } from "./components/TitleBar";
 import { Sidebar } from "./components/Sidebar";
 import { PlayerBar } from "./components/PlayerBar";
@@ -19,6 +20,7 @@ import { DialogHost } from "./components/Dialog";
 import { DownloadsPanel } from "./components/DownloadsPanel";
 import { LinkImportHost } from "./components/LinkImportDialog";
 import { PlaylistEditorHost } from "./components/PlaylistEditor";
+import { LyricsDialog } from "./components/LyricsPanel";
 import { Ambient } from "./components/Ambient";
 import { Backdrop } from "./components/Backdrop";
 import { SettingsView } from "./views/SettingsView";
@@ -32,6 +34,7 @@ import { PlaylistView } from "./views/PlaylistView";
 import { ReviewView } from "./views/ReviewView";
 import { EqView } from "./views/EqView";
 import { SourcesView } from "./views/SourcesView";
+import { StatsView } from "./views/StatsView";
 import { NowPlaying } from "./views/NowPlaying";
 import { MiniPlayer } from "./views/MiniPlayer";
 import { resumeMiniAfterReload, toggleMiniPlayer } from "./lib/window";
@@ -114,6 +117,8 @@ function MainView() {
       return <EqView />;
     case "sources":
       return <SourcesView />;
+    case "stats":
+      return <StatsView />;
     case "settings":
       return (
         <div className="h-full overflow-y-auto">
@@ -147,6 +152,7 @@ export default function App() {
     initMedia().catch((e) => console.error(e));
     initUpdater();
     initSoulseek().catch((e) => console.error(e));
+    initSleep().catch((e) => console.error(e));
     resumeMiniAfterReload();
     // Files dropped from Explorer start playing.
     const un = getCurrentWebview().onDragDropEvent((e) => {
@@ -205,6 +211,7 @@ export default function App() {
       <DialogHost />
       <LinkImportHost />
       <PlaylistEditorHost />
+      <LyricsDialog />
     </div>
   );
 }

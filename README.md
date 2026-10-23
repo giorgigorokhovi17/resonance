@@ -1,6 +1,6 @@
 # Undertone
 
-A personal, **local-only** music player for Windows. No telemetry. The only network use is the update check, reading playlist links you paste, Soulseek once you sign in, and YouTube downloads once you turn them on.
+A personal, **local-only** music player for Windows. No telemetry. The only network use is the update check, reading playlist links you paste, lyrics searches you ask for, Soulseek once you sign in, and YouTube downloads once you turn them on.
 
 Formerly called Resonance. The data folder (`app.resonance.player`) and backup file format still
 use the old name so existing libraries and backups keep working.
@@ -47,6 +47,7 @@ own update key.
 - **Gapless playback**: the next track is decoded ahead into the same stream, and encoder delay/padding is trimmed. Tracks that need a different device format in exclusive mode trigger a device reopen (a short, unavoidable gap).
 - **Sample-accurate seeking** and 64-bit float processing throughout. Samples are scaled by exact powers of two, so with volume at 100% and the EQ bypassed, exclusive mode is **bit-perfect**. A "Bit-perfect" badge confirms it live.
 - **10-band parametric EQ + preamp** (RBJ biquads in f64): peak, low/high shelf, low/high-pass. Bypass toggle, built-in and saved presets, and **AutoEQ `ParametricEQ.txt` import**. *Auto headroom* lowers the preamp by the EQ's peak boost so boosts can never clip.
+- **Crossfade** (Settings → Crossfade, off by default, 1–10 s): an equal-power fade from each song into the next. Songs from the same album stay gapless. Only the overlap itself isn't bit-perfect.
 - **ReplayGain** (track/album) with pre-amp. Gain is limited by the stored peak so it never clips.
 - Volume uses a smooth perceptual taper with de-click ramps. TPDF dither is applied only when the signal was actually processed.
 
@@ -55,6 +56,7 @@ own update key.
 - Stored in local SQLite (WAL). Rescans are incremental: only new or changed files are re-read.
 - Folders are watched for changes, which triggers an automatic incremental rescan.
 - Views: **Songs** (cover grid), **Tracks** (sortable table), **Playlists**, **Folders** and **Search**. Long lists are virtualized.
+- **Your stats**: top songs, artists and albums, minutes listened, when you listen (by hour and weekday), longest streak and biggest day, for this month, the last 30 days, this year or all time. A song counts once you've heard 30 seconds of it (half of songs under a minute). The history stays in the local database; **Clear listening history** at the bottom of the page deletes it.
 
 **Playback UI**
 - Dark (default) and light themes. Large **Now Playing** view with album art over a blurred-art background.
@@ -63,7 +65,9 @@ own update key.
   - Off by default: GIFs and videos show their still frame until you turn on **Settings → Visual → GIFs and videos** (everywhere, or Now Playing only), since playing them uses more CPU, GPU and battery.
   - Performance first: at most 4 animations at once, only what's on screen (grid tiles move while the pointer is over them, list rows never), and nothing while the window is minimised, in the tray, or Windows asks for less motion. A 1080p H.264 background adds about 1% CPU with hardware decoding, and the audio path is untouched (exclusive mode stays bit-perfect).
   - Backgrounds get a scrim (dim 0–80%, blur 0–40 px, fill or whole picture). The dim is raised automatically when needed so text meets WCAG AA contrast over the picture in dark and light mode.
-- **Playlist page designs** (Settings → Visual → Playlist page): **Classic**, with the cover and title above the songs, or **Cover and lyrics**, with the cover on the left, the playing song and its lyrics below it, and the songs on the right. Lyrics come from a `.lrc` file with the same name next to the song, or from its tags; timed lyrics follow the song and a click jumps to that line. Nothing is fetched from the internet.
+- **Playlist page designs** (Settings → Visual → Playlist page): **Classic**, with the cover and title above the songs, or **Cover and lyrics**, with the cover on the left, the playing song and its lyrics below it, and the songs on the right. Lyrics come from a `.lrc` file with the same name next to the song, or from its tags; timed lyrics follow the song and a click jumps to that line.
+- **Lyrics window** (the microphone button in the player bar, or L): the playing song's lyrics over the app. When a song has none, **Search lyrics** looks it up on [LRCLIB](https://lrclib.net) (free, no account), sending only the title, artist, album and length. A result is used only if its title matches and its length is within 3 s. Found lyrics are kept in the app's database (the song file isn't changed); **Wrong lyrics? Remove** forgets them. Nothing is searched unless you click.
+- **Sleep timer** (the moon button in the player bar): pause after 15 minutes to 1.5 hours, fading out over the last 10 seconds, or stop at the end of the playing song.
 - **Queue** (drag to reorder, remove, save as playlist) as a full view and a slide-over panel.
 - **Playlists**: create, rename, delete, reorder. **Import M3U/M3U8, PLS, XSPF and WPL**: importing the same file again updates its playlist instead of adding a copy. **Export to M3U8, XSPF, or CSV with ISRC** (for spreadsheets; cells are guarded against formula injection). ISRCs and MusicBrainz recording ids are read from tags (invalid values, such as barcodes in the ISRC field, are ignored).
 - **Playlist matcher**: every imported entry is matched to a local file by path, folder + file name, ISRC, MusicBrainz id, then fuzzy title/artist/version/duration (SQLite FTS5 narrows candidates). Only unambiguous, fully confirmed matches are accepted automatically. A remix, slowed or extended version is never taken for the original. **Export unmatched report…** on an imported playlist lists what wasn't matched and why.
@@ -136,7 +140,7 @@ Installed copies check `https://github.com/giorgigorokhovi17/resonance/releases/
 2. Run `scripts/release.ps1` as above. It builds, signs and writes `bundle/latest.json`.
 3. On GitHub, create a release tagged `v<version>` (e.g. `v0.5.0`) and upload the `-setup.exe` and `latest.json` it lists, for example with `gh release create v<version> <setup.exe> <latest.json> --title "Undertone <version>"`.
 
-The private signing key is `%USERPROFILE%\.tauri\resonance-updater.key` (no password). **Back it up and never share or commit it.** If it's lost, existing installs can't verify new versions and people must reinstall manually. Apart from Soulseek (only after you sign in), the update check is the app's only network request; everything else runs offline.
+The private signing key is `%USERPROFILE%\.tauri\resonance-updater.key` (no password). **Back it up and never share or commit it.** If it's lost, existing installs can't verify new versions and people must reinstall manually. Apart from Soulseek (only after you sign in), YouTube downloads (only once turned on), pasted links and lyrics searches you click, the update check is the app's only network request; everything else runs offline.
 
 ## Tests and dev tools
 
@@ -184,7 +188,7 @@ Hardware media keys work through Windows' media controls, even when the window i
 | | |
 |---|---|
 | Settings, EQ presets | `%APPDATA%\app.resonance.player\settings.json`, `eq_presets.json` |
-| Library database, saved queue | `%APPDATA%\app.resonance.player\library.db`, `queue.json` |
+| Library database (also listening history and lyrics found online), saved queue | `%APPDATA%\app.resonance.player\library.db`, `queue.json` |
 | Album-art cache (and the still frames of GIFs and videos) | `%LOCALAPPDATA%\app.resonance.player\covers\` |
 | Custom GIFs, videos and background photos (copies; ones nothing uses are deleted on startup) | `%LOCALAPPDATA%\app.resonance.player\media\` |
 | Soulseek sign-in | Windows Credential Manager, generic credential `Resonance/Soulseek` |
