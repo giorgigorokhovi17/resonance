@@ -34,7 +34,7 @@ export function IslandSection({ settings }: { settings: Settings }) {
   return (
     <Section
       title="Dynamic Island"
-      description="A small bar with the playing song that stays on top of other apps. Point at it for controls, progress and the current lyric line, drag it anywhere, right-click it for options, and double-click it to open Undertone. It hides while another app is full screen."
+      description="A small bar with the playing song that stays on top of other apps. Point at it for controls, progress and the current lyric line, drag it anywhere, right-click it for options, and double-click it to open Undertone."
     >
       <div className="space-y-4">
         <Row label="Show the Dynamic Island">
@@ -44,6 +44,13 @@ export function IslandSection({ settings }: { settings: Settings }) {
           <>
             <Row label="Only while Undertone is minimised" hint="Off: it stays up while you use Undertone too.">
               <Toggle label="Only while minimised" checked={o.onlyWhenMinimized} onChange={(v) => setOptions({ onlyWhenMinimized: v })} />
+            </Row>
+
+            <Row
+              label="Hide over full-screen games and videos"
+              hint="Off: it stays on top of them. Games in exclusive full screen hide everything; use their borderless mode."
+            >
+              <Toggle label="Hide over full screen" checked={o.hideInFullscreen} onChange={(v) => setOptions({ hideInFullscreen: v })} />
             </Row>
 
             <div className="flex flex-wrap items-start justify-between gap-4">

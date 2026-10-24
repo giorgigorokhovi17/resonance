@@ -129,6 +129,8 @@ pub struct IslandOptions {
     pub click_through: bool,
     /// Only shows while Undertone is minimised or in the tray.
     pub only_when_minimized: bool,
+    /// Steps aside while a game or video is full screen.
+    pub hide_in_fullscreen: bool,
     pub show_title: bool,
     pub show_artist: bool,
     /// Grows into controls when pointed at.
@@ -151,6 +153,7 @@ impl Default for IslandOptions {
             locked: false,
             click_through: false,
             only_when_minimized: true,
+            hide_in_fullscreen: true,
             show_title: true,
             show_artist: true,
             expand_on_hover: true,
@@ -380,7 +383,7 @@ mod tests {
         assert!(s.island);
         let o = &s.island_options;
         assert_eq!((o.position.as_str(), o.colors.as_str()), ("topCenter", "cover"));
-        assert!(o.only_when_minimized && o.show_title && o.show_artist && o.expand_on_hover);
+        assert!(o.only_when_minimized && o.hide_in_fullscreen && o.show_title && o.show_artist && o.expand_on_hover);
         assert!(!o.locked && !o.click_through);
 
         let o: IslandOptions =

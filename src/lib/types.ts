@@ -158,6 +158,8 @@ export interface IslandOptions {
   locked: boolean;
   clickThrough: boolean;
   onlyWhenMinimized: boolean;
+  /** Steps aside while a game or video is full screen. */
+  hideInFullscreen: boolean;
   showTitle: boolean;
   showArtist: boolean;
   expandOnHover: boolean;
