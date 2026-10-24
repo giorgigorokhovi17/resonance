@@ -59,6 +59,11 @@ pub fn open(app: &AppHandle) {
     if let Ok(hwnd) = window.hwnd() {
         on_top::set(hwnd.0 as isize);
         let _ = app.run_on_main_thread(on_top::hook);
+        // Layered once, here, so letting clicks through later is a single style bit. Having tao
+        // switch click-through rewrites every style and refreshes the frame, which waits on the
+        // webview's window in its own process; done each time the pointer crossed the pill's
+        // edge, that could lock up the app.
+        let _ = window.set_ignore_cursor_events(true);
     }
     #[cfg(not(windows))]
     let _ = window;
@@ -112,12 +117,16 @@ pub fn open(app: &AppHandle) {
     let handle = app.clone();
     let _ = std::thread::Builder::new().name("island-clicks".into()).spawn(move || {
         let mut last = None;
-        while let Some(w) = handle.get_webview_window(LABEL) {
+        while let Some(_w) = handle.get_webview_window(LABEL) {
             let through = CLICK_THROUGH.load(Ordering::Relaxed);
             let ignore = !pointer_on_pill() || (through && !alt_down());
+            // Set every time: showing or hiding the window has tao put its own styles back.
+            #[cfg(windows)]
+            on_top::let_clicks_through(ignore);
             if last != Some(ignore) {
                 last = Some(ignore);
-                let _ = w.set_ignore_cursor_events(ignore);
+                #[cfg(not(windows))]
+                let _ = _w.set_ignore_cursor_events(ignore);
                 // The page can't see the pointer leave once clicks go through.
                 let _ = handle.emit_to(LABEL, "island:clickable", !ignore);
             }
@@ -183,8 +192,9 @@ mod on_top {
     use windows::Win32::Foundation::{HWND, POINT, RECT};
     use windows::Win32::UI::Accessibility::{SetWinEventHook, HWINEVENTHOOK};
     use windows::Win32::UI::WindowsAndMessaging::{
-        GetCursorPos, GetWindowRect, SetWindowPos, EVENT_SYSTEM_FOREGROUND, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE,
-        SWP_NOZORDER, WINEVENT_OUTOFCONTEXT, WINEVENT_SKIPOWNPROCESS,
+        GetCursorPos, GetWindowLongPtrW, GetWindowRect, SetWindowLongPtrW, SetWindowPos, EVENT_SYSTEM_FOREGROUND,
+        GWL_EXSTYLE, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE, SWP_NOZORDER,
+        WINEVENT_OUTOFCONTEXT, WINEVENT_SKIPOWNPROCESS, WS_EX_LAYERED, WS_EX_TRANSPARENT,
     };
 
     /// The island's window handle (0 while it's closed).
@@ -215,6 +225,26 @@ mod on_top {
     }
 
     /// The pointer is inside `rect` (x, y, width, height), relative to the island window.
+    /// Lets clicks through the window (or not) by switching only WS_EX_TRANSPARENT, keeping it
+    /// layered (it needs both to let clicks through). Only the window's own style changes: no
+    /// frame refresh, nothing sent to the webview's window. Does nothing when already so.
+    pub fn let_clicks_through(through: bool) {
+        let hwnd = ISLAND.load(Ordering::Relaxed);
+        if hwnd == 0 {
+            return;
+        }
+        let hwnd = HWND(hwnd as *mut _);
+        // SAFETY: a window handle of ours; reading and setting its extended style.
+        unsafe {
+            let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+            let (layered, transparent) = (WS_EX_LAYERED.0 as isize, WS_EX_TRANSPARENT.0 as isize);
+            let want = if through { style | layered | transparent } else { (style | layered) & !transparent };
+            if want != style {
+                SetWindowLongPtrW(hwnd, GWL_EXSTYLE, want);
+            }
+        }
+    }
+
     pub fn pointer_in(rect: [i32; 4]) -> bool {
         let hwnd = ISLAND.load(Ordering::Relaxed);
         if hwnd == 0 {

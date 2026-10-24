@@ -1,7 +1,7 @@
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { Menu } from "@tauri-apps/api/menu";
 import { availableMonitors, currentMonitor, getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
-import { FolderOpen, Pause, Play, Repeat, Repeat1, Shuffle, SkipBack, SkipForward } from "lucide-react";
+import { FolderOpen, Pause, Play, Repeat, Repeat1, Shuffle, SkipBack, SkipForward, X } from "lucide-react";
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { Cover } from "../components/Cover";
 import { api } from "../lib/api";
@@ -17,14 +17,18 @@ import {
   type Rect,
 } from "../lib/island";
 import { coverPalette, type Palette } from "../lib/palette";
-import type { IslandOptions, IslandPosition, RepeatMode } from "../lib/types";
+import type { IslandOptions, IslandPosition, Playlist, RepeatMode } from "../lib/types";
 import { useLyrics } from "../store/lyrics";
 import { initPlayer, livePosition, usePlayer } from "../store/player";
 import { playPlaylist } from "./PlaylistView";
 
 type Size = { w: number; h: number };
-/** The small bar, the card shown when a new song starts, and the full island on hover. */
-type Level = "small" | "card" | "big";
+/**
+ * The small bar, the card shown when a new song starts, the full island on hover, and the
+ * playlist picker (the folder button).
+ */
+type Level = "small" | "card" | "big" | "list";
+const RANK: Record<Level, number> = { small: 0, card: 1, big: 2, list: 3 };
 /**
  * Where the island is at each size (physical px), grown from where the small bar sits, and the
  * window: big enough for all of them, so it never resizes while the pill grows and shrinks.
@@ -34,6 +38,7 @@ type Geo = { rects: Record<Level, Rect>; window: Rect; sf: number; up: boolean }
 /** Window sizes (logical px). The pill sits inside with room for its glow. */
 const CARD = { w: 400, h: 98 };
 const BIG = { w: 500, h: 186 };
+const LIST = { w: 420, h: 330 };
 /** Space around the pill inside the window. */
 const SIDE = 10;
 const EDGE = 6;
@@ -53,7 +58,7 @@ function smallSize(o: IslandOptions): Size {
 }
 
 function levelSize(level: Level, small: Size): Size {
-  return level === "big" ? BIG : level === "card" ? CARD : small;
+  return level === "list" ? LIST : level === "big" ? BIG : level === "card" ? CARD : small;
 }
 
 /** The pill's size at each level. */
@@ -69,8 +74,9 @@ function pillSize(level: Level, small: Size): Size {
 function pillSpot(geo: Geo | null, level: Level, small: Size) {
   const box = pillSize(level, small);
   const own = levelSize(level, small);
-  const dx = geo ? (geo.rects[level].x - geo.window.x) / geo.sf : (BIG.w - own.w) / 2;
-  const dy = geo ? (geo.rects[level].y - geo.window.y) / geo.sf : 0;
+  const r = geo?.rects[level];
+  const dx = geo && r ? (r.x - geo.window.x) / geo.sf : (BIG.w - own.w) / 2;
+  const dy = geo && r ? (r.y - geo.window.y) / geo.sf : 0;
   const up = geo?.up ?? false;
   return { left: dx + SIDE, top: dy + (up ? own.h - box.h - EDGE : EDGE), w: box.w, h: box.h };
 }
@@ -109,7 +115,8 @@ async function layout(o: IslandOptions, small: Size): Promise<Geo | null> {
   const collapsed = collapsedRect(o, area.rect, px(small));
   const card = grownRect(collapsed, px(CARD), area.rect);
   const big = grownRect(collapsed, px(BIG), area.rect);
-  const all = [collapsed, card.rect, big.rect];
+  const list = grownRect(collapsed, px(LIST), area.rect);
+  const all = [collapsed, card.rect, big.rect, list.rect];
   const x = Math.min(...all.map((r) => r.x));
   const y = Math.min(...all.map((r) => r.y));
   const window = {
@@ -118,7 +125,7 @@ async function layout(o: IslandOptions, small: Size): Promise<Geo | null> {
     w: Math.max(...all.map((r) => r.x + r.w)) - x,
     h: Math.max(...all.map((r) => r.y + r.h)) - y,
   };
-  return { rects: { small: collapsed, card: card.rect, big: big.rect }, window, sf: area.sf, up: big.up };
+  return { rects: { small: collapsed, card: card.rect, big: big.rect, list: list.rect }, window, sf: area.sf, up: big.up };
 }
 
 /** The current timed lyric line, if the song has synced lyrics. */
@@ -199,18 +206,9 @@ async function openMenu(altHeld: boolean) {
   await showMenu();
 }
 
-/** The folder button: the playlists, to play one (with shuffle as it's set now). */
-async function openPlaylists(altHeld: boolean) {
-  await altLetGo(altHeld);
-  const lists = await api.getPlaylists();
-  const shuffle = usePlayer.getState().queue.shuffle;
-  const name = (s: string) => (s.length > 48 ? `${s.slice(0, 47)}…` : s);
-  const items = lists.length
-    ? lists.map((p) => ({ text: `${name(p.name)}  (${p.trackCount})`, action: () => playPlaylist(p.id, 0, shuffle) }))
-    : [{ text: "No playlists yet", enabled: false }];
-  const menu = await Menu.new({ items: [{ text: "Play a playlist", enabled: false }, { item: "Separator" }, ...items] });
-  await menu.popup();
-}
+/** The picker closes when the pointer has been away this long, or idle in it this long. */
+const PICKER_LEAVE_MS = 700;
+const PICKER_IDLE_MS = 10_000;
 
 /**
  * The Dynamic Island: a bar with the playing song, coloured from its cover or a chosen palette,
@@ -229,6 +227,9 @@ export function Island() {
   const [mainAway, setMainAway] = useState(false);
   const [hover, setHover] = useState(false);
   const [peek, setPeek] = useState(false);
+  /** The playlist picker's list; null while it's closed. */
+  const [lists, setLists] = useState<Playlist[] | null>(null);
+  const pickerTimer = useRef<number>();
   const [geo, setGeo] = useState<Geo | null>(null);
   const geoRef = useRef<Geo | null>(null);
   const [palettes, setPalettes] = useState<{ key: string; p: Palette }[]>([{ key: "none", p: FALLBACK_PALETTE }]);
@@ -244,7 +245,45 @@ export function Island() {
   const showArtist = o?.showArtist ?? true;
   const small = o ? smallSize(o) : { w: 320, h: 58 };
   const visible = !!o && !!track && !(fullscreen && o.hideInFullscreen) && (!o.onlyWhenMinimized || mainAway);
-  const pill: Level = !visible ? "small" : hover && o?.expandOnHover ? "big" : peek && o?.peekOnNewSong ? "card" : "small";
+  const picking = lists !== null;
+  const pill: Level = !visible
+    ? "small"
+    : picking
+      ? "list"
+      : hover && o?.expandOnHover
+        ? "big"
+        : peek && o?.peekOnNewSong
+          ? "card"
+          : "small";
+  const closePicker = () => {
+    window.clearTimeout(pickerTimer.current);
+    setLists(null);
+  };
+  /** (Re)starts the picker's timer: it closes after `ms` unless something happens. */
+  const pickerCloseIn = (ms: number) => {
+    window.clearTimeout(pickerTimer.current);
+    pickerTimer.current = window.setTimeout(() => setLists(null), ms);
+  };
+  // Part of the island, so unlike a menu it opens with Alt still held (click-through mode: keep
+  // holding Alt to pick one).
+  const openPicker = () => {
+    api
+      .getPlaylists()
+      .then((l) => {
+        setLists(l);
+        pickerCloseIn(PICKER_IDLE_MS);
+      })
+      .catch((e) => console.error(e));
+  };
+  const pick = (id: number, shuffled: boolean) => {
+    closePicker();
+    playPlaylist(id, 0, shuffled);
+  };
+  // Hidden (Undertone came back, a game went full screen): the picker doesn't come back open.
+  useEffect(() => {
+    if (!visible) closePicker();
+  }, [visible]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => window.clearTimeout(pickerTimer.current), []);
   const placeKey = o ? `${o.position}|${o.x}|${o.y}|${small.w}` : "";
 
   useEffect(() => {
@@ -311,13 +350,24 @@ export function Island() {
     };
   }, [visible, placeKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Clicks reach the island only over the pill, at the size it's growing or shrinking to.
+  // Clicks reach the island only over the pill; elsewhere they go to the app underneath. Growing,
+  // that area grows at once; shrinking, it waits for the pill to finish.
   const spot = pillSpot(geo, pill, small);
-  const sf = geo?.sf ?? 1;
+  const [shapeLevel, setShapeLevel] = useState<Level>("small");
+  useEffect(() => {
+    if (RANK[pill] >= RANK[shapeLevel]) {
+      setShapeLevel(pill);
+      return;
+    }
+    const t = window.setTimeout(() => setShapeLevel(pill), 400);
+    return () => window.clearTimeout(t);
+  }, [pill]); // eslint-disable-line react-hooks/exhaustive-deps
+  const shape = pillSpot(geo, shapeLevel, small);
   useEffect(() => {
     if (!geo) return;
-    api.islandSetPill(Math.round(spot.left * sf), Math.round(spot.top * sf), Math.round(spot.w * sf), Math.round(spot.h * sf)).catch(() => {});
-  }, [geo, spot.left, spot.top, spot.w, spot.h, sf]);
+    const sf = geo.sf;
+    api.islandSetPill(Math.round(shape.left * sf), Math.round(shape.top * sf), Math.round(shape.w * sf), Math.round(shape.h * sf)).catch(() => {});
+  }, [geo, shape.left, shape.top, shape.w, shape.h]);
 
   // A new song shows the card for a moment.
   useEffect(() => {
@@ -388,15 +438,18 @@ export function Island() {
         onMouseEnter={() => {
           window.clearTimeout(leave.current);
           setHover(true);
+          if (picking) pickerCloseIn(PICKER_IDLE_MS);
         }}
         onMouseLeave={() => {
           press.current = null;
           leave.current = window.setTimeout(() => setHover(false), 350);
+          if (picking) pickerCloseIn(PICKER_LEAVE_MS);
         }}
         onMouseDown={(e) => {
           press.current = e.button === 0 && !o.locked && !onControl(e) ? { x: e.screenX, y: e.screenY } : null;
         }}
         onMouseMove={(e) => {
+          if (picking) pickerCloseIn(PICKER_IDLE_MS);
           const p = press.current;
           if (!p) return;
           if (!(e.buttons & 1)) {
@@ -421,7 +474,7 @@ export function Island() {
           top: spot.top,
           width: spot.w,
           height: spot.h,
-          borderRadius: pill === "big" ? 28 : pill === "card" ? 24 : 22,
+          borderRadius: pill === "big" || pill === "list" ? 28 : pill === "card" ? 24 : 22,
           boxShadow: `0 10px 30px -10px ${glow}, 0 0 0 1px rgb(255 255 255 / 0.08) inset`,
           transition: `left ${ease}, top ${ease}, width ${ease}, height ${ease}, border-radius 380ms, box-shadow 600ms`,
         }}
@@ -446,7 +499,7 @@ export function Island() {
             {showTitle || showArtist ? <TitleLine title={showTitle ? track.title : null} artist={showArtist ? displayArtist(track) : null} /> : null}
             <div className="ml-auto flex shrink-0 items-center gap-0.5">
               {o.showPlaylists && (
-                <SmallBtn label="Play a playlist" onClick={(e) => openPlaylists(e.altKey).catch((err) => console.error(err))}>
+                <SmallBtn label="Play a playlist" onClick={openPicker}>
                   <FolderOpen size={13} />
                 </SmallBtn>
               )}
@@ -507,6 +560,62 @@ export function Island() {
           <Bars levels={levels} />
         </div>
 
+        {/* Playlist picker */}
+        <div className="absolute inset-0 flex flex-col px-3 pb-3 pt-3.5 transition-opacity duration-300" style={layer("list")}>
+          <div className="flex items-center gap-2 px-1.5 pb-2.5">
+            <FolderOpen size={15} className="text-white/80" />
+            <span className="flex-1 text-[13.5px] font-semibold drop-shadow">Playlists</span>
+            <span className="text-[11px] text-white/60">{shuffle ? "Plays shuffled" : "Plays in order"}</span>
+            <button
+              aria-label="Close"
+              title="Close"
+              onClick={closePicker}
+              className="ml-1 rounded-full p-1 text-white/70 transition-colors hover:bg-white/15 hover:text-white"
+            >
+              <X size={14} />
+            </button>
+          </div>
+          <div
+            data-no-drag
+            className="-mx-1 min-h-0 flex-1 cursor-default overflow-y-auto px-1"
+            style={{ scrollbarWidth: "thin", scrollbarColor: "rgb(255 255 255 / 0.3) transparent" }}
+          >
+            {lists && lists.length > 0 ? (
+              lists.map((p) => (
+                <div key={p.id} className="group flex items-center gap-1 rounded-xl transition-colors hover:bg-white/15">
+                  <button onClick={() => pick(p.id, shuffle)} className="flex min-w-0 flex-1 items-center gap-3 rounded-xl p-1.5 text-left">
+                    <Cover coverId={p.coverId ?? p.previewCovers[0] ?? null} className="h-10 w-10 shrink-0 shadow-md" rounded="rounded-lg" iconSize={16} />
+                    <span className="min-w-0">
+                      <span className="block truncate text-[13px] font-semibold drop-shadow">{p.name}</span>
+                      <span className="block text-[11.5px] text-white/65">
+                        {p.trackCount} song{p.trackCount === 1 ? "" : "s"}
+                      </span>
+                    </span>
+                  </button>
+                  <button
+                    aria-label={`Shuffle ${p.name}`}
+                    title="Shuffle"
+                    onClick={() => pick(p.id, true)}
+                    className="mr-1 rounded-full p-2 text-white/80 opacity-0 transition hover:bg-white/15 hover:text-white group-hover:opacity-100"
+                  >
+                    <Shuffle size={14} />
+                  </button>
+                  <button
+                    aria-label={`Play ${p.name}`}
+                    title="Play"
+                    onClick={() => pick(p.id, false)}
+                    className="mr-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-black opacity-0 shadow transition hover:scale-105 group-hover:opacity-100"
+                  >
+                    <Play size={14} fill="currentColor" strokeWidth={0} className="translate-x-px" />
+                  </button>
+                </div>
+              ))
+            ) : (
+              <div className="flex h-full items-center justify-center text-[12.5px] text-white/70">No playlists yet</div>
+            )}
+          </div>
+        </div>
+
         {/* Full island */}
         <div className="absolute inset-0 flex flex-col gap-2.5 p-3.5 transition-opacity duration-300" style={layer("big")}>
           <div className="flex min-w-0 items-center gap-3">
@@ -548,7 +657,7 @@ export function Island() {
               <RepeatIcon size={16} />
             </Btn>
             {o.showPlaylists && (
-              <Btn label="Play a playlist" onClick={(e) => openPlaylists(e.altKey).catch((err) => console.error(err))}>
+              <Btn label="Play a playlist" onClick={openPicker}>
                 <FolderOpen size={16} />
               </Btn>
             )}
