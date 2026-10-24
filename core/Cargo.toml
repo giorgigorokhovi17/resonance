@@ -1,0 +1,67 @@
+[package]
+name = "undertone-core"
+description = "Undertone's platform-neutral core: audio engine, library, playlist matcher and sources"
+version.workspace = true
+license.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+# The workspace lives in src-tauri/ (Cargo.lock, target/, the commands in AGENTS.md); this crate
+# sits beside it so tests that read ../fixtures find the repository's fixtures folder.
+workspace = "../src-tauri"
+
+[lib]
+name = "undertone_core"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+log = "0.4"
+parking_lot = "0.12"
+crossbeam-channel = "0.5"
+
+# audio
+symphonia = { version = "0.6", features = ["all-codecs", "all-formats", "opt-simd"] }
+symphonia-adapter-libopus = "0.3"
+rtrb = "0.4"
+rubato = "5"
+# the island's visualizer (audio/viz.rs); already in the build through rubato
+realfft = "3"
+
+# library
+lofty = "0.25"
+rusqlite = { version = "0.40", features = ["bundled"] }
+walkdir = "2"
+rayon = "1"
+notify = "8"
+notify-debouncer-full = "0.7"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif", "bmp"] }
+blake3 = "1"
+# playlist interchange (both already in the dependency tree via tauri)
+quick-xml = "0.42"
+percent-encoding = "2"
+# checksums of the tools YouTube downloads need (already in the build through tauri)
+sha2 = "0.10"
+# playlist matcher: NFKC/NFKD text normalisation
+unicode-normalization = "0.1"
+base64 = "0.22"
+
+# soulseek downloads. Pinned exactly: upstream ships breaking releases often (docs/soulseek-design.md).
+soulseek-rs-lib = "=19.1.0"
+
+# paste-a-link playlist import and lyrics search (both already in the build through tauri)
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
+# The async runtime the app shares with Tauri (rt.rs).
+tokio = { version = "1", features = ["rt-multi-thread", "time"] }
+
+# Output backends: WASAPI shared (cpal) and exclusive (wasapi) on Windows; Recycle Bin for
+# "Delete from disk" (library/recycle.rs).
+[target.'cfg(windows)'.dependencies]
+cpal = "0.18"
+wasapi = "0.26"
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_Storage_FileSystem", "Win32_System_Registry"] }
+trash = "5.2"
+
+[dev-dependencies]
+proptest = "1"
+tokio = { version = "1", features = ["macros", "rt", "time"] }

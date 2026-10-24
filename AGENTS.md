@@ -8,11 +8,16 @@ file; keep project rules here so they stay in one place.
 A personal, **local-only Windows** music player: Tauri 2 (Rust backend in `src-tauri/`) with
 React + TypeScript + Tailwind (frontend in `src/`). No telemetry; the network is used only for the
 update check, pasted playlist links, lyrics searches the user clicks (LRCLIB,
-`src-tauri/src/sources/lyrics_search.rs`), online song suggestions the user clicks for (Deezer,
-`src-tauri/src/sources/similar.rs`), Soulseek after the user signs in, YouTube downloads
+`core/src/sources/lyrics_search.rs`), online song suggestions the user clicks for (Deezer,
+`core/src/sources/similar.rs`), Soulseek after the user signs in, YouTube downloads
 after the user turns them on, and phone sync on the home network after the user turns it on. Music
 files are only ever read, never modified, except that the user may delete a song (see Rules). See `README.md` for features, architecture and data
 locations.
+
+Code layout: `core/` is the platform-neutral crate (audio engine, library, matcher, backups,
+sources; no Tauri, events go out through `core/src/events.rs`). `src-tauri/` is the app and the
+Cargo workspace root (`Cargo.lock`, `target/`), so `cargo test` there runs both crates. Android
+plans: `docs/android-design.md`.
 
 ## Commands
 
@@ -53,15 +58,15 @@ hand, to run everything. Don't merge a pull request whose checks fail.
 - **Never commit** `fixtures/` (personal playlist exports) or the updater signing key
   (`%USERPROFILE%\.tauri\resonance-updater.key`).
 - Never download or stream audio from any service. **Exception (owner's decision, 2026-10-19):**
-  Soulseek downloading (`src-tauri/src/sources/soulseek/`, design in `docs/soulseek-design.md`).
+  Soulseek downloading (`core/src/sources/soulseek/`, design in `docs/soulseek-design.md`).
   Nothing is shared or uploaded, and downloaded files are marked read-only. **Second exception
-  (owner's decision, 2026-10-23):** YouTube downloads through yt-dlp (`src-tauri/src/sources/youtube.rs`),
+  (owner's decision, 2026-10-23):** YouTube downloads through yt-dlp (`core/src/sources/youtube.rs`),
   off by default, for songs Soulseek doesn't have or when the user picks YouTube's quality on import.
   yt-dlp and QuickJS are fetched from their GitHub releases (SHA-256 checked) into
   `%LOCALAPPDATA%\app.resonance.player\tools`, never bundled. Spotify and SoundCloud stay playlist
   imports that match against local files, never downloads.
 - **Online song suggestions (owner's decision, 2026-10-25):** a playlist's **Find more online**
-  button (`src-tauri/src/sources/similar.rs`) asks Deezer's public API (no key) for top songs by
+  button (`core/src/sources/similar.rs`) asks Deezer's public API (no key) for top songs by
   the playlist's artists and similar artists. Only when the user clicks; sends only the playlist's
   main artist names. Only names come back: never fetch or play Deezer's audio previews. Adding a
   suggestion stores it as a missing song, found through the usual Soulseek / YouTube search.
@@ -71,14 +76,14 @@ hand, to run everything. Don't merge a pull request whose checks fail.
   position only, never by file path; nothing is uploaded anywhere. Keep it that way: no file paths
   in URLs, no writes, no access without the key.
 - **Deleting songs (owner's decision, 2026-10-25):** the user may delete a song's file with
-  **Delete from disk…** (`src-tauri/src/library/recycle.rs`). It always goes to the Windows Recycle
+  **Delete from disk…** (`core/src/library/recycle.rs`). It always goes to the Windows Recycle
   Bin, never a hard delete: drives without a Recycle Bin, a bin that's turned off, and files bigger
   than the bin are refused. Each deletion is recorded in `deleted_tracks` so Settings → Recently
   deleted can restore it. Apart from that, music files are never written, moved or deleted.
 - **Database:** SQLite at `%APPDATA%\app.resonance.player\library.db`, migrated in
-  `src-tauri/src/library/db.rs` (`migrate`). Schema changes are additive (`add_column` /
+  `core/src/library/db.rs` (`migrate`). Schema changes are additive (`add_column` /
   `CREATE ... IF NOT EXISTS`), never destructive. Add a test for each migration.
-- **Playlist matcher** (`src-tauri/src/library/matcher/`): wrong matches are worse than misses.
+- **Playlist matcher** (`core/src/library/matcher/`): wrong matches are worse than misses.
   Any rule change must keep the hard-case tests in `matcher/tests.rs` passing. If you change a
   normalisation rule, bump `NORM_VERSION` in `normalize.rs`.
 - Match the surrounding code's style and comment density. Keep user-facing text plain and short.

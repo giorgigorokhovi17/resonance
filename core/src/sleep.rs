@@ -6,11 +6,11 @@ use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
 use serde::Serialize;
-use tauri::{AppHandle, Emitter};
 
 use crate::audio::dsp::slider_to_gain;
 use crate::audio::engine::{Command, Engine};
 use crate::audio::types::PlayState;
+use crate::events::Events;
 
 /// The volume fades out over this long before the timer pauses playback.
 const FADE: Duration = Duration::from_secs(10);
@@ -37,12 +37,12 @@ pub struct SleepTimer {
     /// The volume is turned down by the fade.
     fading: Mutex<bool>,
     engine: Arc<Engine>,
-    app: AppHandle,
+    events: Events,
 }
 
 impl SleepTimer {
-    pub fn new(engine: Arc<Engine>, app: AppHandle) -> Arc<Self> {
-        let t = Arc::new(Self { mode: Mutex::new(Mode::Off), fading: Mutex::new(false), engine, app });
+    pub fn new(engine: Arc<Engine>, events: Events) -> Arc<Self> {
+        let t = Arc::new(Self { mode: Mutex::new(Mode::Off), fading: Mutex::new(false), engine, events });
         let timer = t.clone();
         let _ = std::thread::Builder::new().name("sleep-timer".into()).spawn(move || loop {
             std::thread::sleep(Duration::from_millis(250));
@@ -78,7 +78,7 @@ impl SleepTimer {
 
     fn changed(&self) -> SleepStatus {
         let s = self.status();
-        let _ = self.app.emit("sleep:changed", &s);
+        self.events.emit("sleep:changed", &s);
         s
     }
 

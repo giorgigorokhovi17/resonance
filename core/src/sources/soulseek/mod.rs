@@ -5,7 +5,6 @@
 //! `slsk:status` (sign-in state) and `slsk:downloads` (the queue). Search results come as
 //! `slsk:search`.
 
-pub mod credentials;
 pub mod model;
 
 use std::path::{Path, PathBuf};
@@ -17,11 +16,10 @@ use std::time::{Duration, Instant};
 use parking_lot::Mutex;
 use serde::Serialize;
 use soulseek_rs::{Client, ClientSettings, DownloadStatus, SearchResult, SessionLoss};
-use tauri::{AppHandle, Emitter};
 
 use super::youtube::{self, YouTube};
+use crate::events::Events;
 use crate::settings::SoulseekSettings;
-use credentials::Credentials;
 use model::{DownloadState, RawFile, RawResponse, ResultUser};
 
 /// How long a search collects answers. Most arrive in the first few seconds.
@@ -41,7 +39,7 @@ pub struct Status {
     pub state: ConnState,
     /// Signed-in user, or the saved one while signed out (to fill in the form).
     pub username: Option<String>,
-    /// Whether a password is saved in Credential Manager.
+    /// Whether a password is saved (Windows Credential Manager, Android Keystore).
     pub remembered: bool,
     pub error: Option<String>,
 }
@@ -94,6 +92,19 @@ pub struct DownloadRequest {
 /// Called with (ref key, file path) when a linked download finishes.
 pub type OnLinkedDone = Arc<dyn Fn(String, PathBuf) + Send + Sync>;
 
+pub struct Credentials {
+    pub username: String,
+    pub password: String,
+}
+
+/// Where the sign-in is kept: the platform's own secret store, never settings.json.
+pub trait CredentialStore: Send + Sync {
+    fn load(&self) -> Option<Credentials>;
+    fn save(&self, creds: &Credentials) -> Result<(), String>;
+    /// A missing entry is fine.
+    fn delete(&self);
+}
+
 struct Conn {
     client: Option<Arc<Client>>,
     state: ConnState,
@@ -104,8 +115,8 @@ struct Conn {
 }
 
 pub struct Soulseek {
-    app: AppHandle,
-    target: String,
+    events: Events,
+    credentials: Arc<dyn CredentialStore>,
     conn: Mutex<Conn>,
     jobs: Mutex<Vec<Job>>,
     next_job: AtomicU64,
@@ -127,10 +138,10 @@ fn err(e: impl std::fmt::Display) -> String {
 }
 
 impl Soulseek {
-    pub fn new(app: AppHandle, identifier: &str) -> Arc<Self> {
+    pub fn new(events: Events, credentials: Arc<dyn CredentialStore>) -> Arc<Self> {
         Arc::new(Self {
-            app,
-            target: credentials::target_name(identifier),
+            events,
+            credentials,
             conn: Mutex::new(Conn { client: None, state: ConnState::SignedOut, username: None, error: None, generation: 0 }),
             jobs: Mutex::new(Vec::new()),
             next_job: AtomicU64::new(1),
@@ -146,7 +157,7 @@ impl Soulseek {
     }
 
     pub fn status(&self) -> Status {
-        let saved = credentials::load(&self.target);
+        let saved = self.credentials.load();
         let c = self.conn.lock();
         Status {
             state: c.state,
@@ -157,7 +168,7 @@ impl Soulseek {
     }
 
     fn emit_status(&self) {
-        let _ = self.app.emit("slsk:status", self.status());
+        self.events.emit("slsk:status", self.status());
     }
 
     fn client(&self) -> Result<Arc<Client>, String> {
@@ -189,7 +200,7 @@ impl Soulseek {
                 if me.signed_out_by_user.load(Ordering::Relaxed) || me.conn.lock().state == ConnState::SignedIn {
                     break;
                 }
-                let Some(c) = credentials::load(&me.target) else { break };
+                let Some(c) = me.credentials.load() else { break };
                 let settings = me.settings.lock().clone();
                 match me.connect(c.username, c.password, true, settings) {
                     Ok(_) => break,
@@ -204,7 +215,7 @@ impl Soulseek {
 
     /// Signs in again with the saved account, now (the "Reconnect" button).
     pub fn reconnect(self: &Arc<Self>) -> Result<Status, String> {
-        let c = credentials::load(&self.target).ok_or("No saved sign-in. Enter your username and password.")?;
+        let c = self.credentials.load().ok_or("No saved sign-in. Enter your username and password.")?;
         self.signed_out_by_user.store(false, Ordering::Relaxed);
         let settings = self.settings.lock().clone();
         self.connect(c.username, c.password, true, settings)
@@ -263,11 +274,11 @@ impl Soulseek {
                 c.state = ConnState::SignedIn;
                 drop(c);
                 if remember {
-                    if let Err(e) = credentials::save(&self.target, &Credentials { username, password }) {
+                    if let Err(e) = self.credentials.save(&Credentials { username, password }) {
                         log::warn!("{e}");
                     }
                 } else {
-                    credentials::delete(&self.target);
+                    self.credentials.delete();
                 }
                 self.watch_session(generation);
                 self.emit_status();
@@ -301,7 +312,7 @@ impl Soulseek {
             // Dropped by the network: sign back in with the saved account. Not when the account
             // signed in somewhere else, or the two would keep pushing each other off.
             let displaced = matches!(loss, SessionLoss::Displaced);
-            if !displaced && !me.signed_out_by_user.load(Ordering::Relaxed) && credentials::load(&me.target).is_some() {
+            if !displaced && !me.signed_out_by_user.load(Ordering::Relaxed) && me.credentials.load().is_some() {
                 me.keep_signed_in(Duration::from_secs(10));
             }
             return;
@@ -333,7 +344,7 @@ impl Soulseek {
             std::thread::spawn(move || drop(client));
         }
         if forget {
-            credentials::delete(&self.target);
+            self.credentials.delete();
             self.conn.lock().username = None;
         }
         self.emit_status();
@@ -370,7 +381,7 @@ impl Soulseek {
                 finished.store(true, Ordering::Relaxed);
             });
         }
-        let app = self.app.clone();
+        let events = self.events.clone();
         std::thread::spawn(move || {
             let mut last_count = usize::MAX;
             loop {
@@ -385,7 +396,7 @@ impl Soulseek {
                     last_count = count;
                     let users = model::group_results(results.into_iter().map(raw_response).collect());
                     let file_count = users.iter().flat_map(|u| &u.folders).map(|f| f.files.len()).sum();
-                    let _ = app.emit("slsk:search", SearchUpdate { id, query: query.clone(), users, file_count, done });
+                    events.emit("slsk:search", SearchUpdate { id, query: query.clone(), users, file_count, done });
                 }
                 if done {
                     return;
@@ -419,7 +430,7 @@ impl Soulseek {
     }
 
     fn emit_jobs(&self) {
-        let _ = self.app.emit("slsk:downloads", self.jobs());
+        self.events.emit("slsk:downloads", self.jobs());
     }
 
     fn update_job(&self, id: u64, f: impl FnOnce(&mut Job)) {

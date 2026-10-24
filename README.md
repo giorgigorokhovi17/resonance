@@ -212,7 +212,7 @@ Music files are only ever read, never modified. Soulseek and YouTube downloads a
 ## Architecture
 
 ```
-src-tauri/src
+core/src            platform-neutral (no Tauri), shared with the planned Android app
 ├─ audio/
 │  ├─ decoder.rs    symphonia (+ libopus) → interleaved f64, sample-accurate seek
 │  ├─ resample.rs   rubato sinc resampler (shared mode only, when rates differ)
@@ -226,12 +226,17 @@ src-tauri/src
 │                  matcher/ (normalize.rs rules, tiers, FTS5 candidates, decisions),
 │                  recommend.rs (Recommended songs from the library)
 ├─ queue.rs        queue, shuffle, repeat
-├─ sources/       Soulseek: wrapper around soulseek-rs-lib, Credential Manager, result grouping;
+├─ sources/        Soulseek: wrapper around soulseek-rs-lib, result grouping;
 │                  links/ (Spotify, YouTube, Apple Music link readers), missing.rs (finding missing songs),
 │                  youtube.rs (yt-dlp: install, YouTube Music search, downloads),
 │                  similar.rs (online song suggestions from Deezer)
+├─ backup.rs, settings.rs, sleep.rs, persist.rs (queue persistence)
+├─ events.rs       events out to the UI (the app turns them into Tauri events)
+└─ rt.rs           the async runtime, shared with Tauri
+src-tauri/src       the Windows app (Tauri)
 ├─ smtc.rs         Windows media overlay / media keys (souvlaki)
-├─ persist.rs      queue persistence
+├─ island.rs, hotkeys.rs, phone.rs   Dynamic Island, global shortcuts, phone sync
+├─ sources/        Tauri commands for the sources; Soulseek sign-in in Credential Manager
 └─ commands.rs     Tauri command API
 src/               React UI (zustand stores, virtualized views)
 ```

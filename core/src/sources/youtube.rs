@@ -20,10 +20,10 @@ use std::time::{Duration, SystemTime};
 use parking_lot::Mutex;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use tauri::{AppHandle, Emitter};
 
 use super::missing::{queries, title_matches, Found};
 use super::soulseek::model::FileAttrs;
+use crate::events::Events;
 use crate::library::interchange::TrackRef;
 use crate::library::matcher::normalize::{key, readings};
 
@@ -69,7 +69,7 @@ struct Inner {
 }
 
 pub struct YouTube {
-    app: AppHandle,
+    events: Events,
     dir: PathBuf,
     enabled: AtomicBool,
     inner: Mutex<Inner>,
@@ -189,10 +189,10 @@ fn hidden(cmd: &mut Command) -> &mut Command {
 }
 
 impl YouTube {
-    pub fn new(app: AppHandle, dir: PathBuf, enabled: bool) -> Arc<Self> {
+    pub fn new(events: Events, dir: PathBuf, enabled: bool) -> Arc<Self> {
         let _ = std::fs::create_dir_all(&dir);
         let me = Arc::new(Self {
-            app,
+            events,
             dir,
             enabled: AtomicBool::new(enabled),
             inner: Mutex::new(Inner { state: ToolState::Missing, version: None, error: None }),
@@ -222,7 +222,7 @@ impl YouTube {
     }
 
     fn emit(&self) {
-        let _ = self.app.emit("yt:status", self.status());
+        self.events.emit("yt:status", self.status());
     }
 
     /// Turns YouTube downloads on or off. Turning on installs the tools if they're missing, and
@@ -252,11 +252,11 @@ impl YouTube {
         }
         self.emit();
         let me = self.clone();
-        tauri::async_runtime::spawn(async move {
+        crate::rt::spawn(async move {
             let result = me.fetch_tools().await;
             if result.is_ok() {
                 let me2 = me.clone();
-                let _ = tauri::async_runtime::spawn_blocking(move || me2.refresh_version()).await;
+                let _ = crate::rt::spawn_blocking(move || me2.refresh_version()).await;
             }
             {
                 let mut i = me.inner.lock();
@@ -565,7 +565,7 @@ impl YouTube {
 /// The video's thumbnail as a square JPEG cover (video thumbnails are 16:9 with the art in the
 /// middle). None when it can't be fetched; the song is fine without one.
 fn fetch_cover(url: &str) -> Option<Vec<u8>> {
-    let bytes = tauri::async_runtime::block_on(async {
+    let bytes = crate::rt::block_on(async {
         let r = reqwest::Client::builder().timeout(Duration::from_secs(20)).build().ok()?.get(url).send().await.ok()?;
         r.error_for_status().ok()?.bytes().await.ok()
     })?;

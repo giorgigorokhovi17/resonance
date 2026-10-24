@@ -1,4 +1,4 @@
-﻿//! Tauri commands (the UI's API).
+//! Tauri commands (the UI's API).
 
 use std::collections::HashSet;
 use std::path::Path;
@@ -16,7 +16,7 @@ use crate::library::{csv, m3u, recycle, xspf};
 use crate::library::model::{is_audio_file, Track};
 use crate::library::ScanRequest;
 use crate::queue::{QueueSnapshot, RepeatMode};
-use crate::settings::Settings;
+use crate::settings::{EqPreset, Settings};
 use crate::AppState;
 
 type CmdResult<T> = Result<T, String>;
@@ -703,13 +703,6 @@ pub fn save_queue_as_playlist(app: AppHandle, state: State<'_, AppState>, name: 
 }
 
 // ---- equalizer --------------------------------------------------------------------------------
-
-#[derive(serde::Serialize, serde::Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct EqPreset {
-    pub name: String,
-    pub eq: EqSettings,
-}
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]

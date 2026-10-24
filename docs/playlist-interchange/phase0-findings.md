@@ -169,7 +169,7 @@ Your real library can't exercise it, so it's split in two:
 ## 6. Phase 1 status (2026-10-18, partial)
 
 **Done:**
-- Canonical model: `src-tauri/src/library/interchange.rs` (`Playlist`, `PlaylistItem`, `TrackRef`). Order and duplicates are kept. `TrackRef` also has a `location` field, which the path tier needs.
+- Canonical model: `core/src/library/interchange.rs` (`Playlist`, `PlaylistItem`, `TrackRef`). Order and duplicates are kept. `TrackRef` also has a `location` field, which the path tier needs.
 - Parsers: M3U/M3U8 (extended in `m3u.rs`, not duplicated), PLS, XSPF and WPL. Exporters: M3U8 and XSPF.
 - Rule: parsers don't guess. A display string like "Artist - Title" stays in `title`, and an artist tag like `vivi baby; ovg!` stays one string. Splitting is the matcher's job.
 - Fixed the `m3u.rs` gaps from §2: `#EXTINF` metadata is kept; `%XX` is no longer decoded in plain paths that exist on disk; `file://localhost`, UNC paths and UTF-16 files are handled; legacy files decode as Windows-1252; streams are counted (`skipped`).
@@ -196,7 +196,7 @@ Your real library can't exercise it, so it's split in two:
 
 ## 7. Phase 2 status: matcher (2026-10-18)
 
-**Built** (`src-tauri/src/library/matcher/`):
+**Built** (`core/src/library/matcher/`):
 - **Tiers, in order:** earlier decision → exact path → folder + file name (suffix) → ISRC → MusicBrainz ID → fuzzy. Fingerprinting is dropped, as decided.
 - **Fuzzy candidates:** SQLite FTS5 (`track_match_fts`) narrows the library. It first asks for tracks containing every title word plus an artist word, and falls back to any shared word, ranked by bm25, when that finds fewer than 8. The index syncs incrementally through `track_match_state` (track mtime + rules version) and caches each track's parsed readings.
 - **Normalisation** (`normalize.rs`): NFKC/NFKD, accents removed, case folded, `$`→`s`, invisible characters and symbols removed. It separates four kinds of brackets and suffixes:
