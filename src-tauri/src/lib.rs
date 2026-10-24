@@ -458,6 +458,7 @@ pub fn run() {
             commands::show_main_window,
             commands::island_main_away,
             commands::island_set_bounds,
+            commands::island_set_pill,
             commands::island_alt_down,
             commands::quit_app,
             commands::update_playlist,

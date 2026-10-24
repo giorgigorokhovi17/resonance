@@ -742,6 +742,12 @@ pub fn island_set_bounds(app: AppHandle, x: i32, y: i32, w: u32, h: u32) {
     crate::island::set_bounds(&app, x, y, w, h);
 }
 
+/// Where the pill is inside the island window (physical pixels); clicks elsewhere go through.
+#[tauri::command]
+pub fn island_set_pill(x: i32, y: i32, w: i32, h: i32) {
+    crate::island::set_pill([x, y, w, h]);
+}
+
 /// Alt is held (the island's menu waits for it to be let go: letting go of Alt closes menus).
 #[tauri::command]
 pub fn island_alt_down() -> bool {
