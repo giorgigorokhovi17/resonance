@@ -108,6 +108,9 @@ export function IslandSection({ settings }: { settings: Settings }) {
             <Row label="Show shuffle and repeat" hint="Next to the play controls.">
               <Toggle label="Show shuffle and repeat" checked={o.showShuffleRepeat} onChange={(v) => setOptions({ showShuffleRepeat: v })} />
             </Row>
+            <Row label="Show playlist button" hint="A folder button that lists your playlists; pick one to play it.">
+              <Toggle label="Show playlist button" checked={o.showPlaylists} onChange={(v) => setOptions({ showPlaylists: v })} />
+            </Row>
             <Row label="Show the seek bar" hint="Along the bottom of the small bar. Click it to jump.">
               <Toggle label="Show the seek bar" checked={o.showProgress} onChange={(v) => setOptions({ showProgress: v })} />
             </Row>

@@ -191,6 +191,8 @@ export interface IslandOptions {
   showControls: boolean;
   /** Shuffle and repeat next to them. */
   showShuffleRepeat: boolean;
+  /** A folder button that lists the playlists to play one. */
+  showPlaylists: boolean;
   /** A seek bar along the bottom of the small island. */
   showProgress: boolean;
   expandOnHover: boolean;

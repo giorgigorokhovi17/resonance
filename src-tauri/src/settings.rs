@@ -215,6 +215,8 @@ pub struct IslandOptions {
     pub show_controls: bool,
     /// Shuffle and repeat next to them.
     pub show_shuffle_repeat: bool,
+    /// A folder button that lists the playlists to play one.
+    pub show_playlists: bool,
     /// A seek bar along the bottom of the small island.
     pub show_progress: bool,
     /// Grows into controls when pointed at.
@@ -244,6 +246,7 @@ impl Default for IslandOptions {
             show_artist: true,
             show_controls: true,
             show_shuffle_repeat: true,
+            show_playlists: true,
             show_progress: true,
             expand_on_hover: true,
             peek_on_new_song: true,
@@ -478,7 +481,7 @@ mod tests {
         let o = &s.island_options;
         assert_eq!((o.position.as_str(), o.colors.as_str()), ("topCenter", "cover"));
         assert!(o.only_when_minimized && o.hide_in_fullscreen && o.show_title && o.show_artist && o.expand_on_hover);
-        assert!(o.show_controls && o.show_shuffle_repeat && o.show_progress && o.peek_on_new_song);
+        assert!(o.show_controls && o.show_shuffle_repeat && o.show_playlists && o.show_progress && o.peek_on_new_song);
         assert!(!o.locked && !o.click_through);
 
         let o: IslandOptions =
