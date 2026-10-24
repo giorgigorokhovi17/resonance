@@ -390,6 +390,7 @@ pub fn run() {
             }
 
             let sleep = sleep::SleepTimer::new(engine.clone(), app.handle().clone());
+            island::set_click_through(s.island_options.click_through);
             if s.island {
                 island::open(app.handle());
             }
@@ -456,6 +457,8 @@ pub fn run() {
             commands::open_url,
             commands::show_main_window,
             commands::island_main_away,
+            commands::island_set_bounds,
+            commands::island_alt_down,
             commands::quit_app,
             commands::update_playlist,
             commands::set_playlist_cover,

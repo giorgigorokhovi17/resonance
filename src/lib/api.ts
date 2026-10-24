@@ -179,6 +179,8 @@ export const api = {
   openUrl: (url: string) => invoke<void>("open_url", { url }),
   showMainWindow: () => invoke<void>("show_main_window"),
   islandMainAway: () => invoke<boolean>("island_main_away"),
+  islandSetBounds: (x: number, y: number, w: number, h: number) => invoke<void>("island_set_bounds", { x, y, w, h }),
+  islandAltDown: () => invoke<boolean>("island_alt_down"),
 
   // settings
   getSettings: () => invoke<Settings>("get_settings"),

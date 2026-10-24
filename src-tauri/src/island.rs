@@ -11,9 +11,15 @@ pub const LABEL: &str = "island";
 
 /// The last "main window away" state sent to the island.
 static AWAY: AtomicBool = AtomicBool::new(false);
+/// The island lets clicks through (Settings → Dynamic Island), except while Alt is held.
+static CLICK_THROUGH: AtomicBool = AtomicBool::new(false);
+
+pub fn set_click_through(on: bool) {
+    CLICK_THROUGH.store(on, Ordering::Relaxed);
+}
 
 /// Opens the island window (hidden; the page shows it once it has a song) and starts watching
-/// for full-screen apps.
+/// for full-screen apps and the Alt key.
 pub fn open(app: &AppHandle) {
     if app.get_webview_window(LABEL).is_some() {
         return;
@@ -62,6 +68,48 @@ pub fn open(app: &AppHandle) {
             std::thread::sleep(Duration::from_millis(1500));
         }
     });
+    // Click-through, and holding Alt to click the island anyway (say, next song in a game).
+    let handle = app.clone();
+    let _ = std::thread::Builder::new().name("island-clicks".into()).spawn(move || {
+        let mut last = None;
+        while let Some(w) = handle.get_webview_window(LABEL) {
+            let through = CLICK_THROUGH.load(Ordering::Relaxed);
+            let ignore = through && !alt_down();
+            if last != Some(ignore) {
+                last = Some(ignore);
+                let _ = w.set_ignore_cursor_events(ignore);
+                // The page can't see the pointer leave once clicks go through.
+                let _ = handle.emit_to(LABEL, "island:clickable", !ignore);
+            }
+            std::thread::sleep(Duration::from_millis(if through { 40 } else { 250 }));
+        }
+    });
+}
+
+/// Moves and resizes the island in one step (physical pixels), so it never shows at the new size
+/// in the old place.
+pub fn set_bounds(app: &AppHandle, x: i32, y: i32, w: u32, h: u32) {
+    #[cfg(windows)]
+    if on_top::set_bounds(x, y, w, h) {
+        return;
+    }
+    if let Some(win) = app.get_webview_window(LABEL) {
+        let _ = win.set_size(tauri::PhysicalSize::new(w, h));
+        let _ = win.set_position(tauri::PhysicalPosition::new(x, y));
+    }
+}
+
+/// Alt is held down, in any app.
+#[cfg(windows)]
+pub fn alt_down() -> bool {
+    use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_MENU};
+    // SAFETY: reads the key state; no pointers involved.
+    unsafe { GetAsyncKeyState(i32::from(VK_MENU.0)) as u16 & 0x8000 != 0 }
+}
+
+#[cfg(not(windows))]
+pub fn alt_down() -> bool {
+    false
 }
 
 pub fn close(app: &AppHandle) {
@@ -83,7 +131,7 @@ mod on_top {
     use windows::Win32::UI::Accessibility::{SetWinEventHook, HWINEVENTHOOK};
     use windows::Win32::UI::WindowsAndMessaging::{
         SetWindowPos, EVENT_SYSTEM_FOREGROUND, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE,
-        WINEVENT_OUTOFCONTEXT, WINEVENT_SKIPOWNPROCESS,
+        SWP_NOZORDER, WINEVENT_OUTOFCONTEXT, WINEVENT_SKIPOWNPROCESS,
     };
 
     /// The island's window handle (0 while it's closed).
@@ -111,6 +159,17 @@ mod on_top {
                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER,
             );
         }
+    }
+
+    /// Position and size together; false when the island isn't open.
+    pub fn set_bounds(x: i32, y: i32, w: u32, h: u32) -> bool {
+        let hwnd = ISLAND.load(Ordering::Relaxed);
+        if hwnd == 0 {
+            return false;
+        }
+        let (Ok(w), Ok(h)) = (i32::try_from(w), i32::try_from(h)) else { return false };
+        // SAFETY: a window handle of ours; Windows ignores it if the window is gone.
+        unsafe { SetWindowPos(HWND(hwnd as *mut _), None, x, y, w, h, SWP_NOZORDER | SWP_NOACTIVATE).is_ok() }
     }
 
     unsafe extern "system" fn on_foreground(_: HWINEVENTHOOK, _: u32, _: HWND, _: i32, _: i32, _: u32, _: u32) {

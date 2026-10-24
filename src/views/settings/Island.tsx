@@ -87,17 +87,29 @@ export function IslandSection({ settings }: { settings: Settings }) {
             <Row label="Lock position" hint="It can't be dragged.">
               <Toggle label="Lock position" checked={o.locked} onChange={(v) => setOptions({ locked: v })} />
             </Row>
-            <Row label="Let clicks through" hint="Clicks go to the app underneath, so the island can't be pointed at or right-clicked.">
+            <Row label="Let clicks through" hint="Clicks go to the app underneath. Hold Alt to use the island anyway.">
               <Toggle label="Let clicks through" checked={o.clickThrough} onChange={(v) => setOptions({ clickThrough: v })} />
             </Row>
-            <Row label="Open when pointed at" hint="Off: it only opens for a moment when a new song starts.">
+            <Row label="Open when pointed at" hint="Grows into bigger controls, progress and the current lyric line.">
               <Toggle label="Open when pointed at" checked={o.expandOnHover} onChange={(v) => setOptions({ expandOnHover: v })} />
+            </Row>
+            <Row label="Pop up when a song starts" hint="A small card with the new song for a few seconds.">
+              <Toggle label="Pop up when a song starts" checked={o.peekOnNewSong} onChange={(v) => setOptions({ peekOnNewSong: v })} />
             </Row>
             <Row label="Show the song title">
               <Toggle label="Show the song title" checked={o.showTitle} onChange={(v) => setOptions({ showTitle: v })} />
             </Row>
             <Row label="Show the artist">
               <Toggle label="Show the artist" checked={o.showArtist} onChange={(v) => setOptions({ showArtist: v })} />
+            </Row>
+            <Row label="Show play controls" hint="Previous, play/pause and next on the small bar.">
+              <Toggle label="Show play controls" checked={o.showControls} onChange={(v) => setOptions({ showControls: v })} />
+            </Row>
+            <Row label="Show shuffle and repeat" hint="Next to the play controls.">
+              <Toggle label="Show shuffle and repeat" checked={o.showShuffleRepeat} onChange={(v) => setOptions({ showShuffleRepeat: v })} />
+            </Row>
+            <Row label="Show the seek bar" hint="Along the bottom of the small bar. Click it to jump.">
+              <Toggle label="Show the seek bar" checked={o.showProgress} onChange={(v) => setOptions({ showProgress: v })} />
             </Row>
 
             <div>

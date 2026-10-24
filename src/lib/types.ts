@@ -156,13 +156,22 @@ export interface IslandOptions {
   x: number | null;
   y: number | null;
   locked: boolean;
+  /** Clicks go to the app underneath, except while Alt is held. */
   clickThrough: boolean;
   onlyWhenMinimized: boolean;
   /** Steps aside while a game or video is full screen. */
   hideInFullscreen: boolean;
   showTitle: boolean;
   showArtist: boolean;
+  /** Previous, play/pause and next on the small island. */
+  showControls: boolean;
+  /** Shuffle and repeat next to them. */
+  showShuffleRepeat: boolean;
+  /** A seek bar along the bottom of the small island. */
+  showProgress: boolean;
   expandOnHover: boolean;
+  /** A card with the song for a few seconds when a new one starts. */
+  peekOnNewSong: boolean;
   /** "cover", a palette id from lib/island.ts, or "custom" (`customColors`). */
   colors: string;
   customColors: string[];
