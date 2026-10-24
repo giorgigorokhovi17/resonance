@@ -1,7 +1,7 @@
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { Menu } from "@tauri-apps/api/menu";
 import { availableMonitors, currentMonitor, getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
-import { Pause, Play, Repeat, Repeat1, Shuffle, SkipBack, SkipForward } from "lucide-react";
+import { FolderOpen, Pause, Play, Repeat, Repeat1, Shuffle, SkipBack, SkipForward } from "lucide-react";
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { Cover } from "../components/Cover";
 import { api } from "../lib/api";
@@ -20,6 +20,7 @@ import { coverPalette, type Palette } from "../lib/palette";
 import type { IslandOptions, IslandPosition, RepeatMode } from "../lib/types";
 import { useLyrics } from "../store/lyrics";
 import { initPlayer, livePosition, usePlayer } from "../store/player";
+import { playPlaylist } from "./PlaylistView";
 
 type Size = { w: number; h: number };
 /** The small bar, the card shown when a new song starts, and the full island on hover. */
@@ -48,7 +49,7 @@ const win = getCurrentWindow();
 function smallSize(o: IslandOptions): Size {
   const text = o.showTitle || o.showArtist;
   const controls = o.showControls ? (o.showShuffleRepeat ? 148 : 92) : 26;
-  return { w: 68 + (text ? 220 : 0) + controls, h: 58 };
+  return { w: 68 + (text ? 220 : 0) + controls + (o.showPlaylists ? 28 : 0), h: 58 };
 }
 
 function levelSize(level: Level, small: Size): Size {
@@ -165,6 +166,7 @@ async function showMenu() {
       check("Show the artist", o.showArtist, { showArtist: !o.showArtist }),
       check("Show play controls", o.showControls, { showControls: !o.showControls }),
       check("Show shuffle and repeat", o.showShuffleRepeat, { showShuffleRepeat: !o.showShuffleRepeat }),
+      check("Show playlist button", o.showPlaylists, { showPlaylists: !o.showPlaylists }),
       check("Show the seek bar", o.showProgress, { showProgress: !o.showProgress }),
       check("Pop up when a song starts", o.peekOnNewSong, { peekOnNewSong: !o.peekOnNewSong }),
       check("Open when pointed at", o.expandOnHover, { expandOnHover: !o.expandOnHover }),
@@ -185,13 +187,29 @@ async function showMenu() {
   await menu.popup();
 }
 
-/** Opens the menu. Letting go of Alt closes menus, so after Alt + right-click wait for that first. */
+/** Letting go of Alt closes menus, so after an Alt-click wait for that before opening one. */
+async function altLetGo(altHeld: boolean) {
+  if (!altHeld) return;
+  const until = Date.now() + 5000;
+  while (Date.now() < until && (await api.islandAltDown())) await new Promise((r) => setTimeout(r, 40));
+}
+
 async function openMenu(altHeld: boolean) {
-  if (altHeld) {
-    const until = Date.now() + 5000;
-    while (Date.now() < until && (await api.islandAltDown())) await new Promise((r) => setTimeout(r, 40));
-  }
+  await altLetGo(altHeld);
   await showMenu();
+}
+
+/** The folder button: the playlists, to play one (with shuffle as it's set now). */
+async function openPlaylists(altHeld: boolean) {
+  await altLetGo(altHeld);
+  const lists = await api.getPlaylists();
+  const shuffle = usePlayer.getState().queue.shuffle;
+  const name = (s: string) => (s.length > 48 ? `${s.slice(0, 47)}…` : s);
+  const items = lists.length
+    ? lists.map((p) => ({ text: `${name(p.name)}  (${p.trackCount})`, action: () => playPlaylist(p.id, 0, shuffle) }))
+    : [{ text: "No playlists yet", enabled: false }];
+  const menu = await Menu.new({ items: [{ text: "Play a playlist", enabled: false }, { item: "Separator" }, ...items] });
+  await menu.popup();
 }
 
 /**
@@ -426,8 +444,14 @@ export function Island() {
           <div className="flex h-full items-center gap-2.5 px-2.5">
             <Cover coverId={track.coverId} className="h-7 w-7 shrink-0" rounded="rounded-full" iconSize={12} />
             {showTitle || showArtist ? <TitleLine title={showTitle ? track.title : null} artist={showArtist ? displayArtist(track) : null} /> : null}
-            {o.showControls ? (
-              <div className="ml-auto flex shrink-0 items-center gap-0.5">
+            <div className="ml-auto flex shrink-0 items-center gap-0.5">
+              {o.showPlaylists && (
+                <SmallBtn label="Play a playlist" onClick={(e) => openPlaylists(e.altKey).catch((err) => console.error(err))}>
+                  <FolderOpen size={13} />
+                </SmallBtn>
+              )}
+              {o.showControls ? (
+                <>
                 {o.showShuffleRepeat && (
                   <SmallBtn label={shuffle ? "Shuffle: on" : "Shuffle: off"} active={shuffle} onClick={() => api.setShuffle(!shuffle)}>
                     <Shuffle size={13} />
@@ -447,12 +471,13 @@ export function Island() {
                     <RepeatIcon size={13} />
                   </SmallBtn>
                 )}
-              </div>
-            ) : (
-              <div className="ml-auto">
-                <Bars levels={levels} />
-              </div>
-            )}
+                </>
+              ) : (
+                <span className="ml-1">
+                  <Bars levels={levels} />
+                </span>
+              )}
+            </div>
           </div>
           {o.showProgress && (
             <div
@@ -522,6 +547,11 @@ export function Island() {
             <Btn label={repeatLabel} active={repeat !== "off"} onClick={() => api.setRepeat(NEXT_REPEAT[repeat])}>
               <RepeatIcon size={16} />
             </Btn>
+            {o.showPlaylists && (
+              <Btn label="Play a playlist" onClick={(e) => openPlaylists(e.altKey).catch((err) => console.error(err))}>
+                <FolderOpen size={16} />
+              </Btn>
+            )}
           </div>
         </div>
       </div>
@@ -544,7 +574,7 @@ function TitleLine({ title, artist }: { title: string | null; artist: string | n
 }
 
 /** Shuffle and repeat are dimmed while off. */
-function SmallBtn({ label, onClick, active, children }: { label: string; onClick: () => void; active?: boolean; children: ReactNode }) {
+function SmallBtn({ label, onClick, active, children }: { label: string; onClick: (e: MouseEvent) => void; active?: boolean; children: ReactNode }) {
   return (
     <button
       aria-label={label}
@@ -560,7 +590,7 @@ function SmallBtn({ label, onClick, active, children }: { label: string; onClick
   );
 }
 
-function Btn({ label, onClick, active, children }: { label: string; onClick: () => void; active?: boolean; children: ReactNode }) {
+function Btn({ label, onClick, active, children }: { label: string; onClick: (e: MouseEvent) => void; active?: boolean; children: ReactNode }) {
   return (
     <button
       aria-label={label}
