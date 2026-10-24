@@ -32,10 +32,20 @@ pub fn open(app: &AppHandle) {
         .focused(false)
         .visible(false)
         .build();
-    if let Err(e) = built {
-        log::warn!("could not open the island: {e}");
-        return;
+    let window = match built {
+        Ok(w) => w,
+        Err(e) => {
+            log::warn!("could not open the island: {e}");
+            return;
+        }
+    };
+    #[cfg(windows)]
+    if let Ok(hwnd) = window.hwnd() {
+        on_top::set(hwnd.0 as isize);
+        let _ = app.run_on_main_thread(on_top::hook);
     }
+    #[cfg(not(windows))]
+    let _ = window;
     let handle = app.clone();
     let _ = std::thread::Builder::new().name("island-fullscreen".into()).spawn(move || {
         let mut last = None;
@@ -47,14 +57,88 @@ pub fn open(app: &AppHandle) {
             }
             // Window events cover minimising and the tray; this catches anything they miss.
             main_changed(&handle);
+            #[cfg(windows)]
+            on_top::raise();
             std::thread::sleep(Duration::from_millis(1500));
         }
     });
 }
 
 pub fn close(app: &AppHandle) {
+    #[cfg(windows)]
+    on_top::set(0);
     if let Some(w) = app.get_webview_window(LABEL) {
         let _ = w.destroy();
+    }
+}
+
+/// Keeps the island above other always-on-top windows. Games in borderless or windowed mode make
+/// themselves always-on-top when clicked, and the last one raised wins; so whenever another
+/// window comes to the front, the island goes back on top (without taking the focus).
+#[cfg(windows)]
+mod on_top {
+    use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
+
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::Accessibility::{SetWinEventHook, HWINEVENTHOOK};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        SetWindowPos, EVENT_SYSTEM_FOREGROUND, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE,
+        WINEVENT_OUTOFCONTEXT, WINEVENT_SKIPOWNPROCESS,
+    };
+
+    /// The island's window handle (0 while it's closed).
+    static ISLAND: AtomicIsize = AtomicIsize::new(0);
+    static HOOKED: AtomicBool = AtomicBool::new(false);
+
+    pub fn set(hwnd: isize) {
+        ISLAND.store(hwnd, Ordering::Relaxed);
+    }
+
+    pub fn raise() {
+        let h = ISLAND.load(Ordering::Relaxed);
+        if h == 0 {
+            return;
+        }
+        // SAFETY: a window handle of ours; Windows ignores it if the window is gone.
+        unsafe {
+            let _ = SetWindowPos(
+                HWND(h as *mut _),
+                Some(HWND_TOPMOST),
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER,
+            );
+        }
+    }
+
+    unsafe extern "system" fn on_foreground(_: HWINEVENTHOOK, _: u32, _: HWND, _: i32, _: i32, _: u32, _: u32) {
+        raise();
+    }
+
+    /// Watches for other apps coming to the front. Runs on the main thread, whose message loop
+    /// delivers the events; set up once and kept for the app's lifetime.
+    pub fn hook() {
+        if HOOKED.swap(true, Ordering::Relaxed) {
+            return;
+        }
+        // SAFETY: a plain callback that only calls SetWindowPos; out of context, so it runs here.
+        let h = unsafe {
+            SetWinEventHook(
+                EVENT_SYSTEM_FOREGROUND,
+                EVENT_SYSTEM_FOREGROUND,
+                None,
+                Some(on_foreground),
+                0,
+                0,
+                WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS,
+            )
+        };
+        if h.is_invalid() {
+            log::warn!("could not watch for other apps coming to the front");
+            HOOKED.store(false, Ordering::Relaxed);
+        }
     }
 }
 

@@ -118,6 +118,7 @@ async function showMenu() {
       check("Show the artist", o.showArtist, { showArtist: !o.showArtist }),
       check("Open when pointed at", o.expandOnHover, { expandOnHover: !o.expandOnHover }),
       check("Only while Undertone is minimised", o.onlyWhenMinimized, { onlyWhenMinimized: !o.onlyWhenMinimized }),
+      check("Hide over full-screen games and videos", o.hideInFullscreen, { hideInFullscreen: !o.hideInFullscreen }),
       { text: "Colours", items: colors },
       { item: "Separator" },
       {
@@ -163,7 +164,7 @@ export function Island() {
   const showTitle = o?.showTitle ?? true;
   const showArtist = o?.showArtist ?? true;
   const small = showTitle || showArtist ? SMALL : TINY;
-  const visible = !!o && !!track && state !== "stopped" && !fullscreen && (!o.onlyWhenMinimized || mainAway);
+  const visible = !!o && !!track && state !== "stopped" && !(fullscreen && o.hideInFullscreen) && (!o.onlyWhenMinimized || mainAway);
   const want = visible && ((hover && (o?.expandOnHover ?? true)) || peek);
   wantRef.current = want;
   const placeKey = o ? `${o.position}|${o.x}|${o.y}|${small.w}` : "";
