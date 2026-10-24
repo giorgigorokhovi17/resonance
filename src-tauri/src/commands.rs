@@ -438,9 +438,12 @@ pub struct PlaylistDetail {
     pub entries: Vec<PlaylistEntry>,
 }
 
+/// Off the main thread: waiting for the database (say, during a rescan) must not freeze the
+/// windows. The island asks for this when its folder button is clicked.
 #[tauri::command]
-pub fn get_playlists(state: State<'_, AppState>) -> CmdResult<Vec<Playlist>> {
-    db::playlists(&state.library.db.lock()).map_err(err)
+pub async fn get_playlists(state: State<'_, AppState>) -> CmdResult<Vec<Playlist>> {
+    let lib = state.library.clone();
+    tauri::async_runtime::spawn_blocking(move || db::playlists(&lib.db.lock()).map_err(err)).await.map_err(err)?
 }
 
 #[tauri::command]
