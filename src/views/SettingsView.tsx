@@ -5,6 +5,7 @@ import type { DeviceInfo, OutputMode, Settings } from "../lib/types";
 import { usePlayer } from "../store/player";
 import { FormatBadge } from "../components/FormatBadge";
 import { BackupSection } from "./settings/Backup";
+import { HotkeysSection } from "./settings/Hotkeys";
 import { IslandSection } from "./settings/Island";
 import { LibraryFoldersSection } from "./settings/LibraryFolders";
 import { UpdatesSection } from "./settings/Updates";
@@ -215,6 +216,8 @@ export function SettingsView() {
           </Section>
 
           <IslandSection settings={settings} />
+
+          <HotkeysSection settings={settings} />
 
           <Section
             title="Crossfade"

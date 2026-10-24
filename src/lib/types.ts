@@ -76,6 +76,10 @@ export interface PlayerStatus {
   replayGainDb: number | null;
   eqActive: boolean;
   underruns: number;
+  /** Playback speed (1 = normal): the position moves this much faster than the clock. */
+  speed: number;
+  /** Speed or reverb is changing the sound. */
+  effectsActive: boolean;
 }
 
 export interface QueueItem {
@@ -133,10 +137,30 @@ export interface Settings {
   /** The Dynamic Island. */
   island: boolean;
   islandOptions: IslandOptions;
+  hotkeys: HotkeySettings;
+  effects: EffectSettings;
   eq: EqSettings;
   appearance: Appearance;
   soulseek: SoulseekSettings;
   youtube: { enabled: boolean };
+}
+
+export type HotkeyAction = "playPause" | "next" | "previous" | "volumeUp" | "volumeDown" | "mute";
+
+/** Global shortcuts: key names joined with "+" ("Ctrl+Alt+ArrowRight"); null is unset. */
+export type HotkeySettings = { enabled: boolean } & Record<HotkeyAction, string | null>;
+
+/** A shortcut that couldn't be set up, and why. */
+export interface HotkeyProblem {
+  action: HotkeyAction;
+  keys: string;
+  message: string;
+}
+
+/** Playback speed (pitch follows: 0.8 is "slowed") and reverb (0..1). */
+export interface EffectSettings {
+  speed: number;
+  reverb: number;
 }
 
 export type IslandPosition =

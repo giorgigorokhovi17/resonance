@@ -1,6 +1,7 @@
-import { Download, ListMusic, Maximize2, Mic2, Moon, Pause, Play, Repeat, Repeat1, Shuffle, SkipBack, SkipForward, Volume1, Volume2, VolumeX } from "lucide-react";
-import { useEffect, useState, type MouseEvent, type ReactNode } from "react";
+import { AudioWaveform, Download, ListMusic, Maximize2, Mic2, Moon, Pause, Play, Repeat, Repeat1, Shuffle, SkipBack, SkipForward, Volume1, Volume2, VolumeX } from "lucide-react";
+import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { api } from "../lib/api";
+import type { EffectSettings } from "../lib/types";
 import { useDownloadsBadge } from "./DownloadsPanel";
 import { displayArtist } from "../lib/format";
 import { usePlayer } from "../store/player";
@@ -125,6 +126,120 @@ export function VolumeControl({ width = "w-28" }: { width?: string }) {
   );
 }
 
+const EFFECT_PRESETS: { label: string; speed: number; reverb: number }[] = [
+  { label: "Slowed", speed: 0.8, reverb: 0.35 },
+  { label: "Normal", speed: 1, reverb: 0 },
+  { label: "Sped up", speed: 1.25, reverb: 0 },
+];
+
+// Applied locally first so the sliders track the pointer; only the reply to the latest change is
+// taken back from the backend.
+let effectsSeq = 0;
+function setEffects(next: EffectSettings) {
+  const st = usePlayer.getState();
+  if (st.settings) st.setSettings({ ...st.settings, effects: next });
+  const seq = ++effectsSeq;
+  api
+    .setEffects(next)
+    .then((s) => seq === effectsSeq && usePlayer.getState().setSettings(s))
+    .catch((e) => usePlayer.getState().pushToast("error", String(e)));
+}
+
+/** Speed (pitch follows, like a record) and reverb, in a small panel above the button. */
+function EffectsButton() {
+  const fx = usePlayer((s) => s.settings?.effects) ?? { speed: 1, reverb: 0 };
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const down = (e: globalThis.MouseEvent) => {
+      if (!box.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const key = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    window.addEventListener("mousedown", down);
+    window.addEventListener("keydown", key);
+    return () => {
+      window.removeEventListener("mousedown", down);
+      window.removeEventListener("keydown", key);
+    };
+  }, [open]);
+  const active = fx.speed !== 1 || fx.reverb > 0;
+  const speedText = `${fx.speed.toFixed(2)}×`;
+  const label = active ? `Effects: ${speedText}${fx.reverb > 0 ? `, reverb ${Math.round(fx.reverb * 100)}%` : ""}` : "Effects";
+  return (
+    <div ref={box} className="relative">
+      <IconButton label={label} active={active} onClick={() => setOpen(!open)}>
+        <AudioWaveform size={16} />
+      </IconButton>
+      {open && (
+        <div className="absolute bottom-full right-0 z-50 mb-2 w-72 rounded-xl bg-panel p-4 text-left shadow-xl ring-1 ring-line">
+          <div className="text-[13px] font-semibold">Effects</div>
+          <div className="mt-3 flex gap-1.5">
+            {EFFECT_PRESETS.map((p) => {
+              const on = fx.speed === p.speed && fx.reverb === p.reverb;
+              return (
+                <button
+                  key={p.label}
+                  aria-pressed={on}
+                  onClick={() => setEffects({ speed: p.speed, reverb: p.reverb })}
+                  className={`flex-1 rounded-md px-2 py-1.5 text-[12px] font-medium transition-colors ${
+                    on ? "bg-accent text-on-accent" : "bg-bg text-muted ring-1 ring-line hover:text-fg"
+                  }`}
+                >
+                  {p.label}
+                </button>
+              );
+            })}
+          </div>
+          <EffectSlider
+            label="Speed"
+            value={fx.speed}
+            min={0.5}
+            max={1.5}
+            step={0.01}
+            text={speedText}
+            onChange={(v) => setEffects({ ...fx, speed: Math.abs(v - 1) < 0.015 ? 1 : v })}
+          />
+          <EffectSlider
+            label="Reverb"
+            value={fx.reverb}
+            min={0}
+            max={1}
+            step={0.01}
+            text={fx.reverb > 0 ? `${Math.round(fx.reverb * 100)}%` : "Off"}
+            onChange={(v) => setEffects({ ...fx, reverb: v })}
+          />
+          <p className="mt-3 text-[11.5px] leading-snug text-faint">
+            Pitch follows speed, like a record. Your files aren't changed. With effects on, playback isn't bit-perfect.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EffectSlider(p: { label: string; value: number; min: number; max: number; step: number; text: string; onChange: (v: number) => void }) {
+  return (
+    <label className="mt-4 block">
+      <span className="flex items-center justify-between text-[12px] text-muted">
+        {p.label}
+        <span className="tabular text-fg">{p.text}</span>
+      </span>
+      <input
+        type="range"
+        min={p.min}
+        max={p.max}
+        step={p.step}
+        value={p.value}
+        aria-label={p.label}
+        className="slider mt-1.5 w-full"
+        style={{ ["--fill" as string]: `${((p.value - p.min) / (p.max - p.min)) * 100}%` }}
+        onChange={(e) => p.onChange(parseFloat(e.target.value))}
+      />
+    </label>
+  );
+}
+
 const SLEEP_MINUTES = [15, 30, 45, 60, 90];
 
 function fmtLeft(secs: number) {
@@ -239,6 +354,7 @@ export function PlayerBar() {
         <IconButton label="Lyrics (L)" active={lyricsOpen} onClick={() => setLyricsOpen(!lyricsOpen)}>
           <Mic2 size={16} />
         </IconButton>
+        <EffectsButton />
         <SleepButton />
         <div className="relative">
           <IconButton label="Downloads" active={downloadsOpen} onClick={toggleDownloads}>

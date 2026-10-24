@@ -215,6 +215,7 @@ export function Island() {
   const geoRef = useRef<Geo | null>(null);
   const [palettes, setPalettes] = useState<{ key: string; p: Palette }[]>([{ key: "none", p: FALLBACK_PALETTE }]);
   const [pos, setPos] = useState(0);
+  const [levels, setLevels] = useState<number[]>([]);
   const leave = useRef<number>();
   const lastPath = useRef<string | null>(null);
   const press = useRef<{ x: number; y: number } | null>(null);
@@ -235,6 +236,7 @@ export function Island() {
     const uns = [
       listen<boolean>("island:fullscreen", (e) => setFullscreen(e.payload)),
       listen<boolean>("island:main-away", (e) => setMainAway(e.payload)),
+      listen<number[]>("island:levels", (e) => setLevels(e.payload)),
       // With clicks going through (Alt let go), the pointer can't be seen leaving.
       listen<boolean>("island:clickable", (e) => {
         if (!e.payload) {
@@ -363,7 +365,6 @@ export function Island() {
       <style>{`
         @keyframes island-drift { 0%,100% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } }
         @keyframes island-fade { from { opacity: 0; } to { opacity: 1; } }
-        @keyframes island-bar { 0%,100% { transform: scaleY(.35); } 50% { transform: scaleY(1); } }
       `}</style>
       <div
         onMouseEnter={() => {
@@ -449,7 +450,7 @@ export function Island() {
               </div>
             ) : (
               <div className="ml-auto">
-                <Bars playing={playing} />
+                <Bars levels={levels} />
               </div>
             )}
           </div>
@@ -478,7 +479,7 @@ export function Island() {
               <div className="h-full rounded-full bg-white/85" style={{ width: `${fraction * 100}%` }} />
             </div>
           </div>
-          <Bars playing={playing} />
+          <Bars levels={levels} />
         </div>
 
         {/* Full island */}
@@ -492,7 +493,7 @@ export function Island() {
               {showArtist && <div className="truncate text-[12.5px] text-white/75">{displayArtist(track)}</div>}
               <div className="mt-0.5 h-4 truncate text-[12px] italic text-white/90">{line ?? ""}</div>
             </div>
-            <Bars playing={playing} big />
+            <Bars levels={levels} big />
           </div>
           <div className="flex items-center gap-2 text-[10.5px] tabular text-white/80">
             <span className="w-8 text-right">{fmtTime(pos)}</span>
@@ -573,18 +574,24 @@ function Btn({ label, onClick, active, children }: { label: string; onClick: () 
   );
 }
 
-/** Little level bars that move while the song plays. */
-function Bars({ playing, big = false }: { playing: boolean; big?: boolean }) {
+/**
+ * Level bars that follow the music: the backend's band levels (low to high, 0..1). The small bars
+ * show them in pairs, the big ones each.
+ */
+function Bars({ levels, big = false }: { levels: number[]; big?: boolean }) {
+  const count = big ? 8 : 4;
+  const per = Math.max(1, Math.floor(levels.length / count));
+  const bars = Array.from({ length: count }, (_, i) => Math.max(0, ...levels.slice(i * per, i * per + per)));
   return (
-    <div className={`flex shrink-0 items-center gap-[3px] ${big ? "h-6" : "h-4"}`} aria-hidden>
-      {[0.9, 0.6, 1.1, 0.75].map((d, i) => (
+    <div className={`flex shrink-0 items-center ${big ? "h-6 gap-[2.5px]" : "h-4 gap-[3px]"}`} aria-hidden>
+      {bars.map((level, i) => (
         <span
           key={i}
-          className={`h-full rounded-full bg-white/90 ${big ? "w-[3.5px]" : "w-[3px]"}`}
+          className="h-full w-[3px] rounded-full bg-white/90"
           style={{
             transformOrigin: "50% 50%",
-            transform: "scaleY(.35)",
-            animation: playing ? `island-bar ${d}s ease-in-out ${i * 0.13}s infinite` : "none",
+            transform: `scaleY(${0.22 + 0.78 * level})`,
+            transition: "transform 90ms linear",
           }}
         />
       ))}

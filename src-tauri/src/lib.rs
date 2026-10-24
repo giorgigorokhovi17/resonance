@@ -1,6 +1,7 @@
 ﻿pub mod audio;
 pub mod backup;
 pub mod commands;
+pub mod hotkeys;
 pub mod island;
 pub mod library;
 pub mod persist;
@@ -161,6 +162,7 @@ pub fn run() {
         // Signed auto-updates from the GitHub Releases feed in tauri.conf.json.
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .plugin(hotkeys::plugin())
         // Album art is served from the local cache through a custom protocol (no network).
         .register_asynchronous_uri_scheme_protocol("cover", |ctx, request, responder| {
             let app = ctx.app_handle().clone();
@@ -332,6 +334,7 @@ pub fn run() {
                     }
                 },
             );
+            engine.set_effects(s.effects.speed, s.effects.reverb);
             if let (Some(uid), Some(position)) = (resume_uid, resume_pos) {
                 engine.send(Command::SetResume { uid, position });
             }
@@ -396,6 +399,11 @@ pub fn run() {
             }
             app.manage(AppState { engine, settings, library, queue_dirty, queue_file, soulseek, finder, youtube, plays, sleep });
 
+            // Registering waits on the main thread, which is busy here.
+            let handle = app.handle().clone();
+            let keys = s.hotkeys.clone();
+            tauri::async_runtime::spawn_blocking(move || hotkeys::apply(&handle, &keys));
+
             // Files passed on the command line start playing right away.
             let args: Vec<String> = std::env::args().collect();
             let paths = path_args(&args);
@@ -459,6 +467,9 @@ pub fn run() {
             commands::island_main_away,
             commands::island_set_bounds,
             commands::island_set_pill,
+            commands::get_hotkey_problems,
+            commands::pause_hotkeys,
+            commands::set_effects,
             commands::island_alt_down,
             commands::quit_app,
             commands::update_playlist,

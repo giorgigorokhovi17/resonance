@@ -26,6 +26,10 @@ pub struct Settings {
     /// The Dynamic Island (src/island.rs).
     pub island: bool,
     pub island_options: IslandOptions,
+    /// Shortcuts that work while other apps are in front (hotkeys.rs).
+    pub hotkeys: HotkeySettings,
+    /// Speed and reverb (Effects in the player bar).
+    pub effects: EffectSettings,
     pub eq: EqSettings,
     pub appearance: Appearance,
     pub soulseek: SoulseekSettings,
@@ -109,6 +113,80 @@ impl Default for Appearance {
             animated_art: "off".into(),
             playlist_layout: "classic".into(),
         }
+    }
+}
+
+/// Global shortcuts, as key names joined with "+" ("Ctrl+Alt+ArrowRight"). `None` is unset.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct HotkeySettings {
+    pub enabled: bool,
+    pub play_pause: Option<String>,
+    pub next: Option<String>,
+    pub previous: Option<String>,
+    pub volume_up: Option<String>,
+    pub volume_down: Option<String>,
+    pub mute: Option<String>,
+}
+
+impl Default for HotkeySettings {
+    fn default() -> Self {
+        let keys = |k: &str| Some(format!("Ctrl+Alt+{k}"));
+        Self {
+            enabled: true,
+            play_pause: keys("Space"),
+            next: keys("ArrowRight"),
+            previous: keys("ArrowLeft"),
+            volume_up: keys("ArrowUp"),
+            volume_down: keys("ArrowDown"),
+            mute: keys("KeyM"),
+        }
+    }
+}
+
+impl HotkeySettings {
+    /// Trims the shortcuts; empty or overlong ones become unset.
+    pub fn normalized(mut self) -> Self {
+        let clean = |k: Option<String>| k.map(|k| k.trim().to_string()).filter(|k| !k.is_empty() && k.len() <= 64);
+        self.play_pause = clean(self.play_pause);
+        self.next = clean(self.next);
+        self.previous = clean(self.previous);
+        self.volume_up = clean(self.volume_up);
+        self.volume_down = clean(self.volume_down);
+        self.mute = clean(self.mute);
+        self
+    }
+}
+
+/// Playback speed (pitch follows, like a record: 0.8 is "slowed") and reverb.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct EffectSettings {
+    pub speed: f64,
+    /// How much reverb, 0 (none) to 1.
+    pub reverb: f64,
+}
+
+pub const MIN_SPEED: f64 = 0.5;
+pub const MAX_SPEED: f64 = 1.5;
+
+impl Default for EffectSettings {
+    fn default() -> Self {
+        Self { speed: 1.0, reverb: 0.0 }
+    }
+}
+
+impl EffectSettings {
+    pub fn normalized(self) -> Self {
+        let d = Self::default();
+        let speed = if self.speed.is_finite() { self.speed.clamp(MIN_SPEED, MAX_SPEED) } else { d.speed };
+        let reverb = if self.reverb.is_finite() { self.reverb.clamp(0.0, 1.0) } else { d.reverb };
+        // Snap near-normal speed to exactly 1 so playback stays untouched.
+        Self { speed: if (speed - 1.0).abs() < 0.005 { 1.0 } else { speed }, reverb }
+    }
+
+    pub fn is_active(&self) -> bool {
+        self.speed != 1.0 || self.reverb > 0.0
     }
 }
 
@@ -243,6 +321,8 @@ impl Default for Settings {
             watch_folders: true,
             island: false,
             island_options: IslandOptions::default(),
+            hotkeys: HotkeySettings::default(),
+            effects: EffectSettings::default(),
             eq: EqSettings::default(),
             appearance: Appearance::default(),
             soulseek: SoulseekSettings::default(),
@@ -265,6 +345,8 @@ impl SettingsStore {
                 s.eq = s.eq.clone().normalized();
                 s.appearance = s.appearance.clone().normalized();
                 s.island_options = s.island_options.clone().normalized();
+                s.hotkeys = s.hotkeys.clone().normalized();
+                s.effects = s.effects.normalized();
                 s
             })
             .unwrap_or_default();
@@ -411,6 +493,26 @@ mod tests {
         let o = IslandOptions { position: "sideways".into(), custom_colors: vec!["red".into()], ..IslandOptions::default() }.normalized();
         assert_eq!(o.position, "topCenter");
         assert_eq!(o.custom_colors, IslandOptions::default().custom_colors);
+    }
+
+    #[test]
+    fn hotkeys_and_effects() {
+        // Settings from before: default shortcuts, no effects.
+        let s: Settings = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
+        assert!(s.hotkeys.enabled);
+        assert_eq!(s.hotkeys.next.as_deref(), Some("Ctrl+Alt+ArrowRight"));
+        assert_eq!(s.effects, EffectSettings::default());
+        assert!(!s.effects.is_active());
+
+        let h = HotkeySettings { play_pause: Some("  Ctrl+Shift+KeyP ".into()), next: Some(" ".into()), ..HotkeySettings::default() };
+        let h = h.normalized();
+        assert_eq!((h.play_pause.as_deref(), h.next), (Some("Ctrl+Shift+KeyP"), None));
+
+        let e = EffectSettings { speed: 0.1, reverb: 3.0 }.normalized();
+        assert_eq!((e.speed, e.reverb), (MIN_SPEED, 1.0));
+        let e = EffectSettings { speed: 1.003, reverb: f64::NAN }.normalized();
+        assert_eq!((e.speed, e.reverb), (1.0, 0.0), "near-normal speed snaps to untouched playback");
+        assert!(EffectSettings { speed: 0.8, reverb: 0.0 }.is_active());
     }
 
     #[test]

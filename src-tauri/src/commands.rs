@@ -342,6 +342,7 @@ pub struct SettingsPatch {
     pub watch_folders: Option<bool>,
     pub island: Option<bool>,
     pub island_options: Option<crate::settings::IslandOptions>,
+    pub hotkeys: Option<crate::settings::HotkeySettings>,
     pub replay_gain: Option<ReplayGainMode>,
     pub replay_gain_preamp: Option<f64>,
     pub crossfade: Option<f64>,
@@ -375,6 +376,9 @@ pub fn update_settings(app: AppHandle, state: State<'_, AppState>, patch: Settin
         if let Some(v) = patch.island_options {
             s.island_options = v.normalized();
         }
+        if let Some(v) = patch.hotkeys.clone() {
+            s.hotkeys = v.normalized();
+        }
         if let Some(v) = patch.replay_gain {
             s.replay_gain = v;
         }
@@ -392,6 +396,11 @@ pub fn update_settings(app: AppHandle, state: State<'_, AppState>, patch: Settin
         state.engine.send(Command::SetReplayGain { mode: s.replay_gain, preamp_db: s.replay_gain_preamp });
     }
     crate::island::set_click_through(s.island_options.click_through);
+    if patch.hotkeys.is_some() {
+        // Registering waits on the main thread, which runs this command.
+        let (app, keys) = (app.clone(), s.hotkeys.clone());
+        tauri::async_runtime::spawn_blocking(move || crate::hotkeys::apply(&app, &keys));
+    }
     if let Some(on) = patch.island {
         // This command runs on the main thread, and building a window there waits on the main
         // thread itself: on Windows the app freezes. Do it from another thread.
@@ -740,6 +749,37 @@ pub fn island_main_away(app: AppHandle) -> bool {
 #[tauri::command]
 pub fn island_set_bounds(app: AppHandle, x: i32, y: i32, w: u32, h: u32) {
     crate::island::set_bounds(&app, x, y, w, h);
+}
+
+/// Global shortcuts that couldn't be set up (taken by another app, or not valid).
+#[tauri::command]
+pub fn get_hotkey_problems() -> Vec<crate::hotkeys::Problem> {
+    crate::hotkeys::problems()
+}
+
+/// Turns the global shortcuts off while Settings records a new one (Windows would otherwise act
+/// on the keys instead of passing them to the page), and back on after.
+#[tauri::command]
+pub fn pause_hotkeys(app: AppHandle, state: State<'_, AppState>, paused: bool) {
+    let keys = state.settings.get().hotkeys;
+    // Registering waits on the main thread, which runs this command.
+    tauri::async_runtime::spawn_blocking(move || {
+        if paused {
+            crate::hotkeys::suspend(&app);
+        } else {
+            crate::hotkeys::apply(&app, &keys);
+        }
+    });
+}
+
+/// Speed and reverb. Applied at once and kept for next time.
+#[tauri::command]
+pub fn set_effects(app: AppHandle, state: State<'_, AppState>, effects: crate::settings::EffectSettings) -> Settings {
+    let effects = effects.normalized();
+    state.engine.set_effects(effects.speed, effects.reverb);
+    let s = state.settings.update(|s| s.effects = effects);
+    let _ = app.emit("settings:changed", &s);
+    s
 }
 
 /// Where the pill is inside the island window (physical pixels); clicks elsewhere go through.
