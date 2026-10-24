@@ -2,6 +2,7 @@ import { getVersion } from "@tauri-apps/api/app";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { create } from "zustand";
+import { isMobile } from "../lib/platform";
 
 /**
  * Auto-update state. Updates come from the signed GitHub Releases feed configured in
@@ -66,7 +67,8 @@ export function initUpdater() {
   getVersion()
     .then((current) => useUpdater.setState({ current }))
     .catch(() => {});
-  if (import.meta.env.DEV) return;
+  // Android has its own update check (docs/android-design.md §7, later step).
+  if (import.meta.env.DEV || isMobile) return;
   window.setTimeout(() => useUpdater.getState().check(true), 5000);
   window.setInterval(() => useUpdater.getState().check(true), 6 * 60 * 60 * 1000);
 }

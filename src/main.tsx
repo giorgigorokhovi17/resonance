@@ -5,7 +5,10 @@ import { Island } from "./views/Island";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import logo from "./assets/logo.png";
+import { isMobile } from "./lib/platform";
 import "./index.css";
+
+if (isMobile) document.documentElement.classList.add("mobile");
 
 // Block the WebView's default context menu and reload shortcuts in production builds.
 if (!import.meta.env.DEV) {

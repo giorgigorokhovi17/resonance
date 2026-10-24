@@ -3,6 +3,7 @@
   "identifier": "island",
   "description": "Capabilities for the Dynamic Island window",
   "windows": ["island"],
+  "platforms": ["windows", "linux", "macOS"],
   "permissions": [
     "core:default",
     "core:menu:default",

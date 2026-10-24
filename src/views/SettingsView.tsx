@@ -1,6 +1,7 @@
 import { Check, RefreshCw, Speaker } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { api } from "../lib/api";
+import { isMobile } from "../lib/platform";
 import type { DeviceInfo, OutputMode, Settings } from "../lib/types";
 import { usePlayer } from "../store/player";
 import { FormatBadge } from "../components/FormatBadge";
@@ -129,6 +130,8 @@ export function SettingsView() {
         <VisualSettings settings={settings} />
       ) : (
         <>
+          {/* Android picks the output itself (speaker, headphones, Bluetooth). */}
+          {!isMobile && (
           <Section
             title="Audio output"
             description="Shared mode plays through the Windows mixer, so system-wide effects such as Equalizer APO still apply. Exclusive mode takes over the device and opens it at each file's native sample rate and bit depth: no mixer, no resampling. With volume at 100% and the EQ off, the signal is bit-perfect."
@@ -182,6 +185,7 @@ export function SettingsView() {
               </div>
             </div>
           </Section>
+          )}
 
           <Section
             title="ReplayGain"
@@ -217,11 +221,13 @@ export function SettingsView() {
             </div>
           </Section>
 
-          <IslandSection settings={settings} />
-
-          <HotkeysSection settings={settings} />
-
-          <PhoneSyncSection settings={settings} />
+          {!isMobile && (
+            <>
+              <IslandSection settings={settings} />
+              <HotkeysSection settings={settings} />
+              <PhoneSyncSection settings={settings} />
+            </>
+          )}
 
           <Section
             title="Crossfade"
@@ -245,26 +251,30 @@ export function SettingsView() {
 
           <LibraryFoldersSection />
 
-          <RecentlyDeletedSection />
+          {!isMobile && <RecentlyDeletedSection />}
 
           <BackupSection />
 
-          <UpdatesSection />
+          {!isMobile && <UpdatesSection />}
 
           <Section title="Behavior" description="Theme, colours and layout are on the Visual tab.">
             <div className="space-y-4">
-              <Row label="Close button minimizes to tray">
-                <Toggle label="Close to tray" checked={settings.closeToTray} onChange={(v) => patch({ closeToTray: v })} />
-              </Row>
+              {!isMobile && (
+                <Row label="Close button minimizes to tray">
+                  <Toggle label="Close to tray" checked={settings.closeToTray} onChange={(v) => patch({ closeToTray: v })} />
+                </Row>
+              )}
               <Row label="Watch library folders for changes">
                 <Toggle label="Watch folders" checked={settings.watchFolders} onChange={(v) => patch({ watchFolders: v })} />
               </Row>
             </div>
           </Section>
 
-          <Section title="Keyboard shortcuts">
-            <ShortcutList />
-          </Section>
+          {!isMobile && (
+            <Section title="Keyboard shortcuts">
+              <ShortcutList />
+            </Section>
+          )}
         </>
       )}
 

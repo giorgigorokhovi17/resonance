@@ -1,5 +1,5 @@
 # Runs the checks from AGENTS.md on every pull request: the frontend typecheck, the backend
-# warnings check and the Rust tests on Windows, and the core crate's Android build.
+# warnings check and the Rust tests on Windows, and the warnings check for Android.
 #
 # The Rust steps take over 10 minutes, so they're skipped when nothing in src-tauri or core changed
 # (version bumps don't count). To run everything anyway, start the workflow by hand
@@ -95,20 +95,31 @@ jobs:
         working-directory: src-tauri
         run: cargo test
 
-  # The core crate (../core) is shared with the Android app (docs/android-design.md), so it must
-  # keep building for Android arm64. The runner's NDK provides the C compilers (SQLite, libopus).
-  android-core:
-    name: Core builds for Android
+  # The app also builds for Android arm64 (docs/android-design.md). The runner's NDK provides the
+  # C compilers (SQLite, libopus).
+  android:
+    name: Android build
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
       CARGO_TERM_COLOR: always
+      COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
       RUSTFLAGS: -D warnings
       # src-tauri/.cargo/config.toml points at a Windows CMake unless CMAKE is set.
       CMAKE: cmake
       CMAKE_GENERATOR: Ninja
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      # The app's build script needs the built frontend.
+      - name: Build the frontend
+        run: |
+          corepack pnpm install --frozen-lockfile
+          corepack pnpm exec vite build
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -119,7 +130,7 @@ jobs:
           workspaces: src-tauri
           key: android
 
-      - name: Check the core crate for Android arm64
+      - name: Warnings check for Android arm64
         working-directory: src-tauri
         run: |
           sudo apt-get install -y ninja-build
@@ -129,4 +140,4 @@ jobs:
           export CXX_aarch64_linux_android="$BIN/aarch64-linux-android34-clang++"
           export AR_aarch64_linux_android="$BIN/llvm-ar"
           export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$BIN/aarch64-linux-android34-clang"
-          cargo check -p undertone-core --all-targets --target aarch64-linux-android
+          cargo check --all-targets --target aarch64-linux-android

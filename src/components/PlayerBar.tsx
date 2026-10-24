@@ -1,6 +1,7 @@
 import { AudioWaveform, Download, ListMusic, Maximize2, Mic2, Moon, Pause, Play, Repeat, Repeat1, Shuffle, SkipBack, SkipForward, Volume1, Volume2, VolumeX } from "lucide-react";
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { api } from "../lib/api";
+import { isMobile } from "../lib/platform";
 import type { EffectSettings } from "../lib/types";
 import { useDownloadsBadge } from "./DownloadsPanel";
 import { displayArtist } from "../lib/format";
@@ -305,6 +306,36 @@ export function PlayerBar() {
   const downloadsBadge = useDownloadsBadge();
   const lyricsOpen = useUi((s) => s.lyricsOpen);
   const setLyricsOpen = useUi((s) => s.setLyricsOpen);
+
+  if (isMobile) {
+    // Phones: song and queue on one row, the controls and seek bar full width below.
+    return (
+      <div className="skin-clear shrink-0 bg-bg px-3 pb-1 pt-2">
+        <div className="flex min-w-0 items-center gap-3">
+          <button className="shrink-0" onClick={toggleNowPlaying} aria-label="Open now playing">
+            <Cover coverId={coverId} motionId={motionId} motion="tile" className="h-11 w-11" iconSize={18} />
+          </button>
+          <div className="min-w-0 flex-1">
+            {track ? (
+              <>
+                <div className="truncate text-[13.5px] font-semibold">{track.title}</div>
+                <div className="truncate text-[12.5px] text-muted">{displayArtist(track)}</div>
+              </>
+            ) : (
+              <div className="text-[13px] text-faint">Nothing playing</div>
+            )}
+          </div>
+          <IconButton label="Queue" active={queueOpen || view.kind === "queue"} onClick={toggleQueue}>
+            <ListMusic size={20} />
+          </IconButton>
+        </div>
+        <div className="flex flex-col items-center gap-1">
+          <TransportControls />
+          <Seekbar />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="skin-clear grid h-[84px] shrink-0 grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)_minmax(0,1fr)] items-center gap-4 bg-bg px-4">

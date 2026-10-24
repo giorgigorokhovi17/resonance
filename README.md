@@ -147,6 +147,18 @@ Installed copies check `https://github.com/giorgigorokhovi17/resonance/releases/
 
 The private signing key is `%USERPROFILE%\.tauri\resonance-updater.key` (no password). **Back it up and never share or commit it.** If it's lost, existing installs can't verify new versions and people must reinstall manually. Apart from Soulseek (only after you sign in), YouTube downloads (only once turned on), pasted links, lyrics searches and online song suggestions you click, the update check is the app's only network request; everything else runs offline.
 
+## Android (in progress)
+
+A standalone Android build is being added step by step (plan and status: `docs/android-design.md`). It runs today with the library and the full UI, but plays no sound yet: audio output and the media session come next. Needs Android Studio (SDK, NDK 28+; its bundled JDK is used).
+
+```powershell
+. scripts\android-env.ps1                                     # SDK/NDK/JDK and C compilers for this window
+corepack pnpm tauri android build --debug --target aarch64 --apk
+adb install -r src-tauri\gen\android\app\build\outputs\apk\universal\debug\app-universal-debug.apk
+```
+
+The Android project is `src-tauri/gen/android` (committed; `MainActivity.kt` and the manifest are edited by hand).
+
 ## Tests and dev tools
 
 ```powershell
