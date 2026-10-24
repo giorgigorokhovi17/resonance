@@ -23,6 +23,31 @@ object NativeBridge {
   /** MainActivity created; rebuilds the page if the previous screen took it along. */
   @JvmStatic external fun activityCreated()
 
+  /** The picked folder's path, or null when cancelled; or an error to show (src/mobile/library.rs). */
+  @JvmStatic external fun folderPicked(path: String?, error: String?)
+
+  /** Back on screen, or Android's media index changed: rescan the library. */
+  @JvmStatic external fun libraryChanged()
+
+  /** The screen that can show the folder picker. */
+  @Volatile var activity: java.lang.ref.WeakReference<MainActivity>? = null
+
+  /** Set by MainActivity and PlaybackService, whichever starts first. */
+  @Volatile var appContext: android.content.Context? = null
+
+  /** Called by Rust while scanning: a folder's picture the file system hides (Storage.kt). */
+  @JvmStatic
+  fun folderImage(dir: String): ByteArray? =
+    appContext?.let { runCatching { Storage.folderImage(it, dir) }.getOrNull() }
+
+  /** Called by Rust: asks for the audio permission if needed, then opens the folder picker. */
+  @JvmStatic
+  fun pickMusicFolder() {
+    main.post {
+      activity?.get()?.pickMusicFolder() ?: folderPicked(null, "Open Undertone to pick a folder.")
+    }
+  }
+
   /** "play", "pause", "toggle", "next", "previous", "stop", or "seek" to `value` seconds. */
   @JvmStatic external fun command(name: String, value: Double)
 

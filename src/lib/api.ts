@@ -1,4 +1,4 @@
-﻿import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
 import type {
   FindResult,
   VersionsResult,
@@ -64,6 +64,8 @@ export const api = {
   // library
   getLibraryFolders: () => invoke<LibraryFolder[]>("get_library_folders"),
   addLibraryFolder: (path: string) => invoke<LibraryFolder[]>("add_library_folder", { path }),
+  /** Android: permission, then the system folder picker; the folder's path, or null if cancelled. */
+  pickMusicFolder: () => invoke<string | null>("pick_music_folder"),
   removeLibraryFolder: (id: number) => invoke<LibraryFolder[]>("remove_library_folder", { id }),
   rescanLibrary: (force = false) => invoke<void>("rescan_library", { force }),
   isScanning: () => invoke<boolean>("is_scanning"),

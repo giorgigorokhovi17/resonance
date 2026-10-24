@@ -2,6 +2,7 @@
 
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use image::codecs::jpeg::JpegEncoder;
 use image::imageops::FilterType;
@@ -92,6 +93,22 @@ fn write_atomic(path: &Path, data: &[u8]) {
     if std::fs::write(&tmp, data).is_ok() && std::fs::rename(&tmp, path).is_err() {
         let _ = std::fs::remove_file(&tmp);
     }
+}
+
+/// Reads a folder's picture when the file system shows none. Android hides pictures from apps
+/// that only have the audio permission; the app reads them through the folder picker's grant.
+static FOLDER_IMAGE_READER: OnceLock<fn(&Path) -> Option<Vec<u8>>> = OnceLock::new();
+
+pub fn set_folder_image_reader(read: fn(&Path) -> Option<Vec<u8>>) {
+    let _ = FOLDER_IMAGE_READER.set(read);
+}
+
+/// The bytes of `dir`'s folder art, from the file system or else the platform's reader.
+pub fn read_folder_image(dir: &Path) -> Option<Vec<u8>> {
+    if let Some(bytes) = find_folder_image(dir).and_then(|img| std::fs::read(img).ok()) {
+        return Some(bytes);
+    }
+    FOLDER_IMAGE_READER.get().and_then(|read| read(dir))
 }
 
 /// Finds folder art (cover.jpg, folder.png, ...) in `dir`.

@@ -8,6 +8,10 @@ pub mod phone;
 pub mod island;
 #[cfg_attr(mobile, path = "mobile/smtc.rs")]
 pub mod smtc;
+/// The folder picker and rescans on Android.
+#[cfg(target_os = "android")]
+#[path = "mobile/library.rs"]
+pub mod android_library;
 pub mod sources;
 
 // The platform-neutral core (../core), under the paths the app and the examples already use.
@@ -381,6 +385,7 @@ pub fn run() {
             #[cfg(target_os = "android")]
             {
                 *smtc_tx.lock() = smtc::start(engine.clone(), app.handle().clone());
+                android_library::start(library.clone());
             }
 
             #[cfg(desktop)]
@@ -479,6 +484,7 @@ pub fn run() {
             commands::update_settings,
             commands::get_library_folders,
             commands::add_library_folder,
+            commands::pick_music_folder,
             commands::remove_library_folder,
             commands::rescan_library,
             commands::is_scanning,
