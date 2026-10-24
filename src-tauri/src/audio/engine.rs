@@ -45,6 +45,8 @@ pub enum Command {
     StopAfterCurrent(bool),
     /// Remember where to resume a restored queue item when playback is next started.
     SetResume { uid: u64, position: f64 },
+    /// Send the status now (an effect changed: the UI shows the speed and "bit-perfect").
+    EmitStatus,
     Shutdown,
 }
 
@@ -72,6 +74,10 @@ pub struct PlayerStatus {
     pub replay_gain_db: Option<f64>,
     pub eq_active: bool,
     pub underruns: u64,
+    /// Playback speed (1 = normal): the position moves this much faster than the clock.
+    pub speed: f64,
+    /// Speed or reverb is changing the sound.
+    pub effects_active: bool,
 }
 
 pub struct EngineConfig {
@@ -107,6 +113,7 @@ impl Engine {
         let status = Arc::new(Mutex::new(PlayerStatus {
             volume: cfg.volume,
             output_mode: cfg.mode,
+            speed: 1.0,
             ..Default::default()
         }));
         let volume_slider = Arc::new(AtomicU64::new(cfg.volume.to_bits()));
@@ -163,7 +170,15 @@ impl Engine {
         let mut s = self.status.lock().clone();
         s.volume = self.volume();
         s.muted = self.shared.muted.load(Ordering::Relaxed);
+        s.speed = self.shared.speed();
+        s.effects_active = self.shared.effects_active();
         s
+    }
+
+    /// Playback speed (pitch follows) and reverb mix; both apply at once.
+    pub fn set_effects(&self, speed: f64, reverb: f64) {
+        self.shared.set_effects(speed, reverb);
+        let _ = self.tx.send(Command::EmitStatus);
     }
 
     pub fn volume(&self) -> f64 {
@@ -526,6 +541,7 @@ impl Player {
                 }
             }
             Command::SetResume { uid, position } => self.resume = Some((uid, position)),
+            Command::EmitStatus => self.emit_status(),
             Command::Shutdown => return false,
         }
         true
@@ -1096,7 +1112,11 @@ impl Player {
                     && seg.rg_db.map(|d| d.abs() < 1e-9).unwrap_or(true)
                     && seg.source.channels == o.channels
                     && seg.source.bits_per_sample.map(|b| b <= o.bits).unwrap_or(false)
-                    && (identity || self.state != PlayState::Playing && !self.shared.eq.lock().is_active() && self.volume_is_unity())
+                    && (identity
+                        || self.state != PlayState::Playing
+                            && !self.shared.eq.lock().is_active()
+                            && !self.shared.effects_active()
+                            && self.volume_is_unity())
             }
             _ => false,
         };
@@ -1116,6 +1136,8 @@ impl Player {
             replay_gain_db: seg.and_then(|s| s.rg_db),
             eq_active: self.shared.eq.lock().is_active(),
             underruns: self.shared.underruns.load(Ordering::Relaxed),
+            speed: self.shared.speed(),
+            effects_active: self.shared.effects_active(),
         };
         *self.status.lock() = status.clone();
         (self.emit)(EngineEvent::Status(status));

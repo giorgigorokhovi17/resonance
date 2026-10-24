@@ -30,6 +30,15 @@ export function FormatBadge({ detailed = false }: { detailed?: boolean }) {
         "To play files at their own rate, choose Exclusive in Settings → Audio output, or change the device's format in Windows sound settings.",
     });
   if (eqActive) tags.push({ label: "EQ", tone: "muted", tip: "The equalizer is changing the sound." });
+  if (status.effectsActive) {
+    const speed = status.speed !== 1 ? `${status.speed.toFixed(2).replace(/0$/, "")}×` : null;
+    tags.push({
+      label: speed ? `FX ${speed}` : "FX",
+      short: "FX",
+      tone: "muted",
+      tip: "Effects are on: speed or reverb is changing the sound (player bar → Effects).",
+    });
+  }
   if (replayGainDb != null && Math.abs(replayGainDb) > 0.01) {
     const db = `${replayGainDb > 0 ? "+" : ""}${replayGainDb.toFixed(1)} dB`;
     tags.push({ label: `RG ${db}`, tone: "muted", tip: `ReplayGain changes this song's volume by ${db} so songs play at a similar loudness.` });

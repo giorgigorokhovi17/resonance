@@ -5,9 +5,11 @@ import type {
   LinkInfo,
   AutoEqImport,
   DeviceInfo,
+  EffectSettings,
   EqPreset,
   EqSettings,
   ExportSummary,
+  HotkeyProblem,
   ImportResult,
   LibraryFolder,
   Backdrop,
@@ -185,6 +187,9 @@ export const api = {
 
   // settings
   getSettings: () => invoke<Settings>("get_settings"),
-  updateSettings: (patch: Partial<Pick<Settings, "theme" | "closeToTray" | "watchFolders" | "island" | "islandOptions" | "replayGain" | "replayGainPreamp" | "crossfade" | "appearance">>) =>
+  getHotkeyProblems: () => invoke<HotkeyProblem[]>("get_hotkey_problems"),
+  pauseHotkeys: (paused: boolean) => invoke<void>("pause_hotkeys", { paused }),
+  setEffects: (effects: EffectSettings) => invoke<Settings>("set_effects", { effects }),
+  updateSettings: (patch: Partial<Pick<Settings, "theme" | "closeToTray" | "watchFolders" | "island" | "islandOptions" | "hotkeys" | "replayGain" | "replayGainPreamp" | "crossfade" | "appearance">>) =>
     invoke<Settings>("update_settings", { patch }),
 };

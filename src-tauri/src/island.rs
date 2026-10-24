@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use parking_lot::Mutex;
+use crate::audio::viz::Analyzer;
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
 pub const LABEL: &str = "island";
@@ -75,6 +76,35 @@ pub fn open(app: &AppHandle) {
             #[cfg(windows)]
             on_top::raise();
             std::thread::sleep(Duration::from_millis(1500));
+        }
+    });
+    // The visualizer: band levels of what's playing, ~30 times a second while the island shows.
+    let handle = app.clone();
+    let _ = std::thread::Builder::new().name("island-viz".into()).spawn(move || {
+        let mut analyzer = Analyzer::default();
+        let mut still = false;
+        while let Some(w) = handle.get_webview_window(LABEL) {
+            let shared = handle.try_state::<crate::AppState>().map(|s| s.engine.shared.clone());
+            let Some(shared) = shared.filter(|_| w.is_visible().unwrap_or(false)) else {
+                if let Some(s) = handle.try_state::<crate::AppState>() {
+                    s.engine.shared.viz.enabled.store(false, Ordering::Relaxed);
+                }
+                std::thread::sleep(Duration::from_millis(250));
+                continue;
+            };
+            shared.viz.enabled.store(true, Ordering::Relaxed);
+            let playing = !shared.paused.load(Ordering::Relaxed);
+            let levels = if playing { analyzer.levels(&shared.viz) } else { analyzer.quiet() };
+            // Once the bars have settled while paused, stop sending.
+            let settled = !playing && levels.iter().all(|l| *l == 0.0);
+            if !(settled && still) {
+                let _ = handle.emit_to(LABEL, "island:levels", levels);
+            }
+            still = settled;
+            std::thread::sleep(Duration::from_millis(33));
+        }
+        if let Some(s) = handle.try_state::<crate::AppState>() {
+            s.engine.shared.viz.enabled.store(false, Ordering::Relaxed);
         }
     });
     // Clicks reach the island only over the pill, and with click-through on only while Alt is

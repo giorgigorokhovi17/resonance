@@ -64,6 +64,11 @@ soulseek-rs-lib = "=19.1.0"
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
 tokio = { version = "1", features = ["time"] }
 
+# global play/pause, next, previous and volume shortcuts (hotkeys.rs)
+tauri-plugin-global-shortcut = "2"
+# the island's visualizer (audio/viz.rs); already in the build through rubato
+realfft = "3"
+
 [dev-dependencies]
 proptest = "1"
 tokio = { version = "1", features = ["macros", "rt", "time"] }

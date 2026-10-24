@@ -54,7 +54,8 @@ export function livePosition(): number {
   const { status, statusAt } = usePlayer.getState();
   if (!status) return 0;
   if (status.state !== "playing") return status.position;
-  const p = status.position + (performance.now() - statusAt) / 1000;
+  // Slowed or sped up, the song moves at its own pace.
+  const p = status.position + ((performance.now() - statusAt) / 1000) * (status.speed || 1);
   return Math.min(p, status.duration || p);
 }
 

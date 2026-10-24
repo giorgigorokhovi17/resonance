@@ -48,6 +48,7 @@ own update key.
 - **Sample-accurate seeking** and 64-bit float processing throughout. Samples are scaled by exact powers of two, so with volume at 100% and the EQ bypassed, exclusive mode is **bit-perfect**. A "Bit-perfect" badge confirms it live.
 - **10-band parametric EQ + preamp** (RBJ biquads in f64): peak, low/high shelf, low/high-pass. Bypass toggle, built-in and saved presets, and **AutoEQ `ParametricEQ.txt` import**. *Auto headroom* lowers the preamp by the EQ's peak boost so boosts can never clip.
 - **Crossfade** (Settings → Crossfade, off by default, 1–10 s): an equal-power fade from each song into the next. Songs from the same album stay gapless. Only the overlap itself isn't bit-perfect.
+- **Effects** (the waveform button in the player bar): playback speed from 0.5× to 1.5×, with pitch following like a record (0.8× is the "slowed" sound), and a hall reverb. Presets for Slowed, Normal and Sped up. The seek bar and times stay in song time. Files aren't changed; with effects on, playback isn't bit-perfect (the format line shows **FX**).
 - **ReplayGain** (track/album) with pre-amp. Gain is limited by the stored peak so it never clips.
 - Volume uses a smooth perceptual taper with de-click ramps. TPDF dither is applied only when the signal was actually processed.
 
@@ -67,7 +68,7 @@ own update key.
   - Backgrounds get a scrim (dim 0–80%, blur 0–40 px, fill or whole picture). The dim is raised automatically when needed so text meets WCAG AA contrast over the picture in dark and light mode.
 - **Playlist page designs** (Settings → Visual → Playlist page): **Classic**, with the cover and title above the songs, or **Cover and lyrics**, with the cover on the left, the playing song and its lyrics below it, and the songs on the right. Lyrics come from a `.lrc` file with the same name next to the song, or from its tags; timed lyrics follow the song and a click jumps to that line.
 - **Lyrics window** (the microphone button in the player bar, or L): the playing song's lyrics over the app. When a song has none, **Search lyrics** looks it up on [LRCLIB](https://lrclib.net) (free, no account), sending only the title, artist, album and length. A result is used only if its title matches and its length is within 3 s. Found lyrics are kept in the app's database (the song file isn't changed); **Wrong lyrics? Remove** forgets them. Nothing is searched unless you click.
-- **Dynamic Island** (Settings → Dynamic Island, off by default): a small always-on-top bar with the playing song, by default only while Undertone is minimised or in the tray. Its background is a moving gradient of the cover's colours or a palette you pick (built-in or your own three colours). The bar has shuffle, previous, play/pause, next and repeat, and a seek bar you can click. A small card shows the new song for a few seconds when one starts; point at the island to open it into the cover, the current lyric line, a bigger progress bar and controls. Drag it anywhere or snap it to a corner or edge, double-click it to bring Undertone up, and right-click it to lock it, let clicks through (hold Alt to use it anyway, say in a game), hide the title, artist, controls, shuffle and repeat or seek bar, turn off the pop-up, change its colours and more. When the queue ends it stays, stopped. It hides when there is no song at all and, unless you turn that off, while a game or video is full screen; it stays above other always-on-top windows, such as games in borderless mode.
+- **Dynamic Island** (Settings → Dynamic Island, off by default): a small always-on-top bar with the playing song, by default only while Undertone is minimised or in the tray. Its background is a moving gradient of the cover's colours or a palette you pick (built-in or your own three colours), and its level bars follow the music. The bar has shuffle, previous, play/pause, next and repeat, and a seek bar you can click. A small card shows the new song for a few seconds when one starts; point at the island to open it into the cover, the current lyric line, a bigger progress bar and controls. Drag it anywhere or snap it to a corner or edge, double-click it to bring Undertone up, and right-click it to lock it, let clicks through (hold Alt to use it anyway, say in a game), hide the title, artist, controls, shuffle and repeat or seek bar, turn off the pop-up, change its colours and more. When the queue ends it stays, stopped. It hides when there is no song at all and, unless you turn that off, while a game or video is full screen; it stays above other always-on-top windows, such as games in borderless mode.
 - **Sleep timer** (the moon button in the player bar): pause after 15 minutes to 1.5 hours, fading out over the last 10 seconds, or stop at the end of the playing song.
 - **Queue** (drag to reorder, remove, save as playlist) as a full view and a slide-over panel.
 - **Playlists**: create, rename, delete, reorder. **Import M3U/M3U8, PLS, XSPF and WPL**: importing the same file again updates its playlist instead of adding a copy. **Export to M3U8, XSPF, or CSV with ISRC** (for spreadsheets; cells are guarded against formula injection). ISRCs and MusicBrainz recording ids are read from tags (invalid values, such as barcodes in the ISRC field, are ignored).
@@ -182,6 +183,15 @@ cargo run --release --example probe -- song.flac          # decode a file and pr
 | Alt+← / Alt+→ | Back / forward |
 
 Hardware media keys work through Windows' media controls, even when the window is hidden.
+
+**Global shortcuts** (Settings → Global shortcuts) work from any app, games included. Change, clear or turn them off there; a shortcut Windows or another app already uses is marked.
+
+| Default | Action |
+|---|---|
+| Ctrl+Alt+Space | Play / pause |
+| Ctrl+Alt+→ / Ctrl+Alt+← | Next / previous song |
+| Ctrl+Alt+↑ / Ctrl+Alt+↓ | Volume up / down (5%) |
+| Ctrl+Alt+M | Mute |
 
 ## Where data lives
 

@@ -1,7 +1,9 @@
 pub mod decoder;
 pub mod dsp;
+pub mod effects;
 pub mod engine;
 pub mod eq;
 pub mod output;
 pub mod resample;
 pub mod types;
+pub mod viz;
