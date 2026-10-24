@@ -59,11 +59,6 @@ pub fn open(app: &AppHandle) {
     if let Ok(hwnd) = window.hwnd() {
         on_top::set(hwnd.0 as isize);
         let _ = app.run_on_main_thread(on_top::hook);
-        // Layered once, here, so letting clicks through later is a single style bit. Having tao
-        // switch click-through rewrites every style and refreshes the frame, which waits on the
-        // webview's window in its own process; done each time the pointer crossed the pill's
-        // edge, that could lock up the app.
-        let _ = window.set_ignore_cursor_events(true);
     }
     #[cfg(not(windows))]
     let _ = window;
@@ -224,10 +219,12 @@ mod on_top {
         }
     }
 
-    /// The pointer is inside `rect` (x, y, width, height), relative to the island window.
-    /// Lets clicks through the window (or not) by switching only WS_EX_TRANSPARENT, keeping it
-    /// layered (it needs both to let clicks through). Only the window's own style changes: no
-    /// frame refresh, nothing sent to the webview's window. Does nothing when already so.
+    /// Lets clicks through the window (WS_EX_LAYERED | WS_EX_TRANSPARENT, as tao does it) or not
+    /// (neither: a layered window takes no clicks at all, as the webview draws through
+    /// DirectComposition and leaves the window's own picture empty). Set here directly: tao's
+    /// way rewrites every style and refreshes the frame, which waits on the webview's window in
+    /// its own process and, done each time the pointer crossed the pill's edge, locked up the app.
+    /// Does nothing when the window is already so.
     pub fn let_clicks_through(through: bool) {
         let hwnd = ISLAND.load(Ordering::Relaxed);
         if hwnd == 0 {
@@ -237,14 +234,15 @@ mod on_top {
         // SAFETY: a window handle of ours; reading and setting its extended style.
         unsafe {
             let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-            let (layered, transparent) = (WS_EX_LAYERED.0 as isize, WS_EX_TRANSPARENT.0 as isize);
-            let want = if through { style | layered | transparent } else { (style | layered) & !transparent };
+            let bits = (WS_EX_LAYERED.0 | WS_EX_TRANSPARENT.0) as isize;
+            let want = if through { style | bits } else { style & !bits };
             if want != style {
                 SetWindowLongPtrW(hwnd, GWL_EXSTYLE, want);
             }
         }
     }
 
+    /// The pointer is inside `rect` (x, y, width, height), relative to the island window.
     pub fn pointer_in(rect: [i32; 4]) -> bool {
         let hwnd = ISLAND.load(Ordering::Relaxed);
         if hwnd == 0 {
