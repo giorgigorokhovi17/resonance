@@ -79,11 +79,3 @@ export function grownRect(small: Rect, size: Size, area: Rect): { rect: Rect; up
   const y = clamp(up ? small.y + small.h - size.h : small.y, area.y, area.y + area.h - size.h);
   return { rect: { x: Math.round(x), y: Math.round(y), ...size }, up };
 }
-
-/** The collapsed island's spot for a window at `pos` (after a drag), whichever size it had. */
-export function collapsedFrom(pos: { x: number; y: number }, current: Size, small: Size, up: boolean): { x: number; y: number } {
-  return {
-    x: Math.round(pos.x + current.w / 2 - small.w / 2),
-    y: Math.round(up ? pos.y + current.h - small.h : pos.y),
-  };
-}

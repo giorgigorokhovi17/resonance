@@ -5,6 +5,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+use parking_lot::Mutex;
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
 pub const LABEL: &str = "island";
@@ -13,9 +14,17 @@ pub const LABEL: &str = "island";
 static AWAY: AtomicBool = AtomicBool::new(false);
 /// The island lets clicks through (Settings → Dynamic Island), except while Alt is held.
 static CLICK_THROUGH: AtomicBool = AtomicBool::new(false);
+/// Where the pill is inside the window (x, y, width, height in physical pixels). The window is
+/// as big as the opened island so it never resizes while the pill grows and shrinks; clicks
+/// anywhere else in it go to the app underneath.
+static PILL: Mutex<Option<[i32; 4]>> = Mutex::new(None);
 
 pub fn set_click_through(on: bool) {
     CLICK_THROUGH.store(on, Ordering::Relaxed);
+}
+
+pub fn set_pill(rect: [i32; 4]) {
+    *PILL.lock() = Some(rect);
 }
 
 /// Opens the island window (hidden; the page shows it once it has a song) and starts watching
@@ -68,22 +77,35 @@ pub fn open(app: &AppHandle) {
             std::thread::sleep(Duration::from_millis(1500));
         }
     });
-    // Click-through, and holding Alt to click the island anyway (say, next song in a game).
+    // Clicks reach the island only over the pill, and with click-through on only while Alt is
+    // held (say, next song in a game).
     let handle = app.clone();
     let _ = std::thread::Builder::new().name("island-clicks".into()).spawn(move || {
         let mut last = None;
         while let Some(w) = handle.get_webview_window(LABEL) {
             let through = CLICK_THROUGH.load(Ordering::Relaxed);
-            let ignore = through && !alt_down();
+            let ignore = !pointer_on_pill() || (through && !alt_down());
             if last != Some(ignore) {
                 last = Some(ignore);
                 let _ = w.set_ignore_cursor_events(ignore);
                 // The page can't see the pointer leave once clicks go through.
                 let _ = handle.emit_to(LABEL, "island:clickable", !ignore);
             }
-            std::thread::sleep(Duration::from_millis(if through { 40 } else { 250 }));
+            std::thread::sleep(Duration::from_millis(30));
         }
     });
+}
+
+/// The pointer is over the pill (or the page hasn't said where the pill is yet).
+fn pointer_on_pill() -> bool {
+    let Some(rect) = *PILL.lock() else { return true };
+    #[cfg(windows)]
+    return on_top::pointer_in(rect);
+    #[cfg(not(windows))]
+    {
+        let _ = rect;
+        true
+    }
 }
 
 /// Moves and resizes the island in one step (physical pixels), so it never shows at the new size
@@ -115,6 +137,7 @@ pub fn alt_down() -> bool {
 pub fn close(app: &AppHandle) {
     #[cfg(windows)]
     on_top::set(0);
+    *PILL.lock() = None;
     if let Some(w) = app.get_webview_window(LABEL) {
         let _ = w.destroy();
     }
@@ -127,10 +150,10 @@ pub fn close(app: &AppHandle) {
 mod on_top {
     use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 
-    use windows::Win32::Foundation::HWND;
+    use windows::Win32::Foundation::{HWND, POINT, RECT};
     use windows::Win32::UI::Accessibility::{SetWinEventHook, HWINEVENTHOOK};
     use windows::Win32::UI::WindowsAndMessaging::{
-        SetWindowPos, EVENT_SYSTEM_FOREGROUND, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE,
+        GetCursorPos, GetWindowRect, SetWindowPos, EVENT_SYSTEM_FOREGROUND, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE,
         SWP_NOZORDER, WINEVENT_OUTOFCONTEXT, WINEVENT_SKIPOWNPROCESS,
     };
 
@@ -159,6 +182,21 @@ mod on_top {
                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER,
             );
         }
+    }
+
+    /// The pointer is inside `rect` (x, y, width, height), relative to the island window.
+    pub fn pointer_in(rect: [i32; 4]) -> bool {
+        let hwnd = ISLAND.load(Ordering::Relaxed);
+        if hwnd == 0 {
+            return false;
+        }
+        let mut win = RECT::default();
+        let mut p = POINT::default();
+        // SAFETY: a window handle of ours and two plain out-structs.
+        let ok = unsafe { GetWindowRect(HWND(hwnd as *mut _), &mut win).is_ok() && GetCursorPos(&mut p).is_ok() };
+        let [x, y, w, h] = rect;
+        let (left, top) = (win.left + x, win.top + y);
+        ok && p.x >= left && p.x < left + w && p.y >= top && p.y < top + h
     }
 
     /// Position and size together; false when the island isn't open.

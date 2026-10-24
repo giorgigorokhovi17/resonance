@@ -181,6 +181,7 @@ export const api = {
   islandMainAway: () => invoke<boolean>("island_main_away"),
   islandSetBounds: (x: number, y: number, w: number, h: number) => invoke<void>("island_set_bounds", { x, y, w, h }),
   islandAltDown: () => invoke<boolean>("island_alt_down"),
+  islandSetPill: (x: number, y: number, w: number, h: number) => invoke<void>("island_set_pill", { x, y, w, h }),
 
   // settings
   getSettings: () => invoke<Settings>("get_settings"),

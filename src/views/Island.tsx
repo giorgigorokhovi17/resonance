@@ -8,7 +8,6 @@ import { api } from "../lib/api";
 import { displayArtist, fmtTime } from "../lib/format";
 import {
   areaAt,
-  collapsedFrom,
   collapsedRect,
   FALLBACK_PALETTE,
   fixedPalette,
@@ -25,9 +24,11 @@ import { initPlayer, livePosition, usePlayer } from "../store/player";
 type Size = { w: number; h: number };
 /** The small bar, the card shown when a new song starts, and the full island on hover. */
 type Level = "small" | "card" | "big";
-const RANK: Record<Level, number> = { small: 0, card: 1, big: 2 };
-/** Where the window goes at each size (physical px), from where the small bar sits. */
-type Geo = { rects: Record<Level, Rect>; sf: number; up: boolean };
+/**
+ * Where the island is at each size (physical px), grown from where the small bar sits, and the
+ * window: big enough for all of them, so it never resizes while the pill grows and shrinks.
+ */
+type Geo = { rects: Record<Level, Rect>; window: Rect; sf: number; up: boolean };
 
 /** Window sizes (logical px). The pill sits inside with room for its glow. */
 const CARD = { w: 400, h: 98 };
@@ -58,6 +59,19 @@ function levelSize(level: Level, small: Size): Size {
 function pillSize(level: Level, small: Size): Size {
   const s = levelSize(level, small);
   return { w: s.w - 2 * SIDE, h: level === "small" ? s.h - 18 : s.h - 22 };
+}
+
+/**
+ * Where the pill goes inside the window at `level` (logical px): where the island would be at
+ * that size, so it grows from and shrinks back to exactly where the small bar sits.
+ */
+function pillSpot(geo: Geo | null, level: Level, small: Size) {
+  const box = pillSize(level, small);
+  const own = levelSize(level, small);
+  const dx = geo ? (geo.rects[level].x - geo.window.x) / geo.sf : (BIG.w - own.w) / 2;
+  const dy = geo ? (geo.rects[level].y - geo.window.y) / geo.sf : 0;
+  const up = geo?.up ?? false;
+  return { left: dx + SIDE, top: dy + (up ? own.h - box.h - EDGE : EDGE), w: box.w, h: box.h };
 }
 
 function options(): IslandOptions | null {
@@ -94,7 +108,16 @@ async function layout(o: IslandOptions, small: Size): Promise<Geo | null> {
   const collapsed = collapsedRect(o, area.rect, px(small));
   const card = grownRect(collapsed, px(CARD), area.rect);
   const big = grownRect(collapsed, px(BIG), area.rect);
-  return { rects: { small: collapsed, card: card.rect, big: big.rect }, sf: area.sf, up: big.up };
+  const all = [collapsed, card.rect, big.rect];
+  const x = Math.min(...all.map((r) => r.x));
+  const y = Math.min(...all.map((r) => r.y));
+  const window = {
+    x,
+    y,
+    w: Math.max(...all.map((r) => r.x + r.w)) - x,
+    h: Math.max(...all.map((r) => r.y + r.h)) - y,
+  };
+  return { rects: { small: collapsed, card: card.rect, big: big.rect }, window, sf: area.sf, up: big.up };
 }
 
 /** The current timed lyric line, if the song has synced lyrics. */
@@ -188,27 +211,21 @@ export function Island() {
   const [mainAway, setMainAway] = useState(false);
   const [hover, setHover] = useState(false);
   const [peek, setPeek] = useState(false);
-  /** The size the window should be, the size it is, and the pill's (which follows it). */
-  const [winLevel, setWinLevel] = useState<Level>("small");
-  const [placed, setPlaced] = useState<Level>("small");
-  const [pill, setPill] = useState<Level>("small");
   const [geo, setGeo] = useState<Geo | null>(null);
+  const geoRef = useRef<Geo | null>(null);
   const [palettes, setPalettes] = useState<{ key: string; p: Palette }[]>([{ key: "none", p: FALLBACK_PALETTE }]);
   const [pos, setPos] = useState(0);
   const leave = useRef<number>();
   const lastPath = useRef<string | null>(null);
   const press = useRef<{ x: number; y: number } | null>(null);
   const dragging = useRef(false);
-  const upRef = useRef(false);
-  const targetRef = useRef<Level>("small");
   const line = useLyricLine(track?.path ?? null);
 
   const showTitle = o?.showTitle ?? true;
   const showArtist = o?.showArtist ?? true;
   const small = o ? smallSize(o) : { w: 320, h: 58 };
   const visible = !!o && !!track && !(fullscreen && o.hideInFullscreen) && (!o.onlyWhenMinimized || mainAway);
-  const target: Level = !visible ? "small" : hover && o?.expandOnHover ? "big" : peek && o?.peekOnNewSong ? "card" : "small";
-  targetRef.current = target;
+  const pill: Level = !visible ? "small" : hover && o?.expandOnHover ? "big" : peek && o?.peekOnNewSong ? "card" : "small";
   const placeKey = o ? `${o.position}|${o.x}|${o.y}|${small.w}` : "";
 
   useEffect(() => {
@@ -233,12 +250,12 @@ export function Island() {
       window.clearTimeout(settle);
       settle = window.setTimeout(async () => {
         dragging.current = false;
-        const cur = options();
-        if (!cur) return;
-        const [p, size, sf] = await Promise.all([win.outerPosition(), win.outerSize(), win.scaleFactor()]);
-        const s = smallSize(cur);
-        const spot = collapsedFrom(p, { w: size.width, h: size.height }, { w: s.w * sf, h: s.h * sf }, upRef.current);
-        save({ position: "custom", ...spot });
+        const g = geoRef.current;
+        if (!g) return;
+        // The small bar moved as far as the window did.
+        const p = await win.outerPosition();
+        const s = g.rects.small;
+        save({ position: "custom", x: Math.round(s.x + p.x - g.window.x), y: Math.round(s.y + p.y - g.window.y) });
       }, 350);
     });
     return () => {
@@ -247,18 +264,8 @@ export function Island() {
     };
   }, []);
 
-  // Growing: enlarge the window first, then the pill. Shrinking: the pill first, then the window.
-  useEffect(() => {
-    if (RANK[target] >= RANK[winLevel]) {
-      setWinLevel(target);
-      return;
-    }
-    setPill(target);
-    const t = window.setTimeout(() => setWinLevel(target), 380);
-    return () => window.clearTimeout(t);
-  }, [target]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Place and show the window, or hide it.
+  // Place and show the window, or hide it. It moves only when the island's place or width changes,
+  // never while the pill grows and shrinks.
   useEffect(() => {
     if (!visible || !o) {
       win.hide();
@@ -269,23 +276,28 @@ export function Island() {
       const g = await layout(o, small);
       if (!alive) return;
       if (g) {
-        const r = g.rects[winLevel];
+        const r = g.window;
         await api.islandSetBounds(Math.round(r.x), Math.round(r.y), Math.round(r.w), Math.round(r.h));
       } else {
-        const s = levelSize(winLevel, small);
-        await win.setSize(new LogicalSize(s.w, s.h));
+        await win.setSize(new LogicalSize(BIG.w, BIG.h));
       }
       if (!alive) return;
-      upRef.current = g?.up ?? false;
+      geoRef.current = g;
       setGeo(g);
-      setPlaced(winLevel);
       await win.show();
-      if (targetRef.current === winLevel) requestAnimationFrame(() => setPill(winLevel));
     })().catch((e) => console.error(e));
     return () => {
       alive = false;
     };
-  }, [visible, winLevel, placeKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [visible, placeKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Clicks reach the island only over the pill, at the size it's growing or shrinking to.
+  const spot = pillSpot(geo, pill, small);
+  const sf = geo?.sf ?? 1;
+  useEffect(() => {
+    if (!geo) return;
+    api.islandSetPill(Math.round(spot.left * sf), Math.round(spot.top * sf), Math.round(spot.w * sf), Math.round(spot.h * sf)).catch(() => {});
+  }, [geo, spot.left, spot.top, spot.w, spot.h, sf]);
 
   // A new song shows the card for a moment.
   useEffect(() => {
@@ -337,13 +349,6 @@ export function Island() {
     const r = e.currentTarget.getBoundingClientRect();
     if (duration > 0) api.seek(Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)) * duration);
   };
-  // The pill sits where the window would be at its own size, inside the window as it is now; so
-  // it grows from and shrinks back to exactly where the small bar sits.
-  const box = pillSize(pill, small);
-  const own = levelSize(pill, small);
-  const dx = geo ? (geo.rects[pill].x - geo.rects[placed].x) / geo.sf : (levelSize(placed, small).w - own.w) / 2;
-  const dy = geo ? (geo.rects[pill].y - geo.rects[placed].y) / geo.sf : 0;
-  const up = geo?.up ?? false;
   const layer = (level: Level) => ({
     opacity: pill === level ? 1 : 0,
     pointerEvents: pill === level ? ("auto" as const) : ("none" as const),
@@ -393,10 +398,10 @@ export function Island() {
         }}
         className={`absolute select-none overflow-hidden text-white ${o.locked ? "" : "cursor-grab active:cursor-grabbing"}`}
         style={{
-          left: dx + SIDE,
-          top: dy + (up ? own.h - box.h - EDGE : EDGE),
-          width: box.w,
-          height: box.h,
+          left: spot.left,
+          top: spot.top,
+          width: spot.w,
+          height: spot.h,
           borderRadius: pill === "big" ? 28 : pill === "card" ? 24 : 22,
           boxShadow: `0 10px 30px -10px ${glow}, 0 0 0 1px rgb(255 255 255 / 0.08) inset`,
           transition: `left ${ease}, top ${ease}, width ${ease}, height ${ease}, border-radius 380ms, box-shadow 600ms`,
