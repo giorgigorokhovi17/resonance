@@ -1,0 +1,59 @@
+# Runs the checks from AGENTS.md on every pull request: the frontend typecheck, the backend
+# warnings check and the Rust tests. Windows only: the crate doesn't build anywhere else.
+name: Checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# A newer push to the same branch replaces a run still in progress.
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Typecheck, warnings and tests
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      CARGO_TERM_COLOR: always
+      COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+      # The backend stays warning-free: any warning fails the check.
+      RUSTFLAGS: -D warnings
+      # src-tauri/.cargo/config.toml points libopus's build at the CMake inside Visual Studio 2022
+      # Build Tools, which the runner doesn't have; it keeps a CMAKE that's already set, so use
+      # the runner's own (on PATH).
+      CMAKE: cmake
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install frontend packages
+        run: corepack pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: corepack pnpm typecheck
+
+      # The backend serves the built frontend from ../dist.
+      - name: Build the frontend
+        run: corepack pnpm exec vite build
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Warnings check
+        working-directory: src-tauri
+        run: cargo check --all-targets
+
+      - name: Rust tests
+        working-directory: src-tauri
+        run: cargo test
