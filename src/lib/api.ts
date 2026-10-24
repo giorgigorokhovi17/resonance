@@ -11,6 +11,7 @@ import type {
   ExportSummary,
   HotkeyProblem,
   ImportResult,
+  PhoneStatus,
   LibraryFolder,
   Backdrop,
   Lyrics,
@@ -189,7 +190,9 @@ export const api = {
   getSettings: () => invoke<Settings>("get_settings"),
   getHotkeyProblems: () => invoke<HotkeyProblem[]>("get_hotkey_problems"),
   pauseHotkeys: (paused: boolean) => invoke<void>("pause_hotkeys", { paused }),
+  getPhoneSync: () => invoke<PhoneStatus>("get_phone_sync"),
+  newPhoneLink: () => invoke<Settings>("new_phone_link"),
   setEffects: (effects: EffectSettings) => invoke<Settings>("set_effects", { effects }),
-  updateSettings: (patch: Partial<Pick<Settings, "theme" | "closeToTray" | "watchFolders" | "island" | "islandOptions" | "hotkeys" | "replayGain" | "replayGainPreamp" | "crossfade" | "appearance">>) =>
+  updateSettings: (patch: Partial<Pick<Settings, "theme" | "closeToTray" | "watchFolders" | "island" | "islandOptions" | "hotkeys" | "phoneSync" | "replayGain" | "replayGainPreamp" | "crossfade" | "appearance">>) =>
     invoke<Settings>("update_settings", { patch }),
 };

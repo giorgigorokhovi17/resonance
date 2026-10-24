@@ -139,6 +139,7 @@ export interface Settings {
   islandOptions: IslandOptions;
   hotkeys: HotkeySettings;
   effects: EffectSettings;
+  phoneSync: PhoneSyncSettings;
   eq: EqSettings;
   appearance: Appearance;
   soulseek: SoulseekSettings;
@@ -155,6 +156,23 @@ export interface HotkeyProblem {
   action: HotkeyAction;
   keys: string;
   message: string;
+}
+
+/** Phone sync: playlists on the home network for a phone's browser. */
+export interface PhoneSyncSettings {
+  enabled: boolean;
+  port: number;
+  /** Secret part of the link (changed with New link). */
+  key: string;
+}
+
+export interface PhoneStatus {
+  running: boolean;
+  /** The link to open on the phone. */
+  url: string | null;
+  /** The link as a QR code (SVG markup made by the backend). */
+  qr: string | null;
+  error: string | null;
 }
 
 /** Playback speed (pitch follows: 0.8 is "slowed") and reverb (0..1). */

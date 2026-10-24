@@ -2,6 +2,7 @@
 pub mod backup;
 pub mod commands;
 pub mod hotkeys;
+pub mod phone;
 pub mod island;
 pub mod library;
 pub mod persist;
@@ -403,6 +404,11 @@ pub fn run() {
             let handle = app.handle().clone();
             let keys = s.hotkeys.clone();
             tauri::async_runtime::spawn_blocking(move || hotkeys::apply(&handle, &keys));
+            if s.phone_sync.enabled {
+                let handle = app.handle().clone();
+                let sync = s.phone_sync.clone();
+                tauri::async_runtime::spawn_blocking(move || phone::apply(&handle, &sync));
+            }
 
             // Files passed on the command line start playing right away.
             let args: Vec<String> = std::env::args().collect();
@@ -469,6 +475,8 @@ pub fn run() {
             commands::island_set_pill,
             commands::get_hotkey_problems,
             commands::pause_hotkeys,
+            commands::get_phone_sync,
+            commands::new_phone_link,
             commands::set_effects,
             commands::island_alt_down,
             commands::quit_app,

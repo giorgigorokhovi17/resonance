@@ -343,6 +343,7 @@ pub struct SettingsPatch {
     pub island: Option<bool>,
     pub island_options: Option<crate::settings::IslandOptions>,
     pub hotkeys: Option<crate::settings::HotkeySettings>,
+    pub phone_sync: Option<crate::settings::PhoneSyncSettings>,
     pub replay_gain: Option<ReplayGainMode>,
     pub replay_gain_preamp: Option<f64>,
     pub crossfade: Option<f64>,
@@ -379,6 +380,10 @@ pub fn update_settings(app: AppHandle, state: State<'_, AppState>, patch: Settin
         if let Some(v) = patch.hotkeys.clone() {
             s.hotkeys = v.normalized();
         }
+        if let Some(v) = patch.phone_sync.clone() {
+            // The key isn't changed from the page (only by New link).
+            s.phone_sync = crate::settings::PhoneSyncSettings { key: s.phone_sync.key.clone(), ..v }.normalized();
+        }
         if let Some(v) = patch.replay_gain {
             s.replay_gain = v;
         }
@@ -396,6 +401,9 @@ pub fn update_settings(app: AppHandle, state: State<'_, AppState>, patch: Settin
         state.engine.send(Command::SetReplayGain { mode: s.replay_gain, preamp_db: s.replay_gain_preamp });
     }
     crate::island::set_click_through(s.island_options.click_through);
+    if patch.phone_sync.is_some() {
+        apply_phone_sync(&app, s.phone_sync.clone());
+    }
     if patch.hotkeys.is_some() {
         // Registering waits on the main thread, which runs this command.
         let (app, keys) = (app.clone(), s.hotkeys.clone());
@@ -773,6 +781,30 @@ pub fn pause_hotkeys(app: AppHandle, state: State<'_, AppState>, paused: bool) {
             crate::hotkeys::apply(&app, &keys);
         }
     });
+}
+
+/// Starts or stops the phone sync server off the main thread, then tells the page how it went.
+fn apply_phone_sync(app: &AppHandle, sync: crate::settings::PhoneSyncSettings) {
+    let app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let status = crate::phone::apply(&app, &sync);
+        let _ = app.emit("phone:status", status);
+    });
+}
+
+/// Phone sync: whether it's running, the link and its QR code.
+#[tauri::command]
+pub fn get_phone_sync() -> crate::phone::PhoneStatus {
+    crate::phone::status()
+}
+
+/// A new secret link for phone sync; the old one stops working.
+#[tauri::command]
+pub fn new_phone_link(app: AppHandle, state: State<'_, AppState>) -> Settings {
+    let s = state.settings.update(|s| s.phone_sync.key = crate::settings::new_key());
+    apply_phone_sync(&app, s.phone_sync.clone());
+    let _ = app.emit("settings:changed", &s);
+    s
 }
 
 /// Speed and reverb. Applied at once and kept for next time.

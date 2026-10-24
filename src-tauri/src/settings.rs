@@ -34,6 +34,51 @@ pub struct Settings {
     pub appearance: Appearance,
     pub soulseek: SoulseekSettings,
     pub youtube: YouTubeSettings,
+    pub phone_sync: PhoneSyncSettings,
+}
+
+/// Phone sync (phone.rs): playlists on the home network for a phone's browser. Off until turned on.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PhoneSyncSettings {
+    pub enabled: bool,
+    pub port: u16,
+    /// Secret part of the link; without it the server answers nothing. Made when first needed.
+    pub key: String,
+}
+
+pub const DEFAULT_PHONE_PORT: u16 = 8787;
+
+impl Default for PhoneSyncSettings {
+    fn default() -> Self {
+        Self { enabled: false, port: DEFAULT_PHONE_PORT, key: String::new() }
+    }
+}
+
+impl PhoneSyncSettings {
+    /// A port from 1024 up, and a key of letters and digits (a fresh one when missing or odd).
+    pub fn normalized(mut self) -> Self {
+        if self.port < 1024 {
+            self.port = DEFAULT_PHONE_PORT;
+        }
+        if self.key.len() < 16 || !self.key.chars().all(|c| c.is_ascii_alphanumeric()) {
+            self.key = new_key();
+        }
+        self
+    }
+}
+
+/// 32 random hex digits. Windows' random numbers through the standard library's hash keys, which
+/// are seeded from them per process; no extra crate for this one use.
+pub fn new_key() -> String {
+    use std::hash::{BuildHasher, Hasher};
+    let part = |salt: u64| {
+        let mut h = std::collections::hash_map::RandomState::new().build_hasher();
+        h.write_u64(salt);
+        h.write_u128(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0));
+        h.finish()
+    };
+    format!("{:016x}{:016x}", part(1), part(2))
 }
 
 /// YouTube downloads (sources/youtube.rs). Off until the user turns them on.
@@ -330,6 +375,7 @@ impl Default for Settings {
             appearance: Appearance::default(),
             soulseek: SoulseekSettings::default(),
             youtube: YouTubeSettings::default(),
+            phone_sync: PhoneSyncSettings::default(),
         }
     }
 }
@@ -350,6 +396,7 @@ impl SettingsStore {
                 s.island_options = s.island_options.clone().normalized();
                 s.hotkeys = s.hotkeys.clone().normalized();
                 s.effects = s.effects.normalized();
+                s.phone_sync = s.phone_sync.clone().normalized();
                 s
             })
             .unwrap_or_default();
@@ -516,6 +563,21 @@ mod tests {
         let e = EffectSettings { speed: 1.003, reverb: f64::NAN }.normalized();
         assert_eq!((e.speed, e.reverb), (1.0, 0.0), "near-normal speed snaps to untouched playback");
         assert!(EffectSettings { speed: 0.8, reverb: 0.0 }.is_active());
+    }
+
+    #[test]
+    fn phone_sync_settings() {
+        let s: Settings = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
+        assert!(!s.phone_sync.enabled, "off until turned on");
+        assert_eq!(s.phone_sync.port, DEFAULT_PHONE_PORT);
+
+        let p = PhoneSyncSettings { enabled: true, port: 80, key: "short".into() }.normalized();
+        assert_eq!(p.port, DEFAULT_PHONE_PORT, "no privileged ports");
+        assert_eq!(p.key.len(), 32);
+        assert!(p.key.chars().all(|c| c.is_ascii_hexdigit()));
+        let again = p.clone().normalized();
+        assert_eq!(again.key, p.key, "a good key is kept");
+        assert_ne!(new_key(), new_key());
     }
 
     #[test]
