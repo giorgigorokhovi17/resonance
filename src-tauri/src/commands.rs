@@ -391,6 +391,7 @@ pub fn update_settings(app: AppHandle, state: State<'_, AppState>, patch: Settin
     if rg_changed {
         state.engine.send(Command::SetReplayGain { mode: s.replay_gain, preamp_db: s.replay_gain_preamp });
     }
+    crate::island::set_click_through(s.island_options.click_through);
     if let Some(on) = patch.island {
         // This command runs on the main thread, and building a window there waits on the main
         // thread itself: on Windows the app freezes. Do it from another thread.
@@ -733,6 +734,18 @@ pub fn show_main_window(app: AppHandle) {
 #[tauri::command]
 pub fn island_main_away(app: AppHandle) -> bool {
     crate::island::main_away(&app)
+}
+
+/// Moves and resizes the island in one step (physical pixels).
+#[tauri::command]
+pub fn island_set_bounds(app: AppHandle, x: i32, y: i32, w: u32, h: u32) {
+    crate::island::set_bounds(&app, x, y, w, h);
+}
+
+/// Alt is held (the island's menu waits for it to be let go: letting go of Alt closes menus).
+#[tauri::command]
+pub fn island_alt_down() -> bool {
+    crate::island::alt_down()
 }
 
 /// Open an https:// link (e.g. the donate page) in the default browser.

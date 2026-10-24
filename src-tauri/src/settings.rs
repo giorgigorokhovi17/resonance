@@ -125,7 +125,7 @@ pub struct IslandOptions {
     pub y: Option<f64>,
     /// It can't be dragged.
     pub locked: bool,
-    /// Clicks go to whatever is underneath (undone from Settings or the tray menu).
+    /// Clicks go to whatever is underneath, except while Alt is held.
     pub click_through: bool,
     /// Only shows while Undertone is minimised or in the tray.
     pub only_when_minimized: bool,
@@ -133,8 +133,16 @@ pub struct IslandOptions {
     pub hide_in_fullscreen: bool,
     pub show_title: bool,
     pub show_artist: bool,
+    /// Previous, play/pause and next on the small island.
+    pub show_controls: bool,
+    /// Shuffle and repeat next to them.
+    pub show_shuffle_repeat: bool,
+    /// A seek bar along the bottom of the small island.
+    pub show_progress: bool,
     /// Grows into controls when pointed at.
     pub expand_on_hover: bool,
+    /// Shows a card with the song for a few seconds when a new one starts.
+    pub peek_on_new_song: bool,
     /// "cover" (from the playing song's artwork), a built-in palette id, or "custom".
     pub colors: String,
     /// Three `#rrggbb` colours for "custom".
@@ -156,7 +164,11 @@ impl Default for IslandOptions {
             hide_in_fullscreen: true,
             show_title: true,
             show_artist: true,
+            show_controls: true,
+            show_shuffle_repeat: true,
+            show_progress: true,
             expand_on_hover: true,
+            peek_on_new_song: true,
             colors: "cover".into(),
             custom_colors: vec!["#5a3cc8".into(), "#c83c8c".into(), "#2864c8".into()],
         }
@@ -384,6 +396,7 @@ mod tests {
         let o = &s.island_options;
         assert_eq!((o.position.as_str(), o.colors.as_str()), ("topCenter", "cover"));
         assert!(o.only_when_minimized && o.hide_in_fullscreen && o.show_title && o.show_artist && o.expand_on_hover);
+        assert!(o.show_controls && o.show_shuffle_repeat && o.show_progress && o.peek_on_new_song);
         assert!(!o.locked && !o.click_through);
 
         let o: IslandOptions =
