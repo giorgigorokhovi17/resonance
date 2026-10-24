@@ -26,6 +26,10 @@ Run from the repo root unless noted (PowerShell on Windows; pnpm comes through C
 
 Before saying a change works, run the tests and the typecheck, and report the actual output.
 
+GitHub Actions (`.github/workflows/checks.yml`) runs the typecheck, the warnings check (warnings
+fail it) and the Rust tests on a Windows runner for every pull request and every push to `main`.
+Don't merge a pull request whose checks fail.
+
 ## Platform
 
 - The app targets **Windows only** (WASAPI output, SMTC media keys, MSVC toolchain).
