@@ -7,6 +7,7 @@ import { FormatBadge } from "../components/FormatBadge";
 import { BackupSection } from "./settings/Backup";
 import { HotkeysSection } from "./settings/Hotkeys";
 import { IslandSection } from "./settings/Island";
+import { PhoneSyncSection } from "./settings/PhoneSync";
 import { LibraryFoldersSection } from "./settings/LibraryFolders";
 import { UpdatesSection } from "./settings/Updates";
 import { VisualSettings } from "./settings/Visual";
@@ -219,6 +220,8 @@ export function SettingsView() {
 
           <HotkeysSection settings={settings} />
 
+          <PhoneSyncSection settings={settings} />
+
           <Section
             title="Crossfade"
             description="Fades each song into the next. Songs from the same album still play gaplessly, with no fade. While the songs overlap, the output isn't bit-perfect."
@@ -263,7 +266,7 @@ export function SettingsView() {
       )}
 
       <p className="pb-6 text-center text-[11.5px] text-faint">
-        Undertone runs locally. No accounts, no telemetry; the only network request is the update check.
+        Undertone runs locally. No accounts, no telemetry; it only uses the network for the update check and the features you turn on.
       </p>
     </div>
   );
