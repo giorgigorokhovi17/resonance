@@ -2,6 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import { Island } from "./views/Island";
+import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import logo from "./assets/logo.png";
 import "./index.css";
@@ -25,7 +26,20 @@ if (import.meta.env.DEV) {
 // browser tab (e.g. the bare Vite server), show how to launch it instead of a blank page.
 const inTauri = "__TAURI_INTERNALS__" in window;
 
-ReactDOM.createRoot(document.getElementById("root")!).render(
+/**
+ * The window can load before the backend has finished starting (it opens the library, the audio
+ * engine and more), and the app's first calls would fail. Wait for it: usually it's ready at once.
+ */
+async function backendReady() {
+  const until = Date.now() + 60_000;
+  while (Date.now() < until) {
+    if (await invoke<boolean>("app_ready").catch(() => false)) return;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+}
+
+(inTauri ? backendReady() : Promise.resolve()).then(() =>
+  ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     {inTauri ? (
       getCurrentWindow().label === "island" ? <Island /> : <App />
@@ -40,4 +54,5 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
       </div>
     )}
   </React.StrictMode>,
+  ),
 );

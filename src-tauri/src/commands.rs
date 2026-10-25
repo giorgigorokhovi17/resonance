@@ -869,6 +869,14 @@ pub fn island_set_pill(x: i32, y: i32, w: i32, h: i32) {
     crate::island::set_pill([x, y, w, h]);
 }
 
+/// The backend has finished starting. The windows can load before it has (slower on a busy PC),
+/// and every other command needs what it sets up.
+#[tauri::command]
+pub fn app_ready(app: AppHandle) -> bool {
+    use tauri::Manager;
+    app.try_state::<crate::AppState>().is_some()
+}
+
 /// The island's options or playlist panel is open: it takes clicks without Alt held.
 #[tauri::command]
 pub fn island_set_panel(open: bool) {
