@@ -2,7 +2,7 @@
   "name": "resonance",
   "private": true,
   "license": "MIT",
-  "version": "0.7.13",
+  "version": "0.7.14",
   "type": "module",
   "packageManager": "pnpm@9.15.9",
   "scripts": {
