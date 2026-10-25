@@ -121,7 +121,7 @@ fn strip_track_number(stem: &str) -> &str {
 }
 
 /// Quality tier: 2 FLAC, 1 MP3 ≥ 320 kbps, else unacceptable.
-fn quality(format: &str, attrs: &FileAttrs, size: u64) -> Option<u8> {
+pub(super) fn quality(format: &str, attrs: &FileAttrs, size: u64) -> Option<u8> {
     match format {
         "FLAC" => Some(2),
         "MP3" => {
@@ -136,14 +136,11 @@ pub fn title_matches(file: &[Reading], wanted: &[Reading]) -> bool {
     file.iter().any(|f| wanted.iter().any(|w| !w.title_key.is_empty() && f.title_key == w.title_key && f.versions == w.versions))
 }
 
-/// Judge one file against a reference. `None` when it isn't acceptable.
-pub fn judge(r: &TrackRef, wanted: &[Reading], user: &RawResponse, path: &str, size: u64, attrs: &FileAttrs) -> Option<Found> {
+/// Readings of a remote file: its name with and without a leading track number (a song can be
+/// called "22"), each also under an "Artist - Album" folder.
+pub(super) fn file_readings(path: &str) -> Vec<Reading> {
     let (folder, name) = split_remote(path);
-    let format = format_of(name);
-    let q = quality(&format, attrs, size)?;
     let raw_stem = name.rsplit_once('.').map(|(s, _)| s).unwrap_or(name);
-    // Readings of the file: its name with and without a leading track number (a song can be
-    // called "22"), each also under an "Artist - Album" folder.
     let (_, last_folder) = split_remote(folder);
     let folder_artist = last_folder.split(" - ").next().unwrap_or("").to_string();
     let mut file = Vec::new();
@@ -153,7 +150,24 @@ pub fn judge(r: &TrackRef, wanted: &[Reading], user: &RawResponse, path: &str, s
             file.extend(readings(stem, &[folder_artist.clone()]));
         }
     }
-    if !title_matches(&file, wanted) {
+    file
+}
+
+/// "FLAC 16/44.1", "MP3 320 kbps".
+pub(super) fn quality_text(format: &str, attrs: &FileAttrs) -> String {
+    match (format, attrs.bit_depth, attrs.sample_rate, attrs.bitrate) {
+        ("FLAC", Some(b), Some(sr), _) => format!("FLAC {b}/{}", sr as f64 / 1000.0),
+        ("MP3", _, _, Some(k)) => format!("MP3 {k} kbps"),
+        (f, ..) => f.to_string(),
+    }
+}
+
+/// Judge one file against a reference. `None` when it isn't acceptable.
+pub fn judge(r: &TrackRef, wanted: &[Reading], user: &RawResponse, path: &str, size: u64, attrs: &FileAttrs) -> Option<Found> {
+    let (folder, name) = split_remote(path);
+    let format = format_of(name);
+    let q = quality(&format, attrs, size)?;
+    if !title_matches(&file_readings(path), wanted) {
         return None;
     }
     // The main artist must appear in the path (folder or file name).
@@ -173,11 +187,7 @@ pub fn judge(r: &TrackRef, wanted: &[Reading], user: &RawResponse, path: &str, s
     }
     let speed_bonus = (user.speed as f64 / 2_000_000.0).min(1.0) * 5.0;
     let score = q as f64 * 100.0 + if delta.is_some() { 20.0 } else { 0.0 } + if user.free_slots { 10.0 } else { 0.0 } + speed_bonus;
-    let mut why = vec![match (format.as_str(), attrs.bit_depth, attrs.sample_rate, attrs.bitrate) {
-        ("FLAC", Some(b), Some(sr), _) => format!("FLAC {b}/{}", sr as f64 / 1000.0),
-        ("MP3", _, _, Some(k)) => format!("MP3 {k} kbps"),
-        (f, ..) => f.to_string(),
-    }];
+    let mut why = vec![quality_text(&format, attrs)];
     why.push(match delta {
         Some(d) => format!("length matches (Δ {d:.0} s)"),
         None => "length unknown".into(),

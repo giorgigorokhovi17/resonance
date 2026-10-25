@@ -39,6 +39,8 @@ pub struct AppState {
     pub soulseek: Arc<sources::soulseek::Soulseek>,
     /// Finds songs missing from imported playlists on Soulseek.
     pub finder: Arc<sources::missing::Finder>,
+    /// "Other versions" searches for one missing song.
+    pub versions: Arc<sources::versions::Versions>,
     /// YouTube downloads through yt-dlp (off until turned on).
     pub youtube: Arc<sources::youtube::YouTube>,
     /// Listening history for the stats page.
@@ -398,7 +400,7 @@ pub fn run() {
             if s.island {
                 island::open(app.handle());
             }
-            app.manage(AppState { engine, settings, library, queue_dirty, queue_file, soulseek, finder, youtube, plays, sleep });
+            app.manage(AppState { engine, settings, library, queue_dirty, queue_file, soulseek, finder, versions: Default::default(), youtube, plays, sleep });
 
             // Registering waits on the main thread, which is busy here.
             let handle = app.handle().clone();
@@ -521,6 +523,8 @@ pub fn run() {
             sources::commands::skip_find,
             sources::commands::find_results,
             sources::commands::download_found,
+            sources::commands::find_versions,
+            sources::commands::cancel_versions,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Undertone")

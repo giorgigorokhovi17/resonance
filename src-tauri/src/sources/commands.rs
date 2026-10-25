@@ -274,3 +274,38 @@ pub fn download_found(state: State<'_, AppState>, items: Vec<DownloadRequest>) -
         .ok_or("Choose a download folder first, or add a library folder in Settings.")?;
     state.soulseek.download(std::path::Path::new(&folder), items)
 }
+
+/// Other versions of one missing song (original, slowed, hardstyle, …), on Soulseek and YouTube.
+/// Reuses the last result for that song unless `fresh`.
+#[tauri::command]
+pub async fn find_versions(state: State<'_, AppState>, playlist_id: i64, key: String, fresh: bool) -> CmdResult<super::versions::VersionsResult> {
+    if !fresh {
+        if let Some(r) = state.versions.cached(&key) {
+            return Ok(r);
+        }
+    }
+    if state.soulseek.status().state != soulseek::ConnState::SignedIn && !state.youtube.ready() {
+        return Err("Sign in to Soulseek, or turn on YouTube downloads (Sources page).".into());
+    }
+    let lib = state.library.clone();
+    let k = key.clone();
+    let review = tauri::async_runtime::spawn_blocking(move || {
+        crate::library::interchange::playlist_review(&mut lib.db.lock(), playlist_id).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    let reference = review
+        .missing
+        .into_iter()
+        .chain(review.pending)
+        .find(|i| i.result.ref_key == k)
+        .map(|i| i.reference)
+        .ok_or("That song isn't missing from this playlist any more.")?;
+    let (versions, slsk, yt) = (state.versions.clone(), state.soulseek.clone(), state.youtube.clone());
+    tauri::async_runtime::spawn_blocking(move || versions.search(slsk, Some(yt), key, reference)).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn cancel_versions(state: State<'_, AppState>) {
+    state.versions.cancel();
+}

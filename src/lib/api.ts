@@ -1,6 +1,7 @@
 ﻿import { invoke } from "@tauri-apps/api/core";
 import type {
   FindResult,
+  VersionsResult,
   LinkImport,
   LinkInfo,
   AutoEqImport,
@@ -177,6 +178,9 @@ export const api = {
   findResults: (playlistId: number, keys: string[]) =>
     invoke<{ running: boolean; results: FindResult[] }>("find_results", { playlistId, keys }),
   downloadFound: (items: SlskDownloadRequest[]) => invoke<number>("download_found", { items }),
+  /** Other versions of one missing song; the last result is reused unless `fresh`. */
+  findVersions: (playlistId: number, key: string, fresh = false) => invoke<VersionsResult>("find_versions", { playlistId, key, fresh }),
+  cancelVersions: () => invoke<void>("cancel_versions"),
 
   // misc
   openUrl: (url: string) => invoke<void>("open_url", { url }),

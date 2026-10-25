@@ -39,6 +39,8 @@ const UPDATE_EVERY: Duration = Duration::from_secs(7 * 24 * 3600);
 const LENGTH_TOLERANCE_S: f64 = 3.0;
 /// YouTube Music candidates whose details are looked up (each lookup takes a few seconds).
 const DETAIL_LOOKUPS: usize = 2;
+/// Videos looked up for "Other versions".
+const VERSION_LOOKUPS: usize = 5;
 
 #[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -422,6 +424,45 @@ impl YouTube {
             }
         }
         Ok(Vec::new())
+    }
+
+    /// Videos with the song's title in any version (for "Other versions"), one per version first,
+    /// at most `VERSION_LOOKUPS`. `skip` is the video the playlist already names.
+    pub fn find_versions(&self, r: &TrackRef, skip: Option<&str>, cancel: &AtomicBool) -> Result<Vec<Details>, String> {
+        let wanted = readings(&r.title, &r.artists);
+        let mut seen = Vec::new();
+        let mut candidates: Vec<(String, String)> = Vec::new();
+        for q in super::versions::queries(r) {
+            if cancel.load(Ordering::Relaxed) {
+                break;
+            }
+            for (id, title) in self.search_songs(&q)? {
+                let file = readings(&title, &[]);
+                let same_title = file.iter().any(|f| wanted.iter().any(|w| !w.title_key.is_empty() && f.title_key == w.title_key));
+                if same_title && Some(id.as_str()) != skip && !seen.contains(&id) {
+                    seen.push(id.clone());
+                    let version = file.first().map(|f| f.versions.iter().cloned().collect::<Vec<_>>().join("|")).unwrap_or_default();
+                    candidates.push((id, version));
+                }
+            }
+        }
+        // Different versions before more of the same one.
+        let mut versions_seen = Vec::new();
+        let (first, rest): (Vec<_>, Vec<_>) = candidates.into_iter().partition(|(_, v)| {
+            let new = !versions_seen.contains(v);
+            versions_seen.push(v.clone());
+            new
+        });
+        let mut out = Vec::new();
+        for (id, _) in first.into_iter().chain(rest).take(VERSION_LOOKUPS) {
+            if cancel.load(Ordering::Relaxed) {
+                break;
+            }
+            if let Ok(d) = self.details(&id) {
+                out.push(d);
+            }
+        }
+        Ok(out)
     }
 
     /// Downloads a video's audio into `dir` as `name` (an .m4a), reporting (bytes, total, speed).

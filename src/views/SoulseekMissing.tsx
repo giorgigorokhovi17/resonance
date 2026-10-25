@@ -1,4 +1,4 @@
-import { Check, Download, Loader2, RotateCw, Search, Square, X, TvMinimalPlay } from "lucide-react";
+import { Check, Download, Layers, Loader2, RotateCw, Search, Square, X, TvMinimalPlay } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api";
 import { fmtTime } from "../lib/format";
@@ -6,6 +6,7 @@ import { YOUTUBE, type FindMode, type FoundFile, type ReviewItem, type SlskJob }
 import { usePlayer } from "../store/player";
 import { useSoulseek } from "../store/soulseek";
 import { useUi } from "../store/ui";
+import { OtherVersions, type PickedVersion } from "./OtherVersions";
 
 const toastErr = (e: unknown) => usePlayer.getState().pushToast("error", String(e));
 
@@ -83,6 +84,9 @@ export function SoulseekMissing({ playlistId, items }: { playlistId: number; ite
   const setView = useUi((s) => s.setView);
   /** Chosen file per song: a path, "" for none. Unset = the recommended one. */
   const [pick, setPick] = useState<Record<string, string>>({});
+  /** A file of another version chosen in "Other versions", per song. */
+  const [picked, setPicked] = useState<Record<string, PickedVersion>>({});
+  const [versionsOf, setVersionsOf] = useState<ReviewItem | null>(null);
   const keys = useMemo(() => items.map((i) => i.result.refKey), [items]);
   const keysSig = keys.join("|");
 
@@ -102,13 +106,18 @@ export function SoulseekMissing({ playlistId, items }: { playlistId: number; ite
 
   const running = !!run?.running;
   const jobFor = (key: string) => [...jobs].reverse().find((j) => j.linkKey === key);
+  const filesOf = (key: string): FoundFile[] => {
+    const files = finds[key]?.state === "found" ? finds[key].files : [];
+    const other = picked[key];
+    return other && !files.some((f) => f.username === other.username && f.path === other.path) ? [...files, other] : files;
+  };
   const chosen = (key: string): FoundFile | undefined => {
-    const files = finds[key]?.files ?? [];
+    const files = filesOf(key);
     const p = pick[key];
     if (p === "") return undefined;
     return files.find((f) => f.path === p) ?? files[0];
   };
-  const selected = keys.filter((k) => finds[k]?.state === "found" && !jobFor(k) && chosen(k));
+  const selected = keys.filter((k) => filesOf(k).length > 0 && !jobFor(k) && chosen(k));
 
   const find = async (mode: FindMode = "soulseekFirst") => {
     try {
@@ -136,6 +145,7 @@ export function SoulseekMissing({ playlistId, items }: { playlistId: number; ite
   const ytReady = yt.enabled && yt.state === "ready";
   const found = keys.filter((k) => finds[k]?.state === "found").length;
   const searched = keys.some((k) => finds[k]);
+  const canSearch = signedIn || ytReady;
 
   return (
     <section className="rounded-xl bg-panel/70 ring-1 ring-line animate-in" aria-label="Missing songs">
@@ -191,7 +201,8 @@ export function SoulseekMissing({ playlistId, items }: { playlistId: number; ite
           const job = jobFor(k);
           const f = chosen(k);
           const r = item.reference;
-          const files = res?.files ?? [];
+          const files = filesOf(k);
+          const other = picked[k];
           const smallest = files.length > 1 ? files.reduce((a, b) => (b.size < a.size ? b : a)) : undefined;
           const cancellable = running && (res?.state === "waiting" || res?.state === "searching");
           return (
@@ -200,8 +211,8 @@ export function SoulseekMissing({ playlistId, items }: { playlistId: number; ite
                 type="checkbox"
                 aria-label={`Download ${r.title}`}
                 title={f ? "Untick to get none of these" : "Tick to get the recommended file"}
-                disabled={res?.state !== "found" || !!job}
-                checked={!!f && res?.state === "found" && !job}
+                disabled={!files.length || !!job}
+                checked={!!f && !job}
                 onChange={(e) => setPick((p) => ({ ...p, [k]: e.target.checked ? (files[0]?.path ?? "") : "" }))}
                 className="mt-1 accent-[var(--c-accent)]"
               />
@@ -212,6 +223,15 @@ export function SoulseekMissing({ playlistId, items }: { playlistId: number; ite
                     <span className="text-muted"> · {r.artists.join(", ") || "Unknown artist"}</span>
                     {r.durationMs != null && <span className="tabular text-faint"> · {fmtTime(r.durationMs / 1000)}</span>}
                   </div>
+                  {canSearch && !cancellable && !job && (
+                    <button
+                      onClick={() => setVersionsOf(item)}
+                      title="Find the original, slowed, sped up, hardstyle and other versions of this song"
+                      className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] text-muted ring-1 ring-line hover:bg-hover hover:text-fg"
+                    >
+                      <Layers size={11} /> Other versions
+                    </button>
+                  )}
                   {cancellable && (
                     <button
                       onClick={() => api.skipFind(k).catch(toastErr)}
@@ -232,7 +252,7 @@ export function SoulseekMissing({ playlistId, items }: { playlistId: number; ite
                 {res?.state === "skipped" && <div className="text-[11.5px] text-faint">Search cancelled.</div>}
                 {res?.state === "notFound" && <div className="text-[11.5px] text-faint">No good file found (searched "{res.query}").</div>}
                 {res?.state === "failed" && <div className="text-[11.5px] text-warn">{res.error}</div>}
-                {res?.state === "found" && (
+                {files.length > 0 && (
                   <div className="mt-1 space-y-0.5">
                     {files.map((file, i) => {
                       const on = f?.path === file.path;
@@ -253,7 +273,11 @@ export function SoulseekMissing({ playlistId, items }: { playlistId: number; ite
                           </span>
                           <FormatBadge f={file} />
                           <span className="min-w-0 truncate">{file.name}</span>
-                          {i === 0 && <Tag tone="accent">Recommended</Tag>}
+                          {other && file.path === other.path && file.username === other.username ? (
+                            <Tag tone="muted">{other.version}</Tag>
+                          ) : (
+                            i === 0 && res?.state === "found" && <Tag tone="accent">Recommended</Tag>
+                          )}
                           {smallest && file.path === smallest.path && file.username === smallest.username && i !== 0 && <Tag tone="muted">Smallest</Tag>}
                           <span className="shrink-0 text-faint">
                             {mb(file.size)} · {file.username} · {file.why}
@@ -270,6 +294,19 @@ export function SoulseekMissing({ playlistId, items }: { playlistId: number; ite
           );
         })}
       </ul>
+      {versionsOf && (
+        <OtherVersions
+          playlistId={playlistId}
+          item={versionsOf}
+          onClose={() => setVersionsOf(null)}
+          onPick={(f) => {
+            const key = versionsOf.result.refKey;
+            setPicked((p) => ({ ...p, [key]: f }));
+            setPick((p) => ({ ...p, [key]: f.path }));
+            setVersionsOf(null);
+          }}
+        />
+      )}
     </section>
   );
 }
