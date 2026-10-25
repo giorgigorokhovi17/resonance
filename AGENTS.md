@@ -8,7 +8,8 @@ file; keep project rules here so they stay in one place.
 A personal, **local-only Windows** music player: Tauri 2 (Rust backend in `src-tauri/`) with
 React + TypeScript + Tailwind (frontend in `src/`). No telemetry; the network is used only for the
 update check, pasted playlist links, lyrics searches the user clicks (LRCLIB,
-`src-tauri/src/sources/lyrics_search.rs`), Soulseek after the user signs in, YouTube downloads
+`src-tauri/src/sources/lyrics_search.rs`), online song suggestions the user clicks for (Deezer,
+`src-tauri/src/sources/similar.rs`), Soulseek after the user signs in, YouTube downloads
 after the user turns them on, and phone sync on the home network after the user turns it on. Music
 files are only ever read, never modified, except that the user may delete a song (see Rules). See `README.md` for features, architecture and data
 locations.
@@ -56,6 +57,11 @@ Don't merge a pull request whose checks fail.
   yt-dlp and QuickJS are fetched from their GitHub releases (SHA-256 checked) into
   `%LOCALAPPDATA%\app.resonance.player\tools`, never bundled. Spotify and SoundCloud stay playlist
   imports that match against local files, never downloads.
+- **Online song suggestions (owner's decision, 2026-10-25):** a playlist's **Find more online**
+  button (`src-tauri/src/sources/similar.rs`) asks Deezer's public API (no key) for top songs by
+  the playlist's artists and similar artists. Only when the user clicks; sends only the playlist's
+  main artist names. Only names come back: never fetch or play Deezer's audio previews. Adding a
+  suggestion stores it as a missing song, found through the usual Soulseek / YouTube search.
 - **Phone sync (owner's decision, 2026-10-24):** `src-tauri/src/phone.rs` serves the library and
   playlists to a phone's browser on the home network (`tiny_http`, page in `phone.html`). Off by
   default. Every request needs the secret key from the link; songs are reached by playlist and

@@ -24,6 +24,9 @@ import type {
   Playlist,
   PlaylistDetail,
   PlaylistReview,
+  Recommendation,
+  OnlineSuggestion,
+  TrackRef,
   OutputMode,
   PlayerStatus,
   QueueSnapshot,
@@ -97,6 +100,12 @@ export const api = {
   /** CSV of imported entries not matched to a local file, with reasons. Returns the row count. */
   exportUnmatchedReport: (id: number, path: string) => invoke<number>("export_unmatched_report", { id, path }),
   getPlaylistReview: (id: number) => invoke<PlaylistReview>("get_playlist_review", { id }),
+  /** Library songs that fit the playlist, best first. Nothing goes online. */
+  getRecommendations: (id: number, limit = 12) => invoke<Recommendation[]>("get_recommendations", { id, limit }),
+  /** Songs like the playlist's that you don't have, from Deezer. Only when the user clicks. */
+  findSimilarOnline: (id: number, limit = 16) => invoke<OnlineSuggestion[]>("find_similar_online", { id, limit }),
+  /** Adds a song you don't have; it shows as missing and can be found with the missing-songs search. */
+  addReferenceToPlaylist: (id: number, reference: TrackRef) => invoke<string>("add_reference_to_playlist", { id, reference }),
   /** Applies to every playlist with this reference. Returns how many playlists changed. */
   decideMatch: (key: string, decision: MatchDecision, path: string | null = null) =>
     invoke<number>("decide_match", { key, decision, path }),

@@ -612,6 +612,51 @@ pub async fn get_playlist_review(state: State<'_, AppState>, id: i64) -> CmdResu
         .map_err(err)?
 }
 
+/// Songs from the library that fit a playlist (library/recommend.rs). Nothing goes online.
+#[tauri::command]
+pub async fn get_recommendations(state: State<'_, AppState>, id: i64, limit: usize) -> CmdResult<Vec<crate::library::recommend::Recommendation>> {
+    use crate::library::recommend::{play_history, recommend};
+    let lib = state.library.clone();
+    tauri::async_runtime::spawn_blocking(move || -> CmdResult<_> {
+        let (tracks, paths, plays) = {
+            let conn = lib.db.lock();
+            (db::all_tracks(&conn).map_err(err)?, db::playlist_paths(&conn, id).map_err(err)?, play_history(&conn).map_err(err)?)
+        };
+        Ok(recommend(&tracks, &paths, &plays, limit.min(50)))
+    })
+    .await
+    .map_err(err)?
+}
+
+/// Songs like a playlist's that the user doesn't have, from Deezer (sources/similar.rs). Only
+/// when the user clicks "Find more online"; sends the playlist's main artist names.
+#[tauri::command]
+pub async fn find_similar_online(state: State<'_, AppState>, id: i64, limit: usize) -> CmdResult<Vec<crate::sources::similar::OnlineSuggestion>> {
+    let lib = state.library.clone();
+    let (members, tracks) = tauri::async_runtime::spawn_blocking(move || -> CmdResult<_> {
+        let conn = lib.db.lock();
+        let tracks = db::all_tracks(&conn).map_err(err)?;
+        let paths: HashSet<String> = db::playlist_paths(&conn, id).map_err(err)?.into_iter().collect();
+        let members: Vec<Track> = tracks.iter().filter(|t| paths.contains(&t.path)).cloned().collect();
+        Ok((members, tracks))
+    })
+    .await
+    .map_err(err)??;
+    crate::sources::similar::find(&members, &tracks, limit.min(40)).await.map_err(err)
+}
+
+/// Add a song the user doesn't have to a playlist. It shows as missing there and can be found
+/// with the playlist's missing-songs search, like an imported song.
+#[tauri::command]
+pub async fn add_reference_to_playlist(app: AppHandle, state: State<'_, AppState>, id: i64, reference: interchange::TrackRef) -> CmdResult<String> {
+    let lib = state.library.clone();
+    let key = tauri::async_runtime::spawn_blocking(move || interchange::append_ref(&mut lib.db.lock(), id, &reference).map_err(err))
+        .await
+        .map_err(err)??;
+    emit_playlists(&app);
+    Ok(key)
+}
+
 /// Decide for an imported reference: "accept" a file (`path`), "missing", "skip", or "clear" to
 /// undo. Applies to every playlist that has the reference; decisions are never asked again.
 #[tauri::command]
