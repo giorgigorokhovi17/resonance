@@ -1,5 +1,6 @@
 ﻿//! Tauri commands (the UI's API).
 
+use std::collections::HashSet;
 use std::path::Path;
 
 use tauri::{AppHandle, Emitter, State};
@@ -11,7 +12,7 @@ use crate::audio::types::{OutputMode, ReplayGainMode};
 use crate::library::db::{self, Folder, Media, Playlist};
 use crate::library::interchange::{self, ImportOutcome, PlaylistItem};
 use crate::library::media::{self as media_files, Backdrop, MediaKind, Purpose};
-use crate::library::{csv, m3u, xspf};
+use crate::library::{csv, m3u, recycle, xspf};
 use crate::library::model::{is_audio_file, Track};
 use crate::library::ScanRequest;
 use crate::queue::{QueueSnapshot, RepeatMode};
@@ -1226,5 +1227,179 @@ pub fn set_tracks_cover(
     db::set_custom_cover(&mut state.library.db.lock(), &ids, cover_id.as_deref(), motion_id.as_deref()).map_err(err)?;
     let _ = app.emit("library:changed", crate::library::scan::ScanSummary::default());
     emit_playlists(&app);
+    Ok(())
+}
+
+// ---- delete from disk -------------------------------------------------------------------------
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteFailure {
+    pub title: String,
+    pub reason: String,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteOutcome {
+    pub deleted: usize,
+    pub failed: Vec<DeleteFailure>,
+}
+
+/// If the playing song is one of `paths`, moves on to the next song that isn't (or stops) and
+/// waits for the engine to let go of the file.
+fn step_off(state: &AppState, paths: &HashSet<String>) {
+    use crate::audio::types::PlayState;
+    let (cur, replacement) = {
+        let q = state.engine.queue.lock();
+        let Some(cur) = q.current().filter(|i| paths.contains(&i.track.path)).map(|i| i.uid) else { return };
+        let mut seen = HashSet::from([cur]);
+        let mut next = q.next_after(Some(cur), false);
+        while let Some(item) = next.take() {
+            if !paths.contains(&item.track.path) {
+                next = Some(item);
+                break;
+            }
+            if !seen.insert(item.uid) {
+                break;
+            }
+            next = q.next_after(Some(item.uid), false);
+        }
+        (cur, next.map(|i| i.uid).filter(|u| !seen.contains(u)))
+    };
+    let status = state.engine.status();
+    if status.current_uid != Some(cur) || status.state == PlayState::Stopped {
+        return;
+    }
+    match replacement {
+        Some(uid) => state.engine.send(Command::PlayItem { uid, start: 0.0, paused: status.state != PlayState::Playing }),
+        None => state.engine.send(Command::Stop),
+    }
+    let until = std::time::Instant::now() + std::time::Duration::from_millis(1500);
+    while std::time::Instant::now() < until {
+        let s = state.engine.status();
+        if s.current_uid != Some(cur) || s.state == PlayState::Stopped {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+}
+
+/// Deletes library songs from disk: each file goes to the Recycle Bin (never deleted for good) and
+/// is listed in Settings → Recently deleted to put back. The songs leave the library and the
+/// queue; playlists keep them by path (shown as missing), so they reconnect after a restore.
+#[tauri::command]
+pub async fn delete_tracks_from_disk(app: AppHandle, state: State<'_, AppState>, ids: Vec<i64>) -> CmdResult<DeleteOutcome> {
+    use tauri::Manager;
+    let tracks = state.library.tracks_by_ids(&ids).map_err(err)?;
+    let worker = app.clone();
+    let (deleted, failed) = tauri::async_runtime::spawn_blocking(move || {
+        let state = worker.state::<AppState>();
+        let mut failed = Vec::new();
+        // Only songs that can go to the Recycle Bin; the rest are reported and left alone.
+        let mut ok = Vec::new();
+        for t in tracks {
+            let checked = std::fs::metadata(&t.path)
+                .map_err(|_| "The file can no longer be found.".to_string())
+                .and_then(|m| recycle::check_can_recycle(Path::new(&t.path), m.len()));
+            match checked {
+                Ok(()) => ok.push(t),
+                Err(reason) => failed.push(DeleteFailure { title: t.title, reason }),
+            }
+        }
+        step_off(&state, &ok.iter().map(|t| t.path.clone()).collect());
+        let mut deleted = HashSet::new();
+        for t in ok {
+            match recycle::send_to_bin(Path::new(&t.path)) {
+                Ok(was_readonly) => {
+                    let mut conn = state.library.db.lock();
+                    let recorded = db::add_deleted(&conn, &t, was_readonly, db::now()).and_then(|_| db::delete_tracks(&mut conn, &[t.id]));
+                    if let Err(e) = recorded {
+                        log::error!("recording the deletion of {} failed: {e}", t.path);
+                    }
+                    deleted.insert(t.path);
+                }
+                Err(reason) => failed.push(DeleteFailure { title: t.title, reason }),
+            }
+        }
+        (deleted, failed)
+    })
+    .await
+    .map_err(err)?;
+    if !deleted.is_empty() {
+        {
+            let mut q = state.engine.queue.lock();
+            let uids: Vec<u64> = q.snapshot().items.iter().filter(|i| deleted.contains(&i.track.path)).map(|i| i.uid).collect();
+            if q.current_uid().is_some_and(|u| uids.contains(&u)) {
+                q.set_current(None);
+            }
+            q.remove(&uids);
+        }
+        state.engine.send(Command::QueueChanged);
+        emit_queue(&app, &state);
+        let _ = app.emit("library:changed", crate::library::scan::ScanSummary::default());
+        emit_playlists(&app);
+        let _ = app.emit("deleted:changed", ());
+    }
+    Ok(DeleteOutcome { deleted: deleted.len(), failed })
+}
+
+/// Songs deleted from disk by the app, newest first, with whether each is still in the Recycle Bin.
+#[tauri::command]
+pub async fn get_deleted_tracks(state: State<'_, AppState>) -> CmdResult<Vec<db::DeletedTrack>> {
+    let lib = state.library.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut rows = db::deleted_tracks(&lib.db.lock()).map_err(err)?;
+        let keys: Vec<_> = rows.iter().map(|d| (std::path::PathBuf::from(&d.path), d.deleted_at)).collect();
+        for (d, present) in rows.iter_mut().zip(recycle::in_bin(&keys)) {
+            d.in_bin = present;
+        }
+        Ok(rows)
+    })
+    .await
+    .map_err(err)?
+}
+
+/// Puts deleted songs back where they were and rescans them. Returns how many came back; when
+/// none did, the first problem is the error.
+#[tauri::command]
+pub async fn restore_deleted_tracks(app: AppHandle, state: State<'_, AppState>, ids: Vec<i64>) -> CmdResult<usize> {
+    let lib = state.library.clone();
+    let (restored, first_err) = tauri::async_runtime::spawn_blocking(move || {
+        let rows = db::deleted_tracks(&lib.db.lock()).map_err(err)?;
+        let folders = lib.folders().map_err(err)?;
+        let (mut restored, mut first_err) = (0, None);
+        for d in rows.into_iter().filter(|d| ids.contains(&d.id)) {
+            let path = Path::new(&d.path);
+            match recycle::restore(path, d.deleted_at, d.was_readonly) {
+                Ok(()) => {
+                    restored += 1;
+                    let _ = db::remove_deleted(&lib.db.lock(), &[d.id]);
+                    if let Some(f) = folders.iter().find(|f| path.starts_with(&f.path)) {
+                        lib.request_scan(ScanRequest::Folder(f.id));
+                    }
+                }
+                Err(e) => {
+                    first_err.get_or_insert(e);
+                }
+            }
+        }
+        Ok::<_, String>((restored, first_err))
+    })
+    .await
+    .map_err(err)??;
+    let _ = app.emit("deleted:changed", ());
+    emit_playlists(&app);
+    match first_err {
+        Some(e) if restored == 0 => Err(e),
+        _ => Ok(restored),
+    }
+}
+
+/// Takes songs off the Recently deleted list (they stay in the Recycle Bin until it's emptied).
+#[tauri::command]
+pub fn forget_deleted_tracks(app: AppHandle, state: State<'_, AppState>, ids: Vec<i64>) -> CmdResult<()> {
+    db::remove_deleted(&state.library.db.lock(), &ids).map_err(err)?;
+    let _ = app.emit("deleted:changed", ());
     Ok(())
 }

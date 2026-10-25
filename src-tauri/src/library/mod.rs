@@ -8,6 +8,7 @@ pub mod matcher;
 pub mod media;
 pub mod model;
 pub mod pls;
+pub mod recycle;
 pub mod scan;
 pub mod stats;
 pub mod tags;

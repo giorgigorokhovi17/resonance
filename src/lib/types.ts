@@ -507,6 +507,27 @@ export interface RestoreSummary {
   settings: Settings;
 }
 
+/** A song deleted from disk by the app (it went to the Recycle Bin). */
+export interface DeletedTrack {
+  id: number;
+  path: string;
+  title: string;
+  artist: string;
+  album: string;
+  duration: number;
+  coverId: string | null;
+  wasReadonly: boolean;
+  /** Unix seconds. */
+  deletedAt: number;
+  /** Still in the Recycle Bin, so it can be restored. */
+  inBin: boolean;
+}
+
+export interface DeleteOutcome {
+  deleted: number;
+  failed: { title: string; reason: string }[];
+}
+
 export interface DeviceInfo {
   id: string;
   name: string;

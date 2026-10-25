@@ -188,6 +188,22 @@ fn migrate(conn: &Connection) -> Result<()> {
             saved_at INTEGER NOT NULL
          );",
     )?;
+    // v9: songs the user deleted from disk (they went to the Recycle Bin), so they can be put back.
+    // Names are kept as they were; playlists, artwork choices and lyrics stay keyed by path and
+    // reconnect when the file is restored.
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS deleted_tracks(
+            id INTEGER PRIMARY KEY,
+            path TEXT NOT NULL,
+            title TEXT NOT NULL,
+            artist TEXT NOT NULL,
+            album TEXT NOT NULL,
+            duration REAL NOT NULL,
+            cover_id TEXT,
+            was_readonly INTEGER NOT NULL DEFAULT 0,
+            deleted_at INTEGER NOT NULL
+         );",
+    )?;
     Ok(())
 }
 
@@ -488,6 +504,67 @@ pub fn delete_tracks(conn: &mut Connection, ids: &[i64]) -> Result<()> {
         }
     }
     tx.commit()?;
+    Ok(())
+}
+
+// ---- recently deleted -------------------------------------------------------------------------
+
+/// A song deleted from disk by the app (it went to the Recycle Bin).
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DeletedTrack {
+    pub id: i64,
+    pub path: String,
+    pub title: String,
+    pub artist: String,
+    pub album: String,
+    pub duration: f64,
+    pub cover_id: Option<String>,
+    pub was_readonly: bool,
+    pub deleted_at: i64,
+    /// Whether it can still be restored (filled in from the Recycle Bin, not stored).
+    pub in_bin: bool,
+}
+
+pub fn add_deleted(conn: &Connection, t: &Track, was_readonly: bool, deleted_at: i64) -> Result<i64> {
+    conn.execute(
+        "INSERT INTO deleted_tracks(path, title, artist, album, duration, cover_id, was_readonly, deleted_at)
+         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        params![t.path, t.title, t.artist, t.album, t.duration, t.cover_id, was_readonly as i64, deleted_at],
+    )?;
+    Ok(conn.last_insert_rowid())
+}
+
+/// Most recently deleted first.
+pub fn deleted_tracks(conn: &Connection) -> Result<Vec<DeletedTrack>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, path, title, artist, album, duration, cover_id, was_readonly, deleted_at
+         FROM deleted_tracks ORDER BY deleted_at DESC, id DESC",
+    )?;
+    let rows = stmt
+        .query_map([], |r| {
+            Ok(DeletedTrack {
+                id: r.get(0)?,
+                path: r.get(1)?,
+                title: r.get(2)?,
+                artist: r.get(3)?,
+                album: r.get(4)?,
+                duration: r.get(5)?,
+                cover_id: r.get(6)?,
+                was_readonly: r.get::<_, i64>(7)? != 0,
+                deleted_at: r.get(8)?,
+                in_bin: true,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+
+pub fn remove_deleted(conn: &Connection, ids: &[i64]) -> Result<()> {
+    let mut stmt = conn.prepare_cached("DELETE FROM deleted_tracks WHERE id = ?1")?;
+    for id in ids {
+        stmt.execute(params![id])?;
+    }
     Ok(())
 }
 
@@ -986,6 +1063,29 @@ mod tests {
             bytes: 1234,
             poster_id: Some("p1".into()),
         }
+    }
+
+    #[test]
+    fn deleted_tracks_table_migrates() {
+        let (conn, file) = reopen_after("deleted-tracks", "DROP TABLE deleted_tracks;");
+        assert_eq!(playlists(&conn).unwrap()[0].name, "Old", "older data is kept");
+        assert!(deleted_tracks(&conn).unwrap().is_empty());
+        let t = Track { path: r"C:\Music.flac".into(), title: "A".into(), artist: "X".into(), duration: 61.5, cover_id: Some("c1".into()), ..Default::default() };
+        let first = add_deleted(&conn, &t, true, 100).unwrap();
+        let second = add_deleted(&conn, &Track { path: r"C:\Music\b.flac".into(), title: "B".into(), ..Default::default() }, false, 200).unwrap();
+        let rows = deleted_tracks(&conn).unwrap();
+        assert_eq!(rows.iter().map(|d| d.id).collect::<Vec<_>>(), vec![second, first], "newest first");
+        let a = &rows[1];
+        assert_eq!((a.path.as_str(), a.title.as_str(), a.artist.as_str(), a.duration), (r"C:\Music.flac", "A", "X", 61.5));
+        assert_eq!((a.cover_id.as_deref(), a.was_readonly, a.deleted_at), (Some("c1"), true, 100));
+        remove_deleted(&conn, &[first]).unwrap();
+        assert_eq!(deleted_tracks(&conn).unwrap().len(), 1);
+        drop(conn);
+        // Reopening keeps the records.
+        let conn = open(&file).unwrap();
+        assert_eq!(deleted_tracks(&conn).unwrap()[0].id, second);
+        drop(conn);
+        remove_db(file);
     }
 
     #[test]

@@ -10,7 +10,7 @@ React + TypeScript + Tailwind (frontend in `src/`). No telemetry; the network is
 update check, pasted playlist links, lyrics searches the user clicks (LRCLIB,
 `src-tauri/src/sources/lyrics_search.rs`), Soulseek after the user signs in, YouTube downloads
 after the user turns them on, and phone sync on the home network after the user turns it on. Music
-files are only ever read, never modified. See `README.md` for features, architecture and data
+files are only ever read, never modified, except that the user may delete a song (see Rules). See `README.md` for features, architecture and data
 locations.
 
 ## Commands
@@ -61,6 +61,11 @@ Don't merge a pull request whose checks fail.
   default. Every request needs the secret key from the link; songs are reached by playlist and
   position only, never by file path; nothing is uploaded anywhere. Keep it that way: no file paths
   in URLs, no writes, no access without the key.
+- **Deleting songs (owner's decision, 2026-10-25):** the user may delete a song's file with
+  **Delete from disk…** (`src-tauri/src/library/recycle.rs`). It always goes to the Windows Recycle
+  Bin, never a hard delete: drives without a Recycle Bin, a bin that's turned off, and files bigger
+  than the bin are refused. Each deletion is recorded in `deleted_tracks` so Settings → Recently
+  deleted can restore it. Apart from that, music files are never written, moved or deleted.
 - **Database:** SQLite at `%APPDATA%\app.resonance.player\library.db`, migrated in
   `src-tauri/src/library/db.rs` (`migrate`). Schema changes are additive (`add_column` /
   `CREATE ... IF NOT EXISTS`), never destructive. Add a test for each migration.

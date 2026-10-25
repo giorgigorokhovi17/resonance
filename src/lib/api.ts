@@ -29,6 +29,8 @@ import type {
   QueueSnapshot,
   RepeatMode,
   RestoreSummary,
+  DeletedTrack,
+  DeleteOutcome,
   Settings,
   SleepStatus,
   SlskDownloadRequest,
@@ -108,6 +110,14 @@ export const api = {
   setTracksCoverHidden: (ids: number[], hidden: boolean) => invoke<void>("set_tracks_cover_hidden", { ids, hidden }),
   setTracksCover: (ids: number[], coverId: string | null, motionId: string | null = null) =>
     invoke<void>("set_tracks_cover", { ids, coverId, motionId }),
+
+  // delete from disk (files go to the Recycle Bin)
+  deleteTracksFromDisk: (ids: number[]) => invoke<DeleteOutcome>("delete_tracks_from_disk", { ids }),
+  getDeletedTracks: () => invoke<DeletedTrack[]>("get_deleted_tracks"),
+  /** Returns how many came back; rejects with the reason when none did. */
+  restoreDeletedTracks: (ids: number[]) => invoke<number>("restore_deleted_tracks", { ids }),
+  /** Takes them off the list; the files stay in the Recycle Bin. */
+  forgetDeletedTracks: (ids: number[]) => invoke<void>("forget_deleted_tracks", { ids }),
 
   // custom photos, GIFs and videos (see lib/mediaImport.ts)
   /** Checks a file and copies it into the app. Refusals reject with a plain message. */
