@@ -32,6 +32,12 @@ object NativeBridge {
   /** Back on screen, or Android's media index changed: rescan the library. */
   @JvmStatic external fun libraryChanged()
 
+  /** Whether MainActivity is visible; Soulseek signs in only while visible or downloading. */
+  @JvmStatic external fun setAppVisible(visible: Boolean)
+
+  /** Whether SoulseekJobService is currently running a user-initiated download job. */
+  @JvmStatic external fun setDownloadJobRunning(running: Boolean)
+
   /** The screen that can show the folder picker. */
   @Volatile var activity: java.lang.ref.WeakReference<MainActivity>? = null
 
@@ -42,6 +48,40 @@ object NativeBridge {
   @JvmStatic
   fun folderImage(dir: String): ByteArray? =
     appContext?.let { runCatching { Storage.folderImage(it, dir) }.getOrNull() }
+
+  /** Called by Rust: loads saved Soulseek credentials ("username\npassword") from Android Keystore. */
+  @JvmStatic
+  fun loadCredentials(): String? =
+    appContext?.let { Soulseek.loadCredentials(it) }
+
+  /** Called by Rust: encrypts and saves Soulseek credentials in Android Keystore (null = ok, or error). */
+  @JvmStatic
+  fun saveCredentials(username: String, password: String): String? =
+    appContext?.let { Soulseek.saveCredentials(it, username, password) }
+      ?: "The app isn't ready yet."
+
+  /** Called by Rust: removes saved Soulseek credentials from Android Keystore. */
+  @JvmStatic
+  fun deleteCredentials() {
+    appContext?.let { Soulseek.deleteCredentials(it) }
+  }
+
+  /** Called by Rust: app-specific external storage directory for in-progress Soulseek downloads. */
+  @JvmStatic
+  fun soulseekStagingDir(): String? =
+    appContext?.let { runCatching { Soulseek.stagingDir(it) }.getOrNull() }
+
+  /** Called by Rust: publishes a finished Soulseek download into Music/Undertone/Soulseek via MediaStore. */
+  @JvmStatic
+  fun publishSoulseekDownload(srcPath: String, subfolder: String?, name: String): String? =
+    appContext?.let { Soulseek.publishDownload(it, srcPath, subfolder, name) }
+
+  /** Called by Rust when the Soulseek download queue or network preference changes. */
+  @JvmStatic
+  fun onSoulseekQueue(activeCount: Int, wifiOnly: Boolean) {
+    val ctx = appContext ?: return
+    main.post { SoulseekJobService.onQueueChanged(ctx, activeCount, wifiOnly) }
+  }
 
   /** Called by Rust: asks for the audio permission if needed, then opens the folder picker. */
   @JvmStatic

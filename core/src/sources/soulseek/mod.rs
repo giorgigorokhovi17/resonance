@@ -92,6 +92,16 @@ pub struct DownloadRequest {
 /// Called with (ref key, file path) when a linked download finishes.
 pub type OnLinkedDone = Arc<dyn Fn(String, PathBuf) + Send + Sync>;
 
+/// Called on Android when a download into staging finishes: moves/publishes it into MediaStore
+/// (`Music/Undertone/Soulseek/<subfolder>/<name>`) and returns the final public path.
+pub type OnPublish = Arc<dyn Fn(&Path, Option<&str>, &str) -> Result<PathBuf, String> + Send + Sync>;
+
+/// Called on Android before starting a download to check whether the final published file already exists.
+pub type OnFinalExists = Arc<dyn Fn(Option<&str>, &str) -> bool + Send + Sync>;
+
+/// Called with `(active_download_count, wifi_only)` whenever the download queue or network setting changes.
+pub type OnQueueChange = Arc<dyn Fn(usize, bool) + Send + Sync>;
+
 pub struct Credentials {
     pub username: String,
     pub password: String,
@@ -123,11 +133,16 @@ pub struct Soulseek {
     search_id: AtomicU64,
     search_cancel: Mutex<Option<Arc<AtomicBool>>>,
     on_linked_done: Mutex<Option<OnLinkedDone>>,
+    on_publish: Mutex<Option<OnPublish>>,
+    on_final_exists: Mutex<Option<OnFinalExists>>,
+    on_queue_change: Mutex<Option<OnQueueChange>>,
     /// YouTube downloads share this queue (their jobs have `username` = "YouTube").
     youtube: Mutex<Option<Arc<YouTube>>>,
     yt_cancel: Mutex<std::collections::HashMap<u64, Arc<AtomicBool>>>,
     /// The user signed out: don't sign back in on our own.
     signed_out_by_user: AtomicBool,
+    /// On Android, true only while the app is visible or a download job is running.
+    allowed: AtomicBool,
     /// A saved-account sign-in loop is running.
     retrying: AtomicBool,
     settings: Mutex<SoulseekSettings>,
@@ -148,9 +163,13 @@ impl Soulseek {
             search_id: AtomicU64::new(0),
             search_cancel: Mutex::new(None),
             on_linked_done: Mutex::new(None),
+            on_publish: Mutex::new(None),
+            on_final_exists: Mutex::new(None),
+            on_queue_change: Mutex::new(None),
             youtube: Mutex::new(None),
             yt_cancel: Mutex::new(Default::default()),
             signed_out_by_user: AtomicBool::new(false),
+            allowed: AtomicBool::new(!cfg!(target_os = "android")),
             retrying: AtomicBool::new(false),
             settings: Mutex::new(SoulseekSettings::default()),
         })
@@ -179,10 +198,77 @@ impl Soulseek {
         *self.youtube.lock() = Some(yt);
     }
 
+    pub fn set_settings(&self, settings: SoulseekSettings) {
+        *self.settings.lock() = settings;
+        self.notify_queue();
+    }
+
+    pub fn set_on_publish(&self, publish: OnPublish, exists: OnFinalExists) {
+        *self.on_publish.lock() = Some(publish);
+        *self.on_final_exists.lock() = Some(exists);
+    }
+
+    pub fn set_on_queue_change(&self, f: OnQueueChange) {
+        *self.on_queue_change.lock() = Some(f);
+    }
+
+    pub fn active_download_count(&self) -> usize {
+        self.jobs.lock().iter().filter(|j| !j.state.is_finished()).count()
+    }
+
+    /// On Android, Soulseek stays signed in only while the app is visible or a download job is
+    /// running (or while downloads are still in the queue).
+    pub fn set_allowed(self: &Arc<Self>, allowed: bool) {
+        self.allowed.store(allowed, Ordering::Release);
+        if allowed {
+            if !self.signed_out_by_user.load(Ordering::Relaxed) {
+                let state = self.conn.lock().state;
+                if state == ConnState::SignedOut {
+                    self.keep_signed_in(Duration::ZERO);
+                }
+            }
+        } else if self.active_download_count() == 0 {
+            self.suspend();
+        }
+    }
+
+    /// Disconnects while in the background with no active downloads, keeping the saved account so
+    /// the next foreground session signs back in automatically.
+    fn suspend(&self) {
+        self.cancel_search();
+        let client = {
+            let mut c = self.conn.lock();
+            if c.state == ConnState::SignedOut && c.client.is_none() {
+                return;
+            }
+            c.generation += 1;
+            c.state = ConnState::SignedOut;
+            c.error = None;
+            c.client.take()
+        };
+        if let Some(client) = client {
+            std::thread::spawn(move || drop(client));
+        }
+        self.emit_status();
+    }
+
+    fn notify_queue(&self) {
+        let active = self.active_download_count();
+        let wifi_only = self.settings.lock().wifi_only;
+        if let Some(hook) = self.on_queue_change.lock().clone() {
+            hook(active, wifi_only);
+        }
+        if active == 0 && !self.allowed.load(Ordering::Acquire) {
+            self.suspend();
+        }
+    }
+
     /// Signs in with the saved account, if there is one, and keeps trying. Used at startup.
     pub fn sign_in_saved(self: &Arc<Self>, settings: SoulseekSettings) {
         *self.settings.lock() = settings;
-        self.keep_signed_in(Duration::ZERO);
+        if self.allowed.load(Ordering::Acquire) {
+            self.keep_signed_in(Duration::ZERO);
+        }
     }
 
     /// Signs in with the saved account, retrying with growing pauses: the network may not be up
@@ -197,7 +283,8 @@ impl Soulseek {
             const PAUSES_S: [u64; 6] = [5, 15, 30, 60, 120, 300];
             std::thread::sleep(first_delay);
             for attempt in 0.. {
-                if me.signed_out_by_user.load(Ordering::Relaxed) || me.conn.lock().state == ConnState::SignedIn {
+                let allowed = me.allowed.load(Ordering::Acquire) || me.active_download_count() > 0;
+                if !allowed || me.signed_out_by_user.load(Ordering::Relaxed) || me.conn.lock().state == ConnState::SignedIn {
                     break;
                 }
                 let Some(c) = me.credentials.load() else { break };
@@ -252,7 +339,7 @@ impl Soulseek {
             let mut client = Client::with_settings(ClientSettings {
                 username: username.clone(),
                 password: password.clone(),
-                enable_listen: settings.listen,
+                enable_listen: if cfg!(target_os = "android") { false } else { settings.listen },
                 listen_port: settings.listen_port,
                 ..ClientSettings::default()
             });
@@ -312,7 +399,8 @@ impl Soulseek {
             // Dropped by the network: sign back in with the saved account. Not when the account
             // signed in somewhere else, or the two would keep pushing each other off.
             let displaced = matches!(loss, SessionLoss::Displaced);
-            if !displaced && !me.signed_out_by_user.load(Ordering::Relaxed) && me.credentials.load().is_some() {
+            let allowed = me.allowed.load(Ordering::Acquire) || me.active_download_count() > 0;
+            if !displaced && allowed && !me.signed_out_by_user.load(Ordering::Relaxed) && me.credentials.load().is_some() {
                 me.keep_signed_in(Duration::from_secs(10));
             }
             return;
@@ -446,6 +534,7 @@ impl Soulseek {
         let from_youtube = self.download_youtube(folder, yt)?;
         if items.is_empty() {
             self.emit_jobs();
+            self.notify_queue();
             return Ok(from_youtube);
         }
         let client = self.client()?;
@@ -487,6 +576,7 @@ impl Soulseek {
             self.start(&client, id);
         }
         self.emit_jobs();
+        self.notify_queue();
         Ok(n + from_youtube)
     }
 
@@ -541,6 +631,16 @@ impl Soulseek {
     /// Runs one YouTube download on its own thread.
     fn start_youtube(self: &Arc<Self>, yt: &Arc<YouTube>, id: u64) {
         let Some(job) = self.jobs.lock().iter().find(|j| j.id == id).cloned() else { return };
+        if self
+            .on_final_exists
+            .lock()
+            .as_ref()
+            .is_some_and(|check| check(Some(youtube::SOURCE), &job.name))
+        {
+            self.fail(id, "A file with this name is already in the download folder.");
+            self.notify_queue();
+            return;
+        }
         let cancel = Arc::new(AtomicBool::new(false));
         self.yt_cancel.lock().insert(id, cancel.clone());
         let (me, yt) = (self.clone(), yt.clone());
@@ -565,16 +665,39 @@ impl Soulseek {
             me.yt_cancel.lock().remove(&id);
             match result {
                 Ok(path) => {
-                    me.update_job(id, |j| {
-                        j.state = DownloadState::Done;
-                        j.bytes = j.size;
-                        j.speed = 0.0;
-                    });
-                    set_read_only(&path);
-                    let link = me.jobs.lock().iter().find(|j| j.id == id).and_then(|j| j.link_key.clone());
-                    let hook = me.on_linked_done.lock().clone();
-                    if let (Some(key), Some(hook)) = (link, hook) {
-                        hook(key, path);
+                    let final_path = match me.on_publish.lock().clone() {
+                        Some(publish) => match publish(&path, Some(youtube::SOURCE), &job.name) {
+                            Ok(published) => {
+                                if let Some(parent) = published.parent() {
+                                    me.update_job(id, |j| j.folder = parent.to_string_lossy().into_owned());
+                                }
+                                Some(published)
+                            }
+                            Err(e) => {
+                                me.update_job(id, |j| {
+                                    j.state = DownloadState::Failed;
+                                    j.error = Some(e);
+                                    j.speed = 0.0;
+                                });
+                                None
+                            }
+                        },
+                        None => {
+                            set_read_only(&path);
+                            Some(path)
+                        }
+                    };
+                    if let Some(final_path) = final_path {
+                        me.update_job(id, |j| {
+                            j.state = DownloadState::Done;
+                            j.bytes = j.size;
+                            j.speed = 0.0;
+                        });
+                        let link = me.jobs.lock().iter().find(|j| j.id == id).and_then(|j| j.link_key.clone());
+                        let hook = me.on_linked_done.lock().clone();
+                        if let (Some(key), Some(hook)) = (link, hook) {
+                            hook(key, final_path);
+                        }
                     }
                 }
                 Err(e) => {
@@ -587,6 +710,7 @@ impl Soulseek {
                 }
             }
             me.emit_jobs();
+            me.notify_queue();
         });
     }
 
@@ -604,6 +728,7 @@ impl Soulseek {
             });
             self.start_youtube(&yt, id);
             self.emit_jobs();
+            self.notify_queue();
             return Ok(());
         }
         let client = self.client()?;
@@ -613,8 +738,10 @@ impl Soulseek {
             j.error = None;
             j.speed = 0.0;
         });
+        self.notify_queue();
         self.start(&client, id);
         self.emit_jobs();
+        self.notify_queue();
         Ok(())
     }
 
@@ -632,6 +759,7 @@ impl Soulseek {
                 j.speed = 0.0;
             });
             self.emit_jobs();
+            self.notify_queue();
             return;
         }
         if let Some(client) = self.conn.lock().client.clone() {
@@ -644,6 +772,7 @@ impl Soulseek {
             j.speed = 0.0;
         });
         self.emit_jobs();
+        self.notify_queue();
     }
 
     /// Removes finished entries. Leftover partial files of cancelled or failed ones are deleted.
@@ -671,15 +800,29 @@ impl Soulseek {
     /// Asks the user for the file and follows the transfer on its own thread.
     fn start(self: &Arc<Self>, client: &Arc<Client>, id: u64) {
         let Some(job) = self.jobs.lock().iter().find(|j| j.id == id).cloned() else { return };
+        let sub = model::local_subfolder(&job.remote_path);
         let dest = PathBuf::from(&job.folder).join(&job.name);
-        if dest.exists() {
+        let already_exists = dest.exists()
+            || self
+                .on_final_exists
+                .lock()
+                .as_ref()
+                .is_some_and(|check| check(sub.as_deref(), &job.name));
+        if already_exists {
             self.fail(id, "A file with this name is already in the download folder.");
+            self.notify_queue();
+            return;
+        }
+        if let Err(e) = std::fs::create_dir_all(&job.folder) {
+            self.fail(id, &err(e));
+            self.notify_queue();
             return;
         }
         let rx = match client.download(job.remote_path.clone(), job.username.clone(), job.size, job.folder.clone()) {
             Ok((_, rx)) => rx,
             Err(e) => {
                 self.fail(id, &err(e));
+                self.notify_queue();
                 return;
             }
         };
@@ -694,21 +837,45 @@ impl Soulseek {
                     Err(RecvTimeoutError::Disconnected) => {
                         me.fail(id, "The connection to Soulseek closed.");
                         me.emit_jobs();
+                        me.notify_queue();
                         return;
                     }
                 };
                 let terminal = status.is_terminal();
                 me.update_job(id, |j| apply_status(j, status));
                 if terminal {
-                    let done = me.jobs.lock().iter().find(|j| j.id == id && j.state == DownloadState::Done).map(|j| j.link_key.clone());
-                    if let Some(link) = done {
-                        set_read_only(&dest);
-                        let hook = me.on_linked_done.lock().clone();
-                        if let (Some(key), Some(hook)) = (link, hook) {
-                            hook(key, dest.clone());
+                    let done = me.jobs.lock().iter().find(|j| j.id == id && j.state == DownloadState::Done).map(|j| (j.name.clone(), j.link_key.clone()));
+                    if let Some((name, link)) = done {
+                        let final_path = match me.on_publish.lock().clone() {
+                            Some(publish) => match publish(&dest, sub.as_deref(), &name) {
+                                Ok(published) => {
+                                    if let Some(parent) = published.parent() {
+                                        me.update_job(id, |j| j.folder = parent.to_string_lossy().into_owned());
+                                    }
+                                    Some(published)
+                                }
+                                Err(e) => {
+                                    me.update_job(id, |j| {
+                                        j.state = DownloadState::Failed;
+                                        j.error = Some(e);
+                                    });
+                                    None
+                                }
+                            },
+                            None => {
+                                set_read_only(&dest);
+                                Some(dest.clone())
+                            }
+                        };
+                        if let Some(final_path) = final_path {
+                            let hook = me.on_linked_done.lock().clone();
+                            if let (Some(key), Some(hook)) = (link, hook) {
+                                hook(key, final_path);
+                            }
                         }
                     }
                     me.emit_jobs();
+                    me.notify_queue();
                     return;
                 }
                 if last_emit.elapsed() >= Duration::from_millis(250) {

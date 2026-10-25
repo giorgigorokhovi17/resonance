@@ -4,6 +4,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { api } from "../lib/api";
 import { flyToDownloads } from "../lib/fly";
 import { fmtRate, fmtTime } from "../lib/format";
+import { isMobile } from "../lib/platform";
 import type { SlskFile, SlskFolder, SlskJob, SlskSettingsView, SlskUser } from "../lib/types";
 import { usePlayer } from "../store/player";
 import { useSoulseek } from "../store/soulseek";
@@ -109,7 +110,7 @@ function SignIn() {
       <div className="flex flex-wrap items-center gap-3">
         <label className="flex items-center gap-2 text-[12.5px] text-muted">
           <Toggle checked={remember} onChange={setRemember} label="Remember me" />
-          Remember me (saved in Windows Credential Manager)
+          Remember me (saved in {isMobile ? "Android Keystore" : "Windows Credential Manager"})
         </label>
         <button type="submit" className={`${primary} ml-auto`} disabled={connecting || !username.trim() || !password}>
           {connecting ? "Signing in…" : "Sign in"}
@@ -180,7 +181,14 @@ function FolderSettings() {
 
   const save = async (patch: Partial<SlskSettingsView>) => {
     const next = { ...view, ...patch };
-    setView(await api.slskUpdateSettings({ downloadFolder: next.downloadFolder, listen: next.listen, listenPort: next.listenPort }));
+    setView(
+      await api.slskUpdateSettings({
+        downloadFolder: next.downloadFolder,
+        listen: next.listen,
+        listenPort: next.listenPort,
+        wifiOnly: next.wifiOnly,
+      }),
+    );
   };
   const pick = async () => {
     const picked = await open({ directory: true, title: "Download folder" });
@@ -195,10 +203,12 @@ function FolderSettings() {
         <span className="min-w-0 flex-1 truncate" title={view.effectiveFolder ?? ""}>
           {view.effectiveFolder ?? "No folder yet: choose one, or add a library folder in Settings"}
         </span>
-        <button className="shrink-0 text-faint hover:text-fg" onClick={pick}>
-          Change
-        </button>
-        {view.downloadFolder && (
+        {!isMobile && (
+          <button className="shrink-0 text-faint hover:text-fg" onClick={pick}>
+            Change
+          </button>
+        )}
+        {!isMobile && view.downloadFolder && (
           <button className="shrink-0 text-faint hover:text-fg" onClick={() => save({ downloadFolder: null })}>
             Use default
           </button>
@@ -212,22 +222,36 @@ function FolderSettings() {
       )}
       {more && (
         <div className="mt-2.5 space-y-2 border-t border-line pt-2.5 text-muted">
-          <label className="flex items-center gap-2">
-            <Toggle checked={view.listen} onChange={(v) => save({ listen: v })} label="Accept incoming connections" />
-            Accept incoming connections on port
-            <input
-              type="number"
-              min={1024}
-              max={65535}
-              className="w-20 rounded bg-panel px-2 py-0.5 text-fg outline-none ring-1 ring-line focus:ring-accent"
-              defaultValue={view.listenPort}
-              onBlur={(e) => save({ listenPort: Number(e.target.value) || 2234 })}
-            />
-          </label>
-          <p className="text-[11.5px] leading-relaxed text-faint">
-            Other users connect to this port to send results and files. Behind a router without this port forwarded, most things still work, but
-            users who are also behind one can't reach you. Changes apply the next time you sign in.
-          </p>
+          {isMobile ? (
+            <>
+              <label className="flex items-center gap-2">
+                <Toggle checked={view.wifiOnly} onChange={(v) => save({ wifiOnly: v })} label="Download on Wi-Fi only" />
+                Download on Wi-Fi only
+              </label>
+              <p className="text-[11.5px] leading-relaxed text-faint">
+                Turn off to allow Soulseek downloads over mobile data.
+              </p>
+            </>
+          ) : (
+            <>
+              <label className="flex items-center gap-2">
+                <Toggle checked={view.listen} onChange={(v) => save({ listen: v })} label="Accept incoming connections" />
+                Accept incoming connections on port
+                <input
+                  type="number"
+                  min={1024}
+                  max={65535}
+                  className="w-20 rounded bg-panel px-2 py-0.5 text-fg outline-none ring-1 ring-line focus:ring-accent"
+                  defaultValue={view.listenPort}
+                  onBlur={(e) => save({ listenPort: Number(e.target.value) || 2234 })}
+                />
+              </label>
+              <p className="text-[11.5px] leading-relaxed text-faint">
+                Other users connect to this port to send results and files. Behind a router without this port forwarded, most things still work, but
+                users who are also behind one can't reach you. Changes apply the next time you sign in.
+              </p>
+            </>
+          )}
         </div>
       )}
     </div>

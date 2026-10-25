@@ -59,7 +59,8 @@ hand, to run everything. Don't merge a pull request whose checks fail.
   (`%USERPROFILE%\.tauri\resonance-updater.key`).
 - Never download or stream audio from any service. **Exception (owner's decision, 2026-10-19):**
   Soulseek downloading (`core/src/sources/soulseek/`, design in `docs/soulseek-design.md`).
-  Nothing is shared or uploaded, and downloaded files are marked read-only. **Second exception
+  Nothing is shared or uploaded, and downloaded files are marked read-only (Android has no
+  read-only flag on shared storage; a finished download is never written again). **Second exception
   (owner's decision, 2026-10-23):** YouTube downloads through yt-dlp (`core/src/sources/youtube.rs`),
   off by default, for songs Soulseek doesn't have or when the user picks YouTube's quality on import.
   yt-dlp and QuickJS are fetched from their GitHub releases (SHA-256 checked) into

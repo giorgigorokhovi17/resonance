@@ -12,6 +12,10 @@ pub mod smtc;
 #[cfg(target_os = "android")]
 #[path = "mobile/library.rs"]
 pub mod android_library;
+/// Soulseek staging, MediaStore publishing and background download job on Android.
+#[cfg(target_os = "android")]
+#[path = "mobile/soulseek.rs"]
+pub mod android_soulseek;
 pub mod sources;
 
 // The platform-neutral core (../core), under the paths the app and the examples already use.
@@ -414,8 +418,10 @@ pub fn run() {
                 target: sources::credentials::target_name(&app.config().identifier),
             });
             #[cfg(not(windows))]
-            let credentials = Arc::new(sources::credentials::NotSaved);
+            let credentials = Arc::new(sources::credentials::AndroidCredentials);
             let soulseek = sources::soulseek::Soulseek::new(ui_events(app.handle()), credentials);
+            #[cfg(target_os = "android")]
+            android_soulseek::start(soulseek.clone(), library.clone());
             soulseek.sign_in_saved(s.soulseek.clone());
             // A finished download that was found for an imported playlist entry replaces that
             // entry in every playlist that has it (recorded as the user's choice).

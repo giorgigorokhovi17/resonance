@@ -112,6 +112,8 @@ class MainActivity : TauriActivity() {
   }
 
   override fun onCreate(savedInstanceState: Bundle?) {
+    NativeBridge.appContext = applicationContext
+    NativeBridge.register()
     // Light icons on the app's dark background (the default theme's --c-bg, src/lib/theme.ts).
     enableEdgeToEdge(
       statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
@@ -126,7 +128,6 @@ class MainActivity : TauriActivity() {
       view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
       WindowInsetsCompat.CONSUMED
     }
-    NativeBridge.appContext = applicationContext
     NativeBridge.activity = WeakReference(this)
     NativeBridge.activityCreated()
   }
@@ -138,6 +139,7 @@ class MainActivity : TauriActivity() {
     val token = SessionToken(this, ComponentName(this, PlaybackService::class.java))
     controller = MediaController.Builder(this, token).buildAsync()
     contentResolver.registerContentObserver(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, true, mediaChanged)
+    NativeBridge.setAppVisible(true)
   }
 
   override fun onResume() {
@@ -146,6 +148,7 @@ class MainActivity : TauriActivity() {
   }
 
   override fun onStop() {
+    NativeBridge.setAppVisible(false)
     contentResolver.unregisterContentObserver(mediaChanged)
     controller?.let { MediaController.releaseFuture(it) }
     controller = null
