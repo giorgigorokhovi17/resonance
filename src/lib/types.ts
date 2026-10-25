@@ -203,6 +203,8 @@ export interface IslandOptions {
   onlyWhenMinimized: boolean;
   /** Steps aside while a game or video is full screen. */
   hideInFullscreen: boolean;
+  /** When not hiding: goes to another screen while a game or video is full screen, and comes back. */
+  moveInFullscreen: boolean;
   showTitle: boolean;
   showArtist: boolean;
   /** Previous, play/pause and next on the small island. */

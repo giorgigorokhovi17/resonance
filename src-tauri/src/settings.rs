@@ -254,6 +254,9 @@ pub struct IslandOptions {
     pub only_when_minimized: bool,
     /// Steps aside while a game or video is full screen.
     pub hide_in_fullscreen: bool,
+    /// When not hiding: goes to another screen while a game or video is full screen (a window on
+    /// top of a game breaks its vsync), and comes back after.
+    pub move_in_fullscreen: bool,
     pub show_title: bool,
     pub show_artist: bool,
     /// Previous, play/pause and next on the small island.
@@ -287,6 +290,7 @@ impl Default for IslandOptions {
             click_through: false,
             only_when_minimized: true,
             hide_in_fullscreen: true,
+            move_in_fullscreen: true,
             show_title: true,
             show_artist: true,
             show_controls: true,
@@ -530,6 +534,7 @@ mod tests {
         assert!(o.only_when_minimized && o.hide_in_fullscreen && o.show_title && o.show_artist && o.expand_on_hover);
         assert!(o.show_controls && o.show_shuffle_repeat && o.show_playlists && o.show_progress && o.peek_on_new_song);
         assert!(!o.locked && !o.click_through);
+        assert!(o.move_in_fullscreen, "settings from before 0.7.15 move the island off full-screen games");
 
         let o: IslandOptions =
             serde_json::from_str(r##"{"position":"custom","x":120.5,"y":40,"customColors":["#AABBCC","#000000","#ffffff"]}"##).unwrap();

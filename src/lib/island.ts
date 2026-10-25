@@ -53,6 +53,10 @@ const MARGIN = 8;
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), Math.max(lo, hi));
 
+export function overlaps(a: Rect, b: Rect) {
+  return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+}
+
 /** The screen area (outside the taskbar) holding the point, or the first one. */
 export function areaAt(areas: Rect[], x: number, y: number): Rect | null {
   return areas.find((a) => x >= a.x && x < a.x + a.w && y >= a.y && y < a.y + a.h) ?? areas[0] ?? null;

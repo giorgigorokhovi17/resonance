@@ -12,6 +12,7 @@ import {
   fixedPalette,
   grownRect,
   ISLAND_PALETTES,
+  overlaps,
   POSITION_LABELS,
   type Rect,
 } from "../lib/island";
@@ -90,11 +91,18 @@ function save(patch: Partial<IslandOptions>) {
 }
 
 /**
+ * The screen the island was on before it stepped off a full-screen game's screen (it goes back
+ * there after), and whether it's away now.
+ */
+let home: Rect | null = null;
+let away = false;
+
+/**
  * Works out where the window goes at each size: the small bar where the options put it, the
  * card and the full island grown from it and kept on screen. In physical pixels so it lands right
  * on screens with different scaling.
  */
-async function layout(o: IslandOptions, small: Size): Promise<Geo | null> {
+async function layout(o: IslandOptions, small: Size, avoid: Rect | null): Promise<Geo | null> {
   const monitors = await availableMonitors();
   const areas = monitors.map((m) => ({
     rect: { x: m.workArea.position.x, y: m.workArea.position.y, w: m.workArea.size.width, h: m.workArea.size.height } as Rect,
@@ -105,13 +113,30 @@ async function layout(o: IslandOptions, small: Size): Promise<Geo | null> {
     const r = areaAt(areas.map((a) => a.rect), o.x, o.y);
     area = areas.find((a) => a.rect === r);
   } else {
-    // Corners and edges of the screen the island is on now.
+    // Corners and edges of the screen the island is on now (or was, before a game moved it).
     const m = await currentMonitor();
-    area = areas.find((a) => m && a.rect.x === m.workArea.position.x && a.rect.y === m.workArea.position.y) ?? areas[0];
+    const before = away && home ? areas.find((a) => a.rect.x === home!.x && a.rect.y === home!.y) : undefined;
+    area = before ?? areas.find((a) => m && a.rect.x === m.workArea.position.x && a.rect.y === m.workArea.position.y) ?? areas[0];
   }
   if (!area) return null;
+  // A full-screen game on this screen: the same spot on another one, so the game keeps its vsync.
+  let opts = o;
+  const other = avoid && overlaps(area.rect, avoid) ? areas.find((a) => !overlaps(a.rect, avoid)) : undefined;
+  if (other) {
+    if (!away) home = area.rect;
+    away = true;
+    if (o.position === "custom" && o.x != null && o.y != null) {
+      const fx = (o.x - area.rect.x) / area.rect.w;
+      const fy = (o.y - area.rect.y) / area.rect.h;
+      opts = { ...o, x: Math.round(other.rect.x + fx * other.rect.w), y: Math.round(other.rect.y + fy * other.rect.h) };
+    }
+    area = other;
+  } else if (!avoid) {
+    away = false;
+    home = null;
+  }
   const px = (s: Size) => ({ w: Math.round(s.w * area.sf), h: Math.round(s.h * area.sf) });
-  const collapsed = collapsedRect(o, area.rect, px(small));
+  const collapsed = collapsedRect(opts, area.rect, px(small));
   const card = grownRect(collapsed, px(CARD), area.rect);
   const big = grownRect(collapsed, px(BIG), area.rect);
   const list = grownRect(collapsed, px(LIST), area.rect);
@@ -161,6 +186,7 @@ const TOGGLES: { key: keyof IslandOptions; text: string }[] = [
   { key: "expandOnHover", text: "Open when pointed at" },
   { key: "onlyWhenMinimized", text: "Only while Undertone is minimised" },
   { key: "hideInFullscreen", text: "Hide over full-screen games and videos" },
+  { key: "moveInFullscreen", text: "Otherwise, move to another screen over them" },
 ];
 
 /** A panel (playlists, options) closes when the pointer has been away this long, or idle in it this long. */
@@ -181,6 +207,8 @@ export function Island() {
   const repeat = usePlayer((s) => s.queue.repeat);
   const o = usePlayer((s) => s.settings?.islandOptions ?? null);
   const [fullscreen, setFullscreen] = useState(false);
+  /** The screen a full-screen app covers (physical px), when known. */
+  const [gameScreen, setGameScreen] = useState<Rect | null>(null);
   const [mainAway, setMainAway] = useState(false);
   const [hover, setHover] = useState(false);
   const [peek, setPeek] = useState(false);
@@ -250,14 +278,19 @@ export function Island() {
     if (!visible) closePicker();
   }, [visible]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => window.clearTimeout(pickerTimer.current), []);
-  const placeKey = o ? `${o.position}|${o.x}|${o.y}|${small.w}` : "";
+  const avoid = o?.moveInFullscreen && fullscreen ? gameScreen : null;
+  const placeKey = o ? `${o.position}|${o.x}|${o.y}|${small.w}|${avoid ? `${avoid.x},${avoid.y}` : ""}` : "";
 
   useEffect(() => {
     for (const el of [document.documentElement, document.body]) el.style.background = "transparent";
     initPlayer().catch((e) => console.error(e));
     api.islandMainAway().then(setMainAway).catch(() => {});
     const uns = [
-      listen<boolean>("island:fullscreen", (e) => setFullscreen(e.payload)),
+      listen<{ busy: boolean; screen: [number, number, number, number] | null }>("island:fullscreen", (e) => {
+        const s = e.payload.screen;
+        setFullscreen(e.payload.busy);
+        setGameScreen(s ? { x: s[0], y: s[1], w: s[2], h: s[3] } : null);
+      }),
       listen<boolean>("island:main-away", (e) => setMainAway(e.payload)),
       listen<number[]>("island:levels", (e) => setLevels(e.payload)),
       // With clicks going through (Alt let go), the pointer can't be seen leaving.
@@ -298,7 +331,7 @@ export function Island() {
     }
     let alive = true;
     (async () => {
-      const g = await layout(o, small);
+      const g = await layout(o, small, avoid);
       if (!alive) return;
       if (g) {
         const r = g.window;
