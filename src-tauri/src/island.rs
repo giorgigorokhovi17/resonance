@@ -1,6 +1,11 @@
 //! The Dynamic Island: a small always-on-top window with the playing song (src/views/Island.tsx).
 //! Off until turned on in Settings. By default it shows only while Undertone is minimised or in
 //! the tray, and it hides itself while another app is full screen (games, videos, presentations).
+//!
+//! Any window drawn over a game stops Windows from handing the game's frames straight to the
+//! screen, and a window that keeps changing makes Windows redraw the screen with it, which can
+//! break the game's vsync. So while an app is full screen, the island holds still: no visualizer,
+//! no moving colours, a slower seek bar.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -15,6 +20,10 @@ pub const LABEL: &str = "island";
 static AWAY: AtomicBool = AtomicBool::new(false);
 /// The island lets clicks through (Settings → Dynamic Island), except while Alt is held.
 static CLICK_THROUGH: AtomicBool = AtomicBool::new(false);
+/// The options or playlist panel is open: it takes clicks without Alt, so Alt can be let go.
+static PANEL: AtomicBool = AtomicBool::new(false);
+/// Another app is full screen (the island holds still).
+static FULLSCREEN: AtomicBool = AtomicBool::new(false);
 /// Where the pill is inside the window (x, y, width, height in physical pixels). The window is
 /// as big as the opened island so it never resizes while the pill grows and shrinks; clicks
 /// anywhere else in it go to the app underneath.
@@ -22,6 +31,10 @@ static PILL: Mutex<Option<[i32; 4]>> = Mutex::new(None);
 
 pub fn set_click_through(on: bool) {
     CLICK_THROUGH.store(on, Ordering::Relaxed);
+}
+
+pub fn set_panel(open: bool) {
+    PANEL.store(open, Ordering::Relaxed);
 }
 
 pub fn set_pill(rect: [i32; 4]) {
@@ -67,6 +80,7 @@ pub fn open(app: &AppHandle) {
         let mut last = None;
         while handle.get_webview_window(LABEL).is_some() {
             let busy = fullscreen_app();
+            FULLSCREEN.store(busy, Ordering::Relaxed);
             if last != Some(busy) {
                 last = Some(busy);
                 let _ = handle.emit_to(LABEL, "island:fullscreen", busy);
@@ -93,7 +107,8 @@ pub fn open(app: &AppHandle) {
                 continue;
             };
             shared.viz.enabled.store(true, Ordering::Relaxed);
-            let playing = !shared.paused.load(Ordering::Relaxed);
+            // Still over full-screen apps: the bars drop and nothing more is sent.
+            let playing = !shared.paused.load(Ordering::Relaxed) && !FULLSCREEN.load(Ordering::Relaxed);
             let levels = if playing { analyzer.levels(&shared.viz) } else { analyzer.quiet() };
             // Once the bars have settled while paused, stop sending.
             let settled = !playing && levels.iter().all(|l| *l == 0.0);
@@ -114,7 +129,7 @@ pub fn open(app: &AppHandle) {
         let mut last = None;
         while let Some(_w) = handle.get_webview_window(LABEL) {
             let through = CLICK_THROUGH.load(Ordering::Relaxed);
-            let ignore = !pointer_on_pill() || (through && !alt_down());
+            let ignore = !pointer_on_pill() || (through && !alt_down() && !PANEL.load(Ordering::Relaxed));
             // Set every time: showing or hiding the window has tao put its own styles back.
             #[cfg(windows)]
             on_top::let_clicks_through(ignore);
@@ -172,6 +187,7 @@ pub fn close(app: &AppHandle) {
     #[cfg(windows)]
     on_top::set(0);
     *PILL.lock() = None;
+    PANEL.store(false, Ordering::Relaxed);
     if let Some(w) = app.get_webview_window(LABEL) {
         let _ = w.destroy();
     }
@@ -312,16 +328,54 @@ pub fn main_changed(app: &AppHandle) {
     }
 }
 
-/// Another app is full screen, or Windows is in presentation / do-not-disturb mode.
+/// Another app is full screen (exclusive, or a borderless window covering its whole screen, as
+/// most games run), or Windows is in presentation / do-not-disturb mode.
 #[cfg(windows)]
 fn fullscreen_app() -> bool {
     use windows::Win32::UI::Shell::{
         SHQueryUserNotificationState, QUNS_BUSY, QUNS_PRESENTATION_MODE, QUNS_RUNNING_D3D_FULL_SCREEN,
     };
     // SAFETY: no arguments; returns a plain enum value.
-    match unsafe { SHQueryUserNotificationState() } {
+    let busy = match unsafe { SHQueryUserNotificationState() } {
         Ok(s) => s == QUNS_BUSY || s == QUNS_RUNNING_D3D_FULL_SCREEN || s == QUNS_PRESENTATION_MODE,
         Err(_) => false,
+    };
+    busy || borderless_fullscreen()
+}
+
+/// The window in front covers its whole screen and isn't the desktop or one of ours.
+#[cfg(windows)]
+fn borderless_fullscreen() -> bool {
+    use windows::Win32::Foundation::RECT;
+    use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONULL};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetClassNameW, GetForegroundWindow, GetShellWindow, GetWindowRect, GetWindowThreadProcessId, IsIconic,
+    };
+    // SAFETY: plain queries on the foreground window, with out-structs and a fixed buffer.
+    unsafe {
+        let hwnd = GetForegroundWindow();
+        if hwnd.is_invalid() || hwnd == GetShellWindow() || IsIconic(hwnd).as_bool() {
+            return false;
+        }
+        let mut pid = 0;
+        GetWindowThreadProcessId(hwnd, Some(&mut pid));
+        if pid == std::process::id() {
+            return false;
+        }
+        let mut class = [0u16; 32];
+        let n = GetClassNameW(hwnd, &mut class) as usize;
+        let class = String::from_utf16_lossy(&class[..n]);
+        if class == "Progman" || class == "WorkerW" {
+            return false;
+        }
+        let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONULL);
+        let mut info = MONITORINFO { cbSize: std::mem::size_of::<MONITORINFO>() as u32, ..Default::default() };
+        let mut r = RECT::default();
+        if monitor.is_invalid() || !GetMonitorInfoW(monitor, &mut info).as_bool() || GetWindowRect(hwnd, &mut r).is_err() {
+            return false;
+        }
+        let m = info.rcMonitor;
+        r.left <= m.left && r.top <= m.top && r.right >= m.right && r.bottom >= m.bottom
     }
 }
 

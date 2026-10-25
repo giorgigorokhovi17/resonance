@@ -28,7 +28,7 @@ function setOptions(p: Partial<IslandOptions>) {
   if (cur) save({ islandOptions: { ...cur, ...p } });
 }
 
-/** Settings → General → Dynamic Island. Most of this is also on the island's right-click menu. */
+/** Settings → General → Dynamic Island. Most of this is also on the island's right-click panel. */
 export function IslandSection({ settings }: { settings: Settings }) {
   const o = settings.islandOptions;
   return (
