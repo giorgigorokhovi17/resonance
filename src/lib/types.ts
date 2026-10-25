@@ -644,6 +644,32 @@ export interface FindResult {
   error: string | null;
 }
 
+/** A file of some version of a missing song ("Other versions"). */
+export interface VersionFile extends FoundFile {
+  /** Seconds longer (+) or shorter (−) than the playlist's song. */
+  lengthDelta: number | null;
+  /** The playlist's artist is in the file's path (or the video's artist). */
+  sameArtist: boolean;
+}
+
+export interface VersionGroup {
+  key: string;
+  /** "Original", "Hardstyle Slowed", … */
+  label: string;
+  /** The version the playlist asked for. */
+  requested: boolean;
+  files: VersionFile[];
+}
+
+export interface VersionsResult {
+  refKey: string;
+  groups: VersionGroup[];
+  /** [username, path] of the recommended file. */
+  recommended: [string, string] | null;
+  queries: string[];
+  error: string | null;
+}
+
 export interface FindProgress {
   playlistId: number;
   result: FindResult;
