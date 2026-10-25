@@ -1,5 +1,5 @@
 import { emitTo, listen } from "@tauri-apps/api/event";
-import { availableMonitors, currentMonitor, getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
+import { availableMonitors, getCurrentWindow, LogicalSize, primaryMonitor } from "@tauri-apps/api/window";
 import { Check, FolderOpen, Pause, Play, Repeat, Repeat1, Settings2, Shuffle, SkipBack, SkipForward, X } from "lucide-react";
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { Cover } from "../components/Cover";
@@ -91,49 +91,37 @@ function save(patch: Partial<IslandOptions>) {
 }
 
 /**
- * The screen the island was on before it stepped off a full-screen game's screen (it goes back
- * there after), and whether it's away now.
- */
-let home: Rect | null = null;
-let away = false;
-
-/**
  * Works out where the window goes at each size: the small bar where the options put it, the
  * card and the full island grown from it and kept on screen. In physical pixels so it lands right
  * on screens with different scaling.
  */
 async function layout(o: IslandOptions, small: Size, avoid: Rect | null): Promise<Geo | null> {
-  const monitors = await availableMonitors();
+  const [monitors, primary] = await Promise.all([availableMonitors(), primaryMonitor()]);
   const areas = monitors.map((m) => ({
     rect: { x: m.workArea.position.x, y: m.workArea.position.y, w: m.workArea.size.width, h: m.workArea.size.height } as Rect,
     sf: m.scaleFactor,
+    name: m.name,
   }));
-  let area: { rect: Rect; sf: number } | undefined;
+  let area: (typeof areas)[number] | undefined;
   if (o.position === "custom" && o.x != null && o.y != null) {
     const r = areaAt(areas.map((a) => a.rect), o.x, o.y);
     area = areas.find((a) => a.rect === r);
   } else {
-    // Corners and edges of the screen the island is on now (or was, before a game moved it).
-    const m = await currentMonitor();
-    const before = away && home ? areas.find((a) => a.rect.x === home!.x && a.rect.y === home!.y) : undefined;
-    area = before ?? areas.find((a) => m && a.rect.x === m.workArea.position.x && a.rect.y === m.workArea.position.y) ?? areas[0];
+    // Corners and edges of the chosen screen, else the main one (never just the one it's on now,
+    // or it would stay wherever a game sent it).
+    area = areas.find((a) => o.screen && a.name === o.screen) ?? areas.find((a) => primary && a.name === primary.name) ?? areas[0];
   }
   if (!area) return null;
   // A full-screen game on this screen: the same spot on another one, so the game keeps its vsync.
   let opts = o;
   const other = avoid && overlaps(area.rect, avoid) ? areas.find((a) => !overlaps(a.rect, avoid)) : undefined;
   if (other) {
-    if (!away) home = area.rect;
-    away = true;
     if (o.position === "custom" && o.x != null && o.y != null) {
       const fx = (o.x - area.rect.x) / area.rect.w;
       const fy = (o.y - area.rect.y) / area.rect.h;
       opts = { ...o, x: Math.round(other.rect.x + fx * other.rect.w), y: Math.round(other.rect.y + fy * other.rect.h) };
     }
     area = other;
-  } else if (!avoid) {
-    away = false;
-    home = null;
   }
   const px = (s: Size) => ({ w: Math.round(s.w * area.sf), h: Math.round(s.h * area.sf) });
   const collapsed = collapsedRect(opts, area.rect, px(small));
@@ -279,7 +267,7 @@ export function Island() {
   }, [visible]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => window.clearTimeout(pickerTimer.current), []);
   const avoid = o?.moveInFullscreen && fullscreen ? gameScreen : null;
-  const placeKey = o ? `${o.position}|${o.x}|${o.y}|${small.w}|${avoid ? `${avoid.x},${avoid.y}` : ""}` : "";
+  const placeKey = o ? `${o.position}|${o.x}|${o.y}|${o.screen}|${small.w}|${avoid ? `${avoid.x},${avoid.y}` : ""}` : "";
 
   useEffect(() => {
     for (const el of [document.documentElement, document.body]) el.style.background = "transparent";
@@ -343,6 +331,16 @@ export function Island() {
       geoRef.current = g;
       setGeo(g);
       await win.show();
+      // Landing on a screen with other scaling, Windows resizes the window for it (cutting the
+      // island off): put it back once that has happened.
+      if (g) {
+        await new Promise((res) => setTimeout(res, 150));
+        const r = g.window;
+        const [p, s] = await Promise.all([win.outerPosition(), win.outerSize()]);
+        if (alive && (p.x !== r.x || p.y !== r.y || s.width !== r.w || s.height !== r.h)) {
+          await api.islandSetBounds(Math.round(r.x), Math.round(r.y), Math.round(r.w), Math.round(r.h));
+        }
+      }
     })().catch((e) => console.error(e));
     return () => {
       alive = false;

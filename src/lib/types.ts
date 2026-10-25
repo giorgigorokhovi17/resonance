@@ -197,6 +197,8 @@ export interface IslandOptions {
   position: IslandPosition;
   x: number | null;
   y: number | null;
+  /** The screen for corner and edge positions (its Windows name); null for the main screen. */
+  screen: string | null;
   locked: boolean;
   /** Clicks go to the app underneath, except while Alt is held. */
   clickThrough: boolean;

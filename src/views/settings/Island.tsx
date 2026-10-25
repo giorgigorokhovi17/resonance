@@ -1,5 +1,7 @@
 import { Check, Move } from "lucide-react";
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { availableMonitors, primaryMonitor } from "@tauri-apps/api/window";
+import { SortSelect } from "../../components/ViewHeader";
 import { api } from "../../lib/api";
 import { ISLAND_PALETTES, POSITION_GRID, POSITION_LABELS } from "../../lib/island";
 import type { Palette } from "../../lib/palette";
@@ -31,6 +33,7 @@ function setOptions(p: Partial<IslandOptions>) {
 /** Settings → General → Dynamic Island. Most of this is also on the island's right-click panel. */
 export function IslandSection({ settings }: { settings: Settings }) {
   const o = settings.islandOptions;
+  const screens = useScreens();
   return (
     <Section
       title="Dynamic Island"
@@ -58,6 +61,17 @@ export function IslandSection({ settings }: { settings: Settings }) {
                 hint="A window on top of a game can break its vsync. With more than one screen, the island goes to another one while a game is full screen, and comes back after."
               >
                 <Toggle label="Move over full screen" checked={o.moveInFullscreen} onChange={(v) => setOptions({ moveInFullscreen: v })} />
+              </Row>
+            )}
+
+            {screens.length > 1 && (
+              <Row label="Screen" hint="Where the island sits. A spot you dragged it to stays on its own screen.">
+                <SortSelect
+                  value={o.screen && screens.some((s) => s.value === o.screen) ? o.screen : ""}
+                  options={[{ value: "", label: "Main screen" }, ...screens]}
+                  // A dragged spot belongs to its screen: picking one snaps the island to its top centre.
+                  onChange={(v) => setOptions({ screen: v || null, ...(o.position === "custom" ? { position: "topCenter" } : {}) })}
+                />
               </Row>
             )}
 
@@ -156,6 +170,26 @@ export function IslandSection({ settings }: { settings: Settings }) {
       </div>
     </Section>
   );
+}
+
+/** The connected screens, named "Screen 2 · 1920 × 1080 (main)", for the screen picker. */
+function useScreens() {
+  const [screens, setScreens] = useState<{ value: string; label: string }[]>([]);
+  useEffect(() => {
+    Promise.all([availableMonitors(), primaryMonitor()])
+      .then(([ms, primary]) =>
+        setScreens(
+          ms
+            .filter((m) => m.name)
+            .map((m, i) => ({
+              value: m.name!,
+              label: `Screen ${i + 1} · ${m.size.width} × ${m.size.height}${primary && m.name === primary.name ? " (main)" : ""}`,
+            })),
+        ),
+      )
+      .catch(() => {});
+  }, []);
+  return screens;
 }
 
 function Row({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {

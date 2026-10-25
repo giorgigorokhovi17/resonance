@@ -246,6 +246,9 @@ pub struct IslandOptions {
     /// Top-left corner of the collapsed island, in screen (physical) pixels, for "custom".
     pub x: Option<f64>,
     pub y: Option<f64>,
+    /// The screen for the corner and edge positions (its Windows name, e.g. `\\.\DISPLAY2`);
+    /// `None` for the main screen. A dragged ("custom") spot keeps its own screen.
+    pub screen: Option<String>,
     /// It can't be dragged.
     pub locked: bool,
     /// Clicks go to whatever is underneath, except while Alt is held.
@@ -286,6 +289,7 @@ impl Default for IslandOptions {
             position: "topCenter".into(),
             x: None,
             y: None,
+            screen: None,
             locked: false,
             click_through: false,
             only_when_minimized: true,
@@ -315,6 +319,7 @@ impl IslandOptions {
         if !ISLAND_POSITIONS.contains(&self.position.as_str()) || (self.position == "custom" && !custom_ok) {
             self.position = d.position;
         }
+        self.screen = self.screen.map(|s| s.trim().to_string()).filter(|s| !s.is_empty() && s.len() <= 64);
         if self.colors.is_empty() || self.colors.len() > 32 {
             self.colors = d.colors;
         }
@@ -535,6 +540,11 @@ mod tests {
         assert!(o.show_controls && o.show_shuffle_repeat && o.show_playlists && o.show_progress && o.peek_on_new_song);
         assert!(!o.locked && !o.click_through);
         assert!(o.move_in_fullscreen, "settings from before 0.7.15 move the island off full-screen games");
+        assert_eq!(o.screen, None, "the main screen unless one is chosen");
+        let o: IslandOptions = serde_json::from_str(r#"{"screen":"  "}"#).unwrap();
+        assert_eq!(o.normalized().screen, None);
+        let o: IslandOptions = serde_json::from_str(r#"{"screen":" \\\\.\\DISPLAY2 "}"#).unwrap();
+        assert_eq!(o.normalized().screen.as_deref(), Some(r"\\.\DISPLAY2"));
 
         let o: IslandOptions =
             serde_json::from_str(r##"{"position":"custom","x":120.5,"y":40,"customColors":["#AABBCC","#000000","#ffffff"]}"##).unwrap();
