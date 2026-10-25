@@ -341,6 +341,12 @@ pub struct FullScreen {
     pub screen: Option<[i32; 4]>,
 }
 
+/// The last full-screen window seen in front (a game). It counts until it closes, is minimised or
+/// stops covering its screen, not just while it's in front: clicking another screen mustn't bring
+/// the island back over the game.
+#[cfg(windows)]
+static GAME: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
+
 /// Another app is full screen (exclusive, or a borderless window covering its whole screen, as
 /// most games run), or Windows is in presentation / do-not-disturb mode. `None` while the island
 /// itself is in front (clicked over a game): nothing has changed then.
@@ -360,19 +366,33 @@ fn fullscreen_app() -> Option<FullScreen> {
         Ok(s) => s == QUNS_BUSY || s == QUNS_RUNNING_D3D_FULL_SCREEN || s == QUNS_PRESENTATION_MODE,
         Err(_) => false,
     };
-    let screen = fullscreen_screen(front);
+    let mut screen = fullscreen_screen(front);
+    if screen.is_some() {
+        GAME.store(front.0 as isize, Ordering::Relaxed);
+    } else {
+        let game = GAME.load(Ordering::Relaxed);
+        if game != 0 {
+            screen = fullscreen_screen(windows::Win32::Foundation::HWND(game as *mut _));
+            if screen.is_none() {
+                GAME.store(0, Ordering::Relaxed);
+            }
+        }
+    }
     Some(FullScreen { busy: busy || screen.is_some(), screen })
 }
 
-/// The screen `hwnd` covers whole, unless it's the desktop or one of ours.
+/// The screen `hwnd` covers whole, unless it's the desktop, one of ours, hidden, minimised or
+/// maximised (a maximised window on a screen without a taskbar covers it too, but isn't full screen).
 #[cfg(windows)]
 fn fullscreen_screen(hwnd: windows::Win32::Foundation::HWND) -> Option<[i32; 4]> {
     use windows::Win32::Foundation::RECT;
     use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONULL};
-    use windows::Win32::UI::WindowsAndMessaging::{GetClassNameW, GetShellWindow, GetWindowRect, GetWindowThreadProcessId, IsIconic};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetClassNameW, GetShellWindow, GetWindowRect, GetWindowThreadProcessId, IsIconic, IsWindowVisible, IsZoomed,
+    };
     // SAFETY: plain queries on a window handle, with out-structs and a fixed buffer.
     unsafe {
-        if hwnd.is_invalid() || hwnd == GetShellWindow() || IsIconic(hwnd).as_bool() {
+        if hwnd.is_invalid() || hwnd == GetShellWindow() || !IsWindowVisible(hwnd).as_bool() || IsIconic(hwnd).as_bool() || IsZoomed(hwnd).as_bool() {
             return None;
         }
         let mut pid = 0;
