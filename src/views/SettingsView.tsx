@@ -9,6 +9,7 @@ import { HotkeysSection } from "./settings/Hotkeys";
 import { IslandSection } from "./settings/Island";
 import { PhoneSyncSection } from "./settings/PhoneSync";
 import { LibraryFoldersSection } from "./settings/LibraryFolders";
+import { RecentlyDeletedSection } from "./settings/RecentlyDeleted";
 import { UpdatesSection } from "./settings/Updates";
 import { VisualSettings } from "./settings/Visual";
 
@@ -243,6 +244,8 @@ export function SettingsView() {
           </Section>
 
           <LibraryFoldersSection />
+
+          <RecentlyDeletedSection />
 
           <BackupSection />
 

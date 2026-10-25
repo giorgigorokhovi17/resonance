@@ -56,6 +56,7 @@ own update key.
 - Add one or more music folders. They're scanned recursively and in parallel; tags and properties are read with `lofty`. Album art comes from embedded pictures or folder images (`cover.jpg`, `folder.png`, …), cached as thumbnails.
 - Stored in local SQLite (WAL). Rescans are incremental: only new or changed files are re-read.
 - Folders are watched for changes, which triggers an automatic incremental rescan.
+- **Delete from disk…** (right-click a song, or a selection): after you confirm, the files go to the Windows Recycle Bin, never deleted for good. Drives without a Recycle Bin (USB sticks, memory cards, network shares), a bin that's turned off, and files bigger than the bin are refused. A playing song is skipped first. The songs leave the library and the queue; playlists keep them as missing. **Settings → Recently deleted** lists what Undertone deleted, with **Restore** (puts the file back in its folder, and playlists, artwork and lyrics reconnect) and remove from the list.
 - Views: **Songs** (cover grid), **Tracks** (sortable table), **Playlists**, **Folders** and **Search**. Long lists are virtualized.
 - **Your stats**: top songs, artists and albums, minutes listened, when you listen (by hour and weekday), longest streak and biggest day, for this month, the last 30 days, this year or all time. A song counts once you've heard 30 seconds of it (half of songs under a minute). The history stays in the local database; **Clear listening history** at the bottom of the page deletes it.
 
@@ -205,7 +206,7 @@ Hardware media keys work through Windows' media controls, even when the window i
 | Soulseek sign-in | Windows Credential Manager, generic credential `Resonance/Soulseek` |
 | yt-dlp and QuickJS (YouTube downloads) | `%LOCALAPPDATA%\app.resonance.player\tools\` |
 
-Music files are only ever read, never modified. Soulseek and YouTube downloads are new files, saved once and then marked read-only.
+Music files are only ever read, never modified. Soulseek and YouTube downloads are new files, saved once and then marked read-only. The one exception is **Delete from disk…**, which you confirm each time and which sends the file to the Recycle Bin.
 
 ## Architecture
 
@@ -256,7 +257,7 @@ affiliated with, endorsed by, or connected to Spotify, YouTube, Google, Apple or
   download music you have the right to. Copyright law differs between countries, and sharing or
   downloading copyrighted music without permission is illegal in many of them. Undertone doesn't
   upload or share anything.
-- Your music files are never modified. Your Soulseek password is kept in Windows Credential
+- Your music files are never modified. **Delete from disk…** only ever moves a file to the Recycle Bin. Your Soulseek password is kept in Windows Credential
   Manager and is only ever sent to the Soulseek server.
 
 ## Credits
