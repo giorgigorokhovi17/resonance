@@ -484,6 +484,7 @@ pub fn run() {
             commands::new_phone_link,
             commands::set_effects,
             commands::island_set_panel,
+            commands::app_ready,
             commands::quit_app,
             commands::update_playlist,
             commands::set_playlist_cover,
