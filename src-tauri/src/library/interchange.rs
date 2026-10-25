@@ -180,6 +180,26 @@ pub fn import_into_db(conn: &mut rusqlite::Connection, pl: &Playlist, base: &Pat
     Ok(ImportOutcome { id, name, total: items.len(), missing, skipped, updated, matched, review })
 }
 
+/// Append a song the user may not have (a recommendation found online) to a playlist, the way an
+/// import stores it: matched to a file when the library has it, otherwise an
+/// `unmatched:<ref key>` placeholder that the missing-songs search can find. Returns the ref key.
+pub fn append_ref(conn: &mut rusqlite::Connection, id: i64, r: &TrackRef) -> Result<String> {
+    use super::db;
+    use super::matcher::{policy_for, Matcher};
+    let source = db::playlists(conn)?.into_iter().find(|p| p.id == id).ok_or_else(|| anyhow::anyhow!("Playlist not found."))?.source;
+    let matcher = Matcher::open(conn)?;
+    let res = matcher.match_ref(conn, r, None, policy_for(source.as_deref().unwrap_or("")))?;
+    let path = match &res.accepted {
+        Some(c) => c.path.clone(),
+        None => format!("unmatched:{}", res.ref_key),
+    };
+    db::put_match_refs(conn, &[(res.ref_key.clone(), serde_json::to_string(r)?)])?;
+    let mut items = db::playlist_items(conn, id)?;
+    items.push((path, Some(res.ref_key.clone())));
+    db::set_playlist_items(conn, id, &items)?;
+    Ok(res.ref_key)
+}
+
 /// One imported reference in a playlist, with what the matcher says about it now.
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -861,6 +881,30 @@ mod tests {
         assert_eq!((rv.pending.len(), rv.decided.len(), rv.decided[0].result.reason), (0, 1, Reason::MarkedMissing));
         assert!(decide(&mut conn, &key, "maybe", None).is_err());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn recommended_songs_not_in_the_library_wait_in_review() {
+        use super::super::db;
+        let mut conn = db::open(Path::new(":memory:")).unwrap();
+        let id = db::create_playlist(&conn, "Mine").unwrap();
+        db::set_playlist_paths(&mut conn, id, &[r"C:\m\a.flac".to_string()]).unwrap();
+        let r = TrackRef {
+            title: "Genesis".into(),
+            artists: vec!["Justice".into()],
+            duration_ms: Some(234_000),
+            service_ids: [("deezer".to_string(), "3135553".to_string())].into(),
+            ..Default::default()
+        };
+        let key = append_ref(&mut conn, id, &r).unwrap();
+        assert_eq!(key, "deezer:3135553");
+        let items = db::playlist_items(&conn, id).unwrap();
+        assert_eq!(items[0], (r"C:\m\a.flac".to_string(), None), "what was there stays");
+        assert_eq!(items[1], ("unmatched:deezer:3135553".to_string(), Some(key.clone())));
+        let rv = playlist_review(&mut conn, id).unwrap();
+        assert_eq!(rv.missing.len(), 1, "offered to the missing-songs search");
+        assert_eq!(rv.missing[0].reference.title, "Genesis");
+        assert!(append_ref(&mut conn, id + 1, &r).is_err());
     }
 
     /// Parse every playlist under `fixtures/` (the repo root) with every parser that claims it.

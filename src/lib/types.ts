@@ -403,6 +403,25 @@ export interface PlaylistDetail {
   entries: PlaylistEntry[];
 }
 
+/** A library song that fits a playlist. */
+export interface Recommendation {
+  track: Track;
+  score: number;
+  /** Why, in a few words ("More from Daft Punk"). */
+  reason: string;
+}
+
+/** A song like a playlist's that you don't have, as Deezer names it. */
+export interface OnlineSuggestion {
+  deezerId: number;
+  title: string;
+  artists: string[];
+  album: string;
+  /** Seconds; 0 when unknown. */
+  duration: number;
+  reason: string;
+}
+
 /** A track as an external source describes it (not necessarily a local file). */
 export interface TrackRef {
   title: string;

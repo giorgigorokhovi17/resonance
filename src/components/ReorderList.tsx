@@ -13,6 +13,7 @@ export function ReorderList<T>({
   renderRow,
   onMove,
   header,
+  footer,
   scrollToIndex,
   className = "",
 }: {
@@ -22,6 +23,8 @@ export function ReorderList<T>({
   renderRow: (item: T, index: number, dragging: boolean) => ReactNode;
   onMove: (from: number, to: number) => void;
   header?: ReactNode;
+  /** Shown after the rows (not draggable). */
+  footer?: ReactNode;
   scrollToIndex?: number;
   className?: string;
 }) {
@@ -138,6 +141,7 @@ export function ReorderList<T>({
           />
         )}
       </div>
+      {footer}
       <div className="h-6" />
     </div>
   );

@@ -1,6 +1,6 @@
 # Undertone
 
-A personal, **local-only** music player for Windows. No telemetry. The only network use is the update check, reading playlist links you paste, lyrics searches you ask for, Soulseek once you sign in, and YouTube downloads once you turn them on.
+A personal, **local-only** music player for Windows. No telemetry. The only network use is the update check, reading playlist links you paste, lyrics searches you ask for, online song suggestions you ask for, Soulseek once you sign in, and YouTube downloads once you turn them on.
 
 Formerly called Resonance. The data folder (`app.resonance.player`) and backup file format still
 use the old name so existing libraries and backups keep working.
@@ -74,6 +74,7 @@ own update key.
 - **Phone sync** (Settings → Phone sync, off by default): scan the QR code with a phone on the same Wi-Fi to open your library and playlists in its browser. Play songs straight from the PC (with seeking and the phone's media controls), download single songs, or download a whole playlist as one `.zip` with the songs numbered in order and an `.m3u8` that phone players such as Poweramp or Samsung Music open as the playlist. Only devices with the secret link get in (**New link** cuts off the old one), it only runs while Undertone does, and nothing leaves your network. Windows may ask once to allow it on private networks.
 - **Queue** (drag to reorder, remove, save as playlist) as a full view and a slide-over panel.
 - **Playlists**: create, rename, delete, reorder. **Import M3U/M3U8, PLS, XSPF and WPL**: importing the same file again updates its playlist instead of adding a copy. **Export to M3U8, XSPF, or CSV with ISRC** (for spreadsheets; cells are guarded against formula injection). ISRCs and MusicBrainz recording ids are read from tags (invalid values, such as barcodes in the ISRC field, are ignored).
+- **Recommended songs** (below a playlist's songs): songs from your library that fit it, scored by shared artists (featured ones too), album, genre and era, and by songs you often play right before or after its songs. Each has **Add** and a play button. Nothing goes online. **Find more online** (only when you click) asks [Deezer](https://developers.deezer.com/api) (free, no account) for top songs by the playlist's artists and by similar artists, sending only the playlist's main artist names; songs you already have are left out. These show as **Not in your library**: **Add** puts one in the playlist as a missing song, **Find** also opens the missing-songs search (Soulseek, then YouTube). No audio comes from Deezer.
 - **Playlist matcher**: every imported entry is matched to a local file by path, folder + file name, ISRC, MusicBrainz id, then fuzzy title/artist/version/duration (SQLite FTS5 narrows candidates). Only unambiguous, fully confirmed matches are accepted automatically. A remix, slowed or extended version is never taken for the original. **Export unmatched report…** on an imported playlist lists what wasn't matched and why.
 - **Import from link** (like Riff): paste a public Spotify, YouTube / YouTube Music or Apple Music playlist or album link, with no sign-in. Only track info is read, and songs are matched to your files. When importing, choose what happens to the songs you don't have: **look on Soulseek first** (FLAC first, else MP3 at 320 kbps, same title, artist and version, length within 3 s; YouTube for what Soulseek doesn't have, when it's on), **download from YouTube** at YouTube's quality right away, or just import. Soulseek-first results wait on the playlist's review page: you tick what to download, and each finished download replaces its missing entry in every playlist. These services' web endpoints are undocumented and can change; when one does, its import says so instead of guessing.
 - Shuffle, repeat one/all, and the queue plus position are restored on the next launch.
@@ -144,7 +145,7 @@ Installed copies check `https://github.com/giorgigorokhovi17/resonance/releases/
 2. Run `scripts/release.ps1` as above. It builds, signs and writes `bundle/latest.json`.
 3. On GitHub, create a release tagged `v<version>` (e.g. `v0.5.0`) and upload the `-setup.exe` and `latest.json` it lists, for example with `gh release create v<version> <setup.exe> <latest.json> --title "Undertone <version>"`.
 
-The private signing key is `%USERPROFILE%\.tauri\resonance-updater.key` (no password). **Back it up and never share or commit it.** If it's lost, existing installs can't verify new versions and people must reinstall manually. Apart from Soulseek (only after you sign in), YouTube downloads (only once turned on), pasted links and lyrics searches you click, the update check is the app's only network request; everything else runs offline.
+The private signing key is `%USERPROFILE%\.tauri\resonance-updater.key` (no password). **Back it up and never share or commit it.** If it's lost, existing installs can't verify new versions and people must reinstall manually. Apart from Soulseek (only after you sign in), YouTube downloads (only once turned on), pasted links, lyrics searches and online song suggestions you click, the update check is the app's only network request; everything else runs offline.
 
 ## Tests and dev tools
 
@@ -222,11 +223,13 @@ src-tauri/src
 ├─ library/        SQLite schema, parallel incremental scanner, cover cache, folder watcher,
 │                  media.rs (custom GIFs/videos: format checks, store, HTTP Range serving),
 │                  playlist interchange (interchange.rs model + m3u/pls/xspf/wpl/csv),
-│                  matcher/ (normalize.rs rules, tiers, FTS5 candidates, decisions)
+│                  matcher/ (normalize.rs rules, tiers, FTS5 candidates, decisions),
+│                  recommend.rs (Recommended songs from the library)
 ├─ queue.rs        queue, shuffle, repeat
 ├─ sources/       Soulseek: wrapper around soulseek-rs-lib, Credential Manager, result grouping;
 │                  links/ (Spotify, YouTube, Apple Music link readers), missing.rs (finding missing songs),
-│                  youtube.rs (yt-dlp: install, YouTube Music search, downloads)
+│                  youtube.rs (yt-dlp: install, YouTube Music search, downloads),
+│                  similar.rs (online song suggestions from Deezer)
 ├─ smtc.rs         Windows media overlay / media keys (souvlaki)
 ├─ persist.rs      queue persistence
 └─ commands.rs     Tauri command API

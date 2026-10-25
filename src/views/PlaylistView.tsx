@@ -8,6 +8,7 @@ import { EmptyState } from "../components/EmptyState";
 import { LyricsPanel } from "../components/LyricsPanel";
 import { HiddenNote, MinLengthSelect } from "../components/MinLengthSelect";
 import { PlaylistCover } from "../components/PlaylistCover";
+import { PlaylistRecommendations } from "../components/PlaylistRecommendations";
 import { openPlaylistEditor } from "../components/PlaylistEditor";
 import { ReorderList } from "../components/ReorderList";
 import { trackMenuItems } from "../components/trackMenu";
@@ -120,8 +121,9 @@ export function PlaylistView({ id }: { id: number }) {
     };
   }, [id, version, libVersion]);
 
-  // Imported playlists: how many entries wait for a decision (the matcher runs in the backend).
-  const imported = !!meta?.source;
+  // Imported playlists (or ones with songs added from online recommendations): how many entries
+  // wait for a decision (the matcher runs in the backend).
+  const imported = !!meta?.source || !!detail?.entries.some((e) => e.refKey);
   useEffect(() => {
     let alive = true;
     if (!imported) {
@@ -317,6 +319,7 @@ export function PlaylistView({ id }: { id: number }) {
       rowHeight={56}
       onMove={onMove}
       header={split ? splitHeader : header}
+      footer={<PlaylistRecommendations id={id} />}
       renderRow={(entry, index) => {
         const t = entry.track;
         const isCur = t.path === currentPath;
