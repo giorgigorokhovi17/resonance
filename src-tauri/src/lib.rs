@@ -480,7 +480,7 @@ pub fn run() {
             commands::get_phone_sync,
             commands::new_phone_link,
             commands::set_effects,
-            commands::island_alt_down,
+            commands::island_set_panel,
             commands::quit_app,
             commands::update_playlist,
             commands::set_playlist_cover,

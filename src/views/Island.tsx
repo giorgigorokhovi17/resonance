@@ -1,7 +1,6 @@
 import { emitTo, listen } from "@tauri-apps/api/event";
-import { Menu } from "@tauri-apps/api/menu";
 import { availableMonitors, currentMonitor, getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
-import { FolderOpen, Pause, Play, Repeat, Repeat1, Shuffle, SkipBack, SkipForward, X } from "lucide-react";
+import { Check, FolderOpen, Pause, Play, Repeat, Repeat1, Settings2, Shuffle, SkipBack, SkipForward, X } from "lucide-react";
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { Cover } from "../components/Cover";
 import { api } from "../lib/api";
@@ -148,65 +147,23 @@ function useLyricLine(path: string | null) {
   return line;
 }
 
-/** The right-click menu: where the island sits, what it shows, and its colours. */
-async function showMenu() {
-  const o = options();
-  if (!o) return;
-  const check = (text: string, checked: boolean, patch: Partial<IslandOptions>) => ({ text, checked, action: () => save(patch) });
-  const positions = (Object.keys(POSITION_LABELS) as IslandPosition[])
-    .filter((p) => p !== "custom" || o.position === "custom")
-    .map((p) => check(POSITION_LABELS[p], o.position === p, { position: p }));
-  const colors = [
-    check("From the cover", o.colors === "cover", { colors: "cover" }),
-    ...ISLAND_PALETTES.map((p) => check(p.label, o.colors === p.id, { colors: p.id })),
-    check("My colours", o.colors === "custom", { colors: "custom" }),
-  ];
-  const menu = await Menu.new({
-    items: [
-      { text: "Open Undertone", action: () => api.showMainWindow() },
-      { item: "Separator" },
-      { text: "Position", items: positions },
-      check("Lock position", o.locked, { locked: !o.locked }),
-      check("Let clicks through (hold Alt to use it)", o.clickThrough, { clickThrough: !o.clickThrough }),
-      { item: "Separator" },
-      check("Show the song title", o.showTitle, { showTitle: !o.showTitle }),
-      check("Show the artist", o.showArtist, { showArtist: !o.showArtist }),
-      check("Show play controls", o.showControls, { showControls: !o.showControls }),
-      check("Show shuffle and repeat", o.showShuffleRepeat, { showShuffleRepeat: !o.showShuffleRepeat }),
-      check("Show playlist button", o.showPlaylists, { showPlaylists: !o.showPlaylists }),
-      check("Show the seek bar", o.showProgress, { showProgress: !o.showProgress }),
-      check("Pop up when a song starts", o.peekOnNewSong, { peekOnNewSong: !o.peekOnNewSong }),
-      check("Open when pointed at", o.expandOnHover, { expandOnHover: !o.expandOnHover }),
-      check("Only while Undertone is minimised", o.onlyWhenMinimized, { onlyWhenMinimized: !o.onlyWhenMinimized }),
-      check("Hide over full-screen games and videos", o.hideInFullscreen, { hideInFullscreen: !o.hideInFullscreen }),
-      { text: "Colours", items: colors },
-      { item: "Separator" },
-      {
-        text: "More island settings…",
-        action: () => {
-          api.showMainWindow();
-          emitTo("main", "ui:island-settings").catch(() => {});
-        },
-      },
-      { text: "Hide the island", action: () => api.updateSettings({ island: false }).catch(() => {}) },
-    ],
-  });
-  await menu.popup();
-}
+/** The yes/no options in the right-click panel. */
+const TOGGLES: { key: keyof IslandOptions; text: string }[] = [
+  { key: "locked", text: "Lock position" },
+  { key: "clickThrough", text: "Let clicks through (hold Alt to use it)" },
+  { key: "showTitle", text: "Show the song title" },
+  { key: "showArtist", text: "Show the artist" },
+  { key: "showControls", text: "Show play controls" },
+  { key: "showShuffleRepeat", text: "Show shuffle and repeat" },
+  { key: "showPlaylists", text: "Show playlist button" },
+  { key: "showProgress", text: "Show the seek bar" },
+  { key: "peekOnNewSong", text: "Pop up when a song starts" },
+  { key: "expandOnHover", text: "Open when pointed at" },
+  { key: "onlyWhenMinimized", text: "Only while Undertone is minimised" },
+  { key: "hideInFullscreen", text: "Hide over full-screen games and videos" },
+];
 
-/** Letting go of Alt closes menus, so after an Alt-click wait for that before opening one. */
-async function altLetGo(altHeld: boolean) {
-  if (!altHeld) return;
-  const until = Date.now() + 5000;
-  while (Date.now() < until && (await api.islandAltDown())) await new Promise((r) => setTimeout(r, 40));
-}
-
-async function openMenu(altHeld: boolean) {
-  await altLetGo(altHeld);
-  await showMenu();
-}
-
-/** The picker closes when the pointer has been away this long, or idle in it this long. */
+/** A panel (playlists, options) closes when the pointer has been away this long, or idle in it this long. */
 const PICKER_LEAVE_MS = 700;
 const PICKER_IDLE_MS = 10_000;
 
@@ -227,8 +184,9 @@ export function Island() {
   const [mainAway, setMainAway] = useState(false);
   const [hover, setHover] = useState(false);
   const [peek, setPeek] = useState(false);
-  /** The playlist picker's list; null while it's closed. */
-  const [lists, setLists] = useState<Playlist[] | null>(null);
+  /** The open panel: the playlist picker or the right-click options; null while closed. */
+  const [panel, setPanel] = useState<"playlists" | "options" | null>(null);
+  const [lists, setLists] = useState<Playlist[]>([]);
   const pickerTimer = useRef<number>();
   const [geo, setGeo] = useState<Geo | null>(null);
   const geoRef = useRef<Geo | null>(null);
@@ -245,7 +203,7 @@ export function Island() {
   const showArtist = o?.showArtist ?? true;
   const small = o ? smallSize(o) : { w: 320, h: 58 };
   const visible = !!o && !!track && !(fullscreen && o.hideInFullscreen) && (!o.onlyWhenMinimized || mainAway);
-  const picking = lists !== null;
+  const picking = panel !== null;
   const pill: Level = !visible
     ? "small"
     : picking
@@ -257,24 +215,32 @@ export function Island() {
           : "small";
   const closePicker = () => {
     window.clearTimeout(pickerTimer.current);
-    setLists(null);
+    setPanel(null);
   };
-  /** (Re)starts the picker's timer: it closes after `ms` unless something happens. */
+  /** (Re)starts the panel's timer: it closes after `ms` unless something happens. */
   const pickerCloseIn = (ms: number) => {
     window.clearTimeout(pickerTimer.current);
-    pickerTimer.current = window.setTimeout(() => setLists(null), ms);
+    pickerTimer.current = window.setTimeout(() => setPanel(null), ms);
   };
-  // Part of the island, so unlike a menu it opens with Alt still held (click-through mode: keep
-  // holding Alt to pick one).
+  // Panels are part of the island, so unlike a Windows menu they open with Alt still held, and
+  // stay usable once it's let go (click-through mode).
   const openPicker = () => {
     api
       .getPlaylists()
       .then((l) => {
         setLists(l);
+        setPanel("playlists");
         pickerCloseIn(PICKER_IDLE_MS);
       })
       .catch((e) => console.error(e));
   };
+  const openOptions = () => {
+    setPanel("options");
+    pickerCloseIn(PICKER_IDLE_MS);
+  };
+  useEffect(() => {
+    api.islandSetPanel(picking).catch(() => {});
+  }, [picking]);
   const pick = (id: number, shuffled: boolean) => {
     closePicker();
     playPlaylist(id, 0, shuffled);
@@ -406,9 +372,10 @@ export function Island() {
     if (!visible) return;
     const tick = () => setPos(state === "stopped" ? 0 : livePosition());
     tick();
-    const id = window.setInterval(tick, pill === "big" ? 250 : 500);
+    // Over a full-screen app the small bar's seek bar moves only every few seconds.
+    const id = window.setInterval(tick, pill === "big" ? 250 : fullscreen && pill === "small" ? 3000 : 500);
     return () => window.clearInterval(id);
-  }, [visible, pill, state]);
+  }, [visible, pill, state, fullscreen]);
 
   if (!track || !o) return null;
   const playing = state === "playing";
@@ -466,7 +433,8 @@ export function Island() {
         }}
         onContextMenu={(e) => {
           e.preventDefault();
-          openMenu(e.altKey).catch((err) => console.error(err));
+          if (panel === "options") closePicker();
+          else openOptions();
         }}
         className={`absolute select-none overflow-hidden text-white ${o.locked ? "" : "cursor-grab active:cursor-grabbing"}`}
         style={{
@@ -486,7 +454,7 @@ export function Island() {
             style={{
               background: `radial-gradient(90% 140% at 0% 0%, ${p[1]}, transparent 70%), radial-gradient(90% 140% at 100% 100%, ${p[2]}, transparent 70%), linear-gradient(115deg, ${p[0]}, ${p[1]}, ${p[2]}, ${p[0]})`,
               backgroundSize: "100% 100%, 100% 100%, 300% 100%",
-              animation: `island-fade 700ms ease-out both${playing ? ", island-drift 14s ease-in-out infinite" : ""}`,
+              animation: `island-fade 700ms ease-out both${playing && !fullscreen ? ", island-drift 14s ease-in-out infinite" : ""}`,
             }}
           />
         ))}
@@ -560,7 +528,69 @@ export function Island() {
           <Bars levels={levels} />
         </div>
 
+        {/* Options (right-click) */}
+        {panel === "options" && (
+          <div className="absolute inset-0 flex flex-col px-3 pb-3 pt-3.5 transition-opacity duration-300" style={layer("list")}>
+            <div className="flex items-center gap-2 px-1.5 pb-2">
+              <Settings2 size={15} className="text-white/80" />
+              <span className="flex-1 text-[13.5px] font-semibold drop-shadow">Island options</span>
+              <button aria-label="Close" title="Close" onClick={closePicker} className="ml-1 rounded-full p-1 text-white/70 transition-colors hover:bg-white/15 hover:text-white">
+                <X size={14} />
+              </button>
+            </div>
+            <div
+              data-no-drag
+              className="-mx-1 min-h-0 flex-1 cursor-default overflow-y-auto px-1 text-[12.5px]"
+              style={{ scrollbarWidth: "thin", scrollbarColor: "rgb(255 255 255 / 0.3) transparent" }}
+            >
+              <PanelRow onClick={() => api.showMainWindow()}>Open Undertone</PanelRow>
+              <PanelHeading>Position</PanelHeading>
+              <div className="flex flex-wrap gap-1 px-1.5 pb-1">
+                {(Object.keys(POSITION_LABELS) as IslandPosition[])
+                  .filter((p) => p !== "custom" || o.position === "custom")
+                  .map((p) => (
+                    <Chip key={p} on={o.position === p} onClick={() => save({ position: p })}>
+                      {POSITION_LABELS[p]}
+                    </Chip>
+                  ))}
+              </div>
+              <PanelHeading>Show</PanelHeading>
+              {TOGGLES.map((t) => (
+                <PanelRow key={t.key} on={!!o[t.key]} onClick={() => save({ [t.key]: !o[t.key] })}>
+                  {t.text}
+                </PanelRow>
+              ))}
+              <PanelHeading>Colours</PanelHeading>
+              <div className="flex flex-wrap gap-1 px-1.5 pb-1">
+                <Chip on={o.colors === "cover"} onClick={() => save({ colors: "cover" })}>
+                  From the cover
+                </Chip>
+                {ISLAND_PALETTES.map((p) => (
+                  <Chip key={p.id} on={o.colors === p.id} onClick={() => save({ colors: p.id })}>
+                    {p.label}
+                  </Chip>
+                ))}
+                <Chip on={o.colors === "custom"} onClick={() => save({ colors: "custom" })}>
+                  My colours
+                </Chip>
+              </div>
+              <div className="my-1.5 h-px bg-white/15" />
+              <PanelRow
+                onClick={() => {
+                  closePicker();
+                  api.showMainWindow();
+                  emitTo("main", "ui:island-settings").catch(() => {});
+                }}
+              >
+                More island settings…
+              </PanelRow>
+              <PanelRow onClick={() => api.updateSettings({ island: false }).catch(() => {})}>Hide the island</PanelRow>
+            </div>
+          </div>
+        )}
+
         {/* Playlist picker */}
+        {panel !== "options" && (
         <div className="absolute inset-0 flex flex-col px-3 pb-3 pt-3.5 transition-opacity duration-300" style={layer("list")}>
           <div className="flex items-center gap-2 px-1.5 pb-2.5">
             <FolderOpen size={15} className="text-white/80" />
@@ -580,7 +610,7 @@ export function Island() {
             className="-mx-1 min-h-0 flex-1 cursor-default overflow-y-auto px-1"
             style={{ scrollbarWidth: "thin", scrollbarColor: "rgb(255 255 255 / 0.3) transparent" }}
           >
-            {lists && lists.length > 0 ? (
+            {lists.length > 0 ? (
               lists.map((p) => (
                 <div key={p.id} className="group flex items-center gap-1 rounded-xl transition-colors hover:bg-white/15">
                   <button onClick={() => pick(p.id, shuffle)} className="flex min-w-0 flex-1 items-center gap-3 rounded-xl p-1.5 text-left">
@@ -615,6 +645,7 @@ export function Island() {
             )}
           </div>
         </div>
+        )}
 
         {/* Full island */}
         <div className="absolute inset-0 flex flex-col gap-2.5 p-3.5 transition-opacity duration-300" style={layer("big")}>
@@ -665,6 +696,41 @@ export function Island() {
         </div>
       </div>
     </div>
+  );
+}
+
+function PanelHeading({ children }: { children: ReactNode }) {
+  return <div className="px-1.5 pb-1 pt-2 text-[10.5px] font-semibold uppercase tracking-wider text-white/55">{children}</div>;
+}
+
+/** A row in the options panel; with `on`, a yes/no option with a tick. */
+function PanelRow({ on, onClick, children }: { on?: boolean; onClick: () => void; children: ReactNode }) {
+  return (
+    <button
+      role={on === undefined ? undefined : "menuitemcheckbox"}
+      aria-checked={on}
+      onClick={onClick}
+      className="flex w-full items-center gap-2 rounded-lg px-1.5 py-1 text-left transition-colors hover:bg-white/15"
+    >
+      {on !== undefined && (
+        <span className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded ${on ? "bg-white text-black" : "ring-1 ring-white/40"}`}>
+          {on && <Check size={10} strokeWidth={3} />}
+        </span>
+      )}
+      <span className="min-w-0 truncate drop-shadow">{children}</span>
+    </button>
+  );
+}
+
+function Chip({ on, onClick, children }: { on: boolean; onClick: () => void; children: ReactNode }) {
+  return (
+    <button
+      aria-pressed={on}
+      onClick={onClick}
+      className={`rounded-full px-2.5 py-0.5 text-[11.5px] transition-colors ${on ? "bg-white font-semibold text-black" : "bg-white/10 text-white/85 hover:bg-white/20"}`}
+    >
+      {children}
+    </button>
   );
 }
 

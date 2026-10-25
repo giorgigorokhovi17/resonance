@@ -187,7 +187,8 @@ export const api = {
   showMainWindow: () => invoke<void>("show_main_window"),
   islandMainAway: () => invoke<boolean>("island_main_away"),
   islandSetBounds: (x: number, y: number, w: number, h: number) => invoke<void>("island_set_bounds", { x, y, w, h }),
-  islandAltDown: () => invoke<boolean>("island_alt_down"),
+  /** A panel is open on the island: it takes clicks without Alt held. */
+  islandSetPanel: (open: boolean) => invoke<void>("island_set_panel", { open }),
   islandSetPill: (x: number, y: number, w: number, h: number) => invoke<void>("island_set_pill", { x, y, w, h }),
 
   // settings

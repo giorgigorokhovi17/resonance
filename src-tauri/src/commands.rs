@@ -823,10 +823,10 @@ pub fn island_set_pill(x: i32, y: i32, w: i32, h: i32) {
     crate::island::set_pill([x, y, w, h]);
 }
 
-/// Alt is held (the island's menu waits for it to be let go: letting go of Alt closes menus).
+/// The island's options or playlist panel is open: it takes clicks without Alt held.
 #[tauri::command]
-pub fn island_alt_down() -> bool {
-    crate::island::alt_down()
+pub fn island_set_panel(open: bool) {
+    crate::island::set_panel(open);
 }
 
 /// Open an https:// link (e.g. the donate page) in the default browser.
