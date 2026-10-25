@@ -66,6 +66,12 @@ export const api = {
   addLibraryFolder: (path: string) => invoke<LibraryFolder[]>("add_library_folder", { path }),
   /** Android: permission, then the system folder picker; the folder's path, or null if cancelled. */
   pickMusicFolder: () => invoke<string | null>("pick_music_folder"),
+  /** Android: the system file picker; paths of copies in the cache, or [] if cancelled. */
+  pickFiles: (multiple = false) => invoke<string[]>("pick_files", { multiple }),
+  /** Android: a path in the cache where an export can be written before `exportFile`. */
+  exportPath: (name: string) => invoke<string>("export_path", { name }),
+  /** Android: the system "save as" screen for `name`, copying `path` there. False if cancelled. */
+  exportFile: (path: string, name: string) => invoke<boolean>("export_file", { path, name }),
   removeLibraryFolder: (id: number) => invoke<LibraryFolder[]>("remove_library_folder", { id }),
   rescanLibrary: (force = false) => invoke<void>("rescan_library", { force }),
   isScanning: () => invoke<boolean>("is_scanning"),

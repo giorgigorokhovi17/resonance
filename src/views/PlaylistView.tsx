@@ -1,4 +1,3 @@
-import { save } from "@tauri-apps/plugin-dialog";
 import { AlertTriangle, ArrowDown, ArrowUp, AudioLines, Download, FileOutput, GripVertical, ListChecks, ListMusic, MoreHorizontal, Pause, Pencil, Pin, PinOff, Play, Shuffle, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { openMenu, SEP, type MenuItem } from "../components/ContextMenu";
@@ -13,6 +12,7 @@ import { openPlaylistEditor } from "../components/PlaylistEditor";
 import { ReorderList } from "../components/ReorderList";
 import { trackMenuItems } from "../components/trackMenu";
 import { api } from "../lib/api";
+import { saveFile } from "../lib/files";
 import { displayArtist, fmtDuration, fmtTime } from "../lib/format";
 import type { Playlist, PlaylistDetail, PlaylistEntry } from "../lib/types";
 import { liveCoverId, longEnough, useLibrary } from "../store/library";
@@ -31,34 +31,39 @@ export async function deletePlaylist(p: Playlist) {
 }
 
 export async function exportPlaylist(p: Playlist) {
-  const path = await save({
-    title: "Export playlist",
-    defaultPath: `${p.name.replace(/[\\/:*?"<>|]/g, "_")}.m3u8`,
-    filters: [
-      { name: "M3U8 playlist", extensions: ["m3u8", "m3u"] },
-      { name: "XSPF playlist", extensions: ["xspf"] },
-      { name: "CSV with ISRC (spreadsheets)", extensions: ["csv"] },
-    ],
-  });
-  if (!path) return;
   try {
-    const n = await api.exportPlaylist(p.id, path);
-    usePlayer.getState().pushToast("info", `Exported ${n} songs to ${path}`);
+    const saved = await saveFile(
+      {
+        title: "Export playlist",
+        name: `${p.name.replace(/[\\/:*?"<>|]/g, "_")}.m3u8`,
+        filters: [
+          { name: "M3U8 playlist", extensions: ["m3u8", "m3u"] },
+          { name: "XSPF playlist", extensions: ["xspf"] },
+          { name: "CSV with ISRC (spreadsheets)", extensions: ["csv"] },
+        ],
+      },
+      (path) => api.exportPlaylist(p.id, path),
+    );
+    if (!saved) return;
+    usePlayer.getState().pushToast("info", `Exported ${saved.result} songs to ${saved.path}`);
   } catch (e) {
     toastErr(e);
   }
 }
 
 export async function exportUnmatchedReport(p: Playlist) {
-  const path = await save({
-    title: "Export unmatched report",
-    defaultPath: `${p.name.replace(/[\\/:*?"<>|]/g, "_")} - unmatched.csv`,
-    filters: [{ name: "CSV", extensions: ["csv"] }],
-  });
-  if (!path) return;
   try {
-    const n = await api.exportUnmatchedReport(p.id, path);
-    usePlayer.getState().pushToast("info", n ? `${n} unmatched song${n === 1 ? "" : "s"} listed in ${path}` : "Every imported song is matched.");
+    const saved = await saveFile(
+      {
+        title: "Export unmatched report",
+        name: `${p.name.replace(/[\\/:*?"<>|]/g, "_")} - unmatched.csv`,
+        filters: [{ name: "CSV", extensions: ["csv"] }],
+      },
+      (path) => api.exportUnmatchedReport(p.id, path),
+    );
+    if (!saved) return;
+    const n = saved.result;
+    usePlayer.getState().pushToast("info", n ? `${n} unmatched song${n === 1 ? "" : "s"} listed in ${saved.path}` : "Every imported song is matched.");
   } catch (e) {
     toastErr(e);
   }

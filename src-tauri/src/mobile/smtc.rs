@@ -83,12 +83,6 @@ pub fn with_bridge<T>(f: impl FnOnce(&mut JNIEnv, &JClass) -> jni::errors::Resul
     res.ok()
 }
 
-/// Calls a static `()V` method of NativeBridge (e.g. "pickMusicFolder").
-pub fn call_static(method: &str) -> Result<(), String> {
-    with_bridge(|env, class| env.call_static_method(class, method, "()V", &[]).map(|_| ()))
-        .ok_or_else(|| format!("{method} isn't available yet."))
-}
-
 fn publish(update: &SmtcUpdate) {
     let Some(bridge) = BRIDGE.get() else { return };
     let Ok(mut env) = bridge.vm.attach_current_thread_permanently() else { return };

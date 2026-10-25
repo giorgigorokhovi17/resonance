@@ -23,8 +23,11 @@ object NativeBridge {
   /** MainActivity created; rebuilds the page if the previous screen took it along. */
   @JvmStatic external fun activityCreated()
 
-  /** The picked folder's path, or null when cancelled; or an error to show (src/mobile/library.rs). */
-  @JvmStatic external fun folderPicked(path: String?, error: String?)
+  /**
+   * What the user did on a system screen opened for Rust (folder picker, file picker, save as):
+   * a value, null when cancelled, or an error to show (src/mobile/library.rs).
+   */
+  @JvmStatic external fun answer(value: String?, error: String?)
 
   /** Back on screen, or Android's media index changed: rescan the library. */
   @JvmStatic external fun libraryChanged()
@@ -42,9 +45,20 @@ object NativeBridge {
 
   /** Called by Rust: asks for the audio permission if needed, then opens the folder picker. */
   @JvmStatic
-  fun pickMusicFolder() {
+  fun pickMusicFolder() = onScreen { it.pickMusicFolder() }
+
+  /** Called by Rust: the system file picker; answers with the paths of copies in the cache. */
+  @JvmStatic
+  fun pickFiles(multiple: Boolean) = onScreen { it.pickFiles(multiple) }
+
+  /** Called by Rust: the system "save as" screen for `name`, then copies `src` there. */
+  @JvmStatic
+  fun exportFile(src: String, name: String) = onScreen { it.exportFile(src, name) }
+
+  private fun onScreen(open: (MainActivity) -> Unit) {
     main.post {
-      activity?.get()?.pickMusicFolder() ?: folderPicked(null, "Open Undertone to pick a folder.")
+      val screen = activity?.get()
+      if (screen == null) answer(null, "Open Undertone first.") else open(screen)
     }
   }
 

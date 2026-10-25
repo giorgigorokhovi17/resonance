@@ -462,18 +462,30 @@ pub fn restore(lib: &Library, b: Backup, mut add_folder: impl FnMut(&str) -> Res
     })
 }
 
-/// Maps file paths from the old PC to this one.
+/// The folder and file names of a path written on any platform. "D:\Music\a.flac" and
+/// "/storage/emulated/0/Music/a.flac" both split, whichever platform restores the backup; `Path`
+/// would see a Windows path as one single name on Android.
+fn parts(path: &str) -> Vec<&str> {
+    path.split(['/', '\\']).filter(|s| !s.is_empty()).collect()
+}
+
+/// A drive letter ("D:") isn't a folder name.
+fn is_drive(part: &str) -> bool {
+    part.len() == 2 && part.ends_with(':')
+}
+
+/// Maps file paths from the old PC (or phone) to this one.
 struct PathMapper {
-    old_roots: Vec<PathBuf>,
+    old_roots: Vec<Vec<String>>,
     new_roots: Vec<PathBuf>,
-    /// Old folder -> folder on this PC (None: not found).
-    dirs: HashMap<PathBuf, Option<PathBuf>>,
+    /// Old folder, as written in the backup -> folder here (None: not found).
+    dirs: HashMap<String, Option<PathBuf>>,
 }
 
 impl PathMapper {
     fn new(old_roots: &[String], new_roots: &[String]) -> Self {
         Self {
-            old_roots: old_roots.iter().map(PathBuf::from).collect(),
+            old_roots: old_roots.iter().map(|r| parts(r).into_iter().map(String::from).collect()).collect(),
             new_roots: new_roots.iter().map(PathBuf::from).collect(),
             dirs: HashMap::new(),
         }
@@ -482,13 +494,14 @@ impl PathMapper {
     /// Lookups are cached per folder, so a backup full of paths on a drive that isn't here (or a
     /// disconnected network share) costs one check per folder, not per file.
     fn map(&mut self, old: &str) -> Option<String> {
-        let p = Path::new(old);
-        let (dir, name) = (p.parent()?, p.file_name()?);
-        let new_dir = match self.dirs.get(dir) {
+        let all = parts(old);
+        let (name, dir) = all.split_last()?;
+        let dir_str = &old[..old.rfind(['/', '\\'])?];
+        let new_dir = match self.dirs.get(dir_str) {
             Some(d) => d.clone(),
             None => {
-                let d = self.find_dir(dir);
-                self.dirs.insert(dir.to_path_buf(), d.clone());
+                let d = self.find_dir(dir_str, dir);
+                self.dirs.insert(dir_str.to_string(), d.clone());
                 d
             }
         };
@@ -496,20 +509,21 @@ impl PathMapper {
         f.is_file().then(|| f.to_string_lossy().to_string())
     }
 
-    fn find_dir(&self, old_dir: &Path) -> Option<PathBuf> {
-        if old_dir.is_dir() {
-            return Some(old_dir.to_path_buf());
+    fn find_dir(&self, old_dir: &str, dir: &[&str]) -> Option<PathBuf> {
+        if Path::new(old_dir).is_dir() {
+            return Some(PathBuf::from(old_dir));
         }
+        let under = |root: &Vec<String>| dir.len() >= root.len() && root.iter().zip(dir).all(|(r, d)| r == d);
         // Folders below the old library root ("Artist\Album"); otherwise everything after the drive.
-        let (rel, tail_len): (Vec<_>, usize) = match self.old_roots.iter().find(|r| old_dir.starts_with(r)) {
+        let (rel, tail_len): (Vec<&str>, usize) = match self.old_roots.iter().find(|r| under(r)) {
             Some(r) => {
-                let tail: Vec<_> = old_dir.strip_prefix(r).ok()?.components().collect();
-                let n = tail.len();
+                let tail = &dir[r.len()..];
                 // Include the old root's own name so "D:\Music" can match "E:\Stuff\Music".
-                (r.file_name().map(std::path::Component::Normal).into_iter().chain(tail).collect(), n)
+                let name = r.last().map(String::as_str).filter(|n| !is_drive(n));
+                (name.into_iter().chain(tail.iter().copied()).collect(), tail.len())
             }
             None => {
-                let all: Vec<_> = old_dir.components().filter(|c| matches!(c, std::path::Component::Normal(_))).collect();
+                let all: Vec<&str> = dir.iter().enumerate().filter(|(i, p)| !(*i == 0 && is_drive(p))).map(|(_, p)| *p).collect();
                 let n = all.len();
                 (all, n)
             }
@@ -526,13 +540,12 @@ impl PathMapper {
             }
         }
         // Files that sat directly in the old library root -> the (single) library root here.
-        if self.old_roots.iter().any(|r| r == old_dir) && self.new_roots.len() == 1 {
+        if self.old_roots.iter().any(|r| r.len() == dir.len() && under(r)) && self.new_roots.len() == 1 {
             return Some(self.new_roots[0].clone());
         }
         None
     }
 }
-
 fn err<E: std::fmt::Display>(e: E) -> String {
     e.to_string()
 }
@@ -575,6 +588,35 @@ mod tests {
         assert_eq!(m.map(&old(r"Music\Someone\Else\Disc 1\x.flac")), None);
         // Missing entirely.
         assert_eq!(m.map(&old(r"Music\Nope\Never\a.flac")), None);
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn remaps_between_windows_and_phone_paths() {
+        // Backups move between the Windows app and the Android app: paths written with the other
+        // platform's separators must still find the music here.
+        let base = std::env::temp_dir().join(format!("resonance-backup-xplat-{}", std::process::id()));
+        let album = base.join("Phone").join("Music").join("Artist").join("Album");
+        std::fs::create_dir_all(&album).unwrap();
+        std::fs::write(album.join("01 Song.flac"), b"x").unwrap();
+        std::fs::write(base.join("Phone").join("Music").join("loose.mp3"), b"x").unwrap();
+        let here = base.join("Phone").join("Music").to_string_lossy().to_string();
+        let expected = album.join("01 Song.flac").to_string_lossy().to_string();
+
+        // A Windows backup restored on the phone.
+        let mut m = PathMapper::new(&[r"D:\Music".to_string()], &[here.clone()]);
+        assert_eq!(m.map(r"D:\Music\Artist\Album\01 Song.flac"), Some(expected.clone()));
+        assert!(m.map(r"D:\Music\loose.mp3").is_some());
+        assert_eq!(m.map(r"D:\Music\Someone\Else\01 Song.flac"), None);
+        // Not under a backed-up root: everything after the drive letter.
+        let mut m = PathMapper::new(&[], &[here.clone()]);
+        assert_eq!(m.map(r"E:\Users\me\Music\Artist\Album\01 Song.flac"), Some(expected.clone()));
+
+        // A phone backup restored on a PC.
+        let mut m = PathMapper::new(&["/storage/emulated/0/Music".to_string()], &[here]);
+        assert_eq!(m.map("/storage/emulated/0/Music/Artist/Album/01 Song.flac"), Some(expected));
+        assert_eq!(m.map("no-folder.flac"), None);
 
         let _ = std::fs::remove_dir_all(&base);
     }
