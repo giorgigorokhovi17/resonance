@@ -52,6 +52,14 @@ export function IslandSection({ settings }: { settings: Settings }) {
             >
               <Toggle label="Hide over full screen" checked={o.hideInFullscreen} onChange={(v) => setOptions({ hideInFullscreen: v })} />
             </Row>
+            {!o.hideInFullscreen && (
+              <Row
+                label="Move to another screen over full-screen games"
+                hint="A window on top of a game can break its vsync. With more than one screen, the island goes to another one while a game is full screen, and comes back after."
+              >
+                <Toggle label="Move over full screen" checked={o.moveInFullscreen} onChange={(v) => setOptions({ moveInFullscreen: v })} />
+              </Row>
+            )}
 
             <div className="flex flex-wrap items-start justify-between gap-4">
               <span className="min-w-0">

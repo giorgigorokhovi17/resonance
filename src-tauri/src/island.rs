@@ -77,13 +77,14 @@ pub fn open(app: &AppHandle) {
     let _ = window;
     let handle = app.clone();
     let _ = std::thread::Builder::new().name("island-fullscreen".into()).spawn(move || {
-        let mut last = None;
+        let mut last: Option<FullScreen> = None;
         while handle.get_webview_window(LABEL).is_some() {
-            let busy = fullscreen_app();
-            FULLSCREEN.store(busy, Ordering::Relaxed);
-            if last != Some(busy) {
-                last = Some(busy);
-                let _ = handle.emit_to(LABEL, "island:fullscreen", busy);
+            if let Some(now) = fullscreen_app() {
+                FULLSCREEN.store(now.busy, Ordering::Relaxed);
+                if last.as_ref() != Some(&now) {
+                    let _ = handle.emit_to(LABEL, "island:fullscreen", now.clone());
+                    last = Some(now);
+                }
             }
             // Window events cover minimising and the tray; this catches anything they miss.
             main_changed(&handle);
@@ -216,6 +217,10 @@ mod on_top {
         ISLAND.store(hwnd, Ordering::Relaxed);
     }
 
+    pub fn handle() -> isize {
+        ISLAND.load(Ordering::Relaxed)
+    }
+
     pub fn raise() {
         let h = ISLAND.load(Ordering::Relaxed);
         if h == 0 {
@@ -328,58 +333,72 @@ pub fn main_changed(app: &AppHandle) {
     }
 }
 
+/// Whether another app is full screen, and the screen its window covers (x, y, width, height in
+/// physical pixels) when that's known. Sent to the island as `island:fullscreen`.
+#[derive(serde::Serialize, Clone, Debug, Default, PartialEq)]
+pub struct FullScreen {
+    pub busy: bool,
+    pub screen: Option<[i32; 4]>,
+}
+
 /// Another app is full screen (exclusive, or a borderless window covering its whole screen, as
-/// most games run), or Windows is in presentation / do-not-disturb mode.
+/// most games run), or Windows is in presentation / do-not-disturb mode. `None` while the island
+/// itself is in front (clicked over a game): nothing has changed then.
 #[cfg(windows)]
-fn fullscreen_app() -> bool {
+fn fullscreen_app() -> Option<FullScreen> {
     use windows::Win32::UI::Shell::{
         SHQueryUserNotificationState, QUNS_BUSY, QUNS_PRESENTATION_MODE, QUNS_RUNNING_D3D_FULL_SCREEN,
     };
+    use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
+    // SAFETY: no arguments; returns a window handle.
+    let front = unsafe { GetForegroundWindow() };
+    if front.0 as isize != 0 && front.0 as isize == on_top::handle() {
+        return None;
+    }
     // SAFETY: no arguments; returns a plain enum value.
     let busy = match unsafe { SHQueryUserNotificationState() } {
         Ok(s) => s == QUNS_BUSY || s == QUNS_RUNNING_D3D_FULL_SCREEN || s == QUNS_PRESENTATION_MODE,
         Err(_) => false,
     };
-    busy || borderless_fullscreen()
+    let screen = fullscreen_screen(front);
+    Some(FullScreen { busy: busy || screen.is_some(), screen })
 }
 
-/// The window in front covers its whole screen and isn't the desktop or one of ours.
+/// The screen `hwnd` covers whole, unless it's the desktop or one of ours.
 #[cfg(windows)]
-fn borderless_fullscreen() -> bool {
+fn fullscreen_screen(hwnd: windows::Win32::Foundation::HWND) -> Option<[i32; 4]> {
     use windows::Win32::Foundation::RECT;
     use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONULL};
-    use windows::Win32::UI::WindowsAndMessaging::{
-        GetClassNameW, GetForegroundWindow, GetShellWindow, GetWindowRect, GetWindowThreadProcessId, IsIconic,
-    };
-    // SAFETY: plain queries on the foreground window, with out-structs and a fixed buffer.
+    use windows::Win32::UI::WindowsAndMessaging::{GetClassNameW, GetShellWindow, GetWindowRect, GetWindowThreadProcessId, IsIconic};
+    // SAFETY: plain queries on a window handle, with out-structs and a fixed buffer.
     unsafe {
-        let hwnd = GetForegroundWindow();
         if hwnd.is_invalid() || hwnd == GetShellWindow() || IsIconic(hwnd).as_bool() {
-            return false;
+            return None;
         }
         let mut pid = 0;
         GetWindowThreadProcessId(hwnd, Some(&mut pid));
         if pid == std::process::id() {
-            return false;
+            return None;
         }
         let mut class = [0u16; 32];
         let n = GetClassNameW(hwnd, &mut class) as usize;
         let class = String::from_utf16_lossy(&class[..n]);
         if class == "Progman" || class == "WorkerW" {
-            return false;
+            return None;
         }
         let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONULL);
         let mut info = MONITORINFO { cbSize: std::mem::size_of::<MONITORINFO>() as u32, ..Default::default() };
         let mut r = RECT::default();
         if monitor.is_invalid() || !GetMonitorInfoW(monitor, &mut info).as_bool() || GetWindowRect(hwnd, &mut r).is_err() {
-            return false;
+            return None;
         }
         let m = info.rcMonitor;
-        r.left <= m.left && r.top <= m.top && r.right >= m.right && r.bottom >= m.bottom
+        let whole = r.left <= m.left && r.top <= m.top && r.right >= m.right && r.bottom >= m.bottom;
+        whole.then_some([m.left, m.top, m.right - m.left, m.bottom - m.top])
     }
 }
 
 #[cfg(not(windows))]
-fn fullscreen_app() -> bool {
-    false
+fn fullscreen_app() -> Option<FullScreen> {
+    Some(FullScreen::default())
 }
