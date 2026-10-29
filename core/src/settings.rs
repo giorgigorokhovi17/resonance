@@ -88,7 +88,7 @@ pub struct YouTubeSettings {
     pub enabled: bool,
 }
 
-/// Soulseek options. The account itself is in Windows Credential Manager, not here.
+/// Soulseek options. The account itself is in Windows Credential Manager or Android Keystore, not here.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct SoulseekSettings {
@@ -97,11 +97,13 @@ pub struct SoulseekSettings {
     /// Accept incoming connections from other users (needed for some results and downloads).
     pub listen: bool,
     pub listen_port: u16,
+    /// On Android, download only on Wi-Fi (unmetered networks) unless turned off.
+    pub wifi_only: bool,
 }
 
 impl Default for SoulseekSettings {
     fn default() -> Self {
-        Self { download_folder: None, listen: true, listen_port: 2234 }
+        Self { download_folder: None, listen: true, listen_port: 2234, wifi_only: true }
     }
 }
 

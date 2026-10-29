@@ -5896,7 +5896,7 @@ checksum = "eaea85b334db583fe3274d12b4cd1880032beab409c0d774be044d4480ab9a94"
 
 [[package]]
 name = "undertone-core"
-version = "0.7.16"
+version = "0.7.19"
 dependencies = [
  "anyhow",
  "base64 0.22.1",

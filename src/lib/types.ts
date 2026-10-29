@@ -1,4 +1,4 @@
-﻿export type OutputMode = "shared" | "exclusive";
+export type OutputMode = "shared" | "exclusive";
 export type ReplayGainMode = "off" | "track" | "album";
 export type RepeatMode = "off" | "all" | "one";
 export type PlayState = "stopped" | "playing" | "paused";
@@ -566,6 +566,7 @@ export interface SoulseekSettings {
   downloadFolder: string | null;
   listen: boolean;
   listenPort: number;
+  wifiOnly: boolean;
 }
 
 export interface SlskSettingsView extends SoulseekSettings {

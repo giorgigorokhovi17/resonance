@@ -27,15 +27,34 @@ fn library_folders(state: &AppState) -> Vec<String> {
 fn settings_view(state: &AppState) -> SlskSettingsView {
     let settings = state.settings.get().soulseek;
     let libs = library_folders(state);
+    #[cfg(target_os = "android")]
+    let folder = Some(std::path::PathBuf::from(crate::android_soulseek::PUBLISHED_ROOT));
+    #[cfg(not(target_os = "android"))]
     let folder = soulseek::download_folder(settings.download_folder.as_deref(), &libs);
     let in_library = folder.as_ref().is_some_and(|f| {
-        let f = f.to_string_lossy().to_lowercase();
+        let f = f.to_string_lossy().replace('\\', "/").to_lowercase();
         libs.iter().any(|l| {
-            let l = l.trim_end_matches('\\').to_lowercase();
-            f == l || f.starts_with(&format!("{l}\\"))
+            let l = l.replace('\\', "/").trim_end_matches('/').to_lowercase();
+            f == l || f.starts_with(&format!("{l}/"))
         })
     });
     SlskSettingsView { settings, effective_folder: folder.map(|f| f.to_string_lossy().into_owned()), in_library }
+}
+
+fn download_target_folder(state: &AppState) -> Result<String, String> {
+    #[cfg(target_os = "android")]
+    {
+        let _ = state;
+        crate::android_soulseek::staging_dir()
+            .map(|p| p.to_string_lossy().into_owned())
+            .ok_or_else(|| "App storage isn't ready yet.".into())
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        settings_view(state)
+            .effective_folder
+            .ok_or_else(|| "Choose a download folder first, or add a library folder in Settings.".into())
+    }
 }
 
 #[tauri::command]
@@ -100,9 +119,7 @@ pub fn slsk_downloads(state: State<'_, AppState>) -> Vec<Job> {
 
 #[tauri::command]
 pub fn slsk_download(state: State<'_, AppState>, items: Vec<DownloadRequest>) -> CmdResult<usize> {
-    let folder = settings_view(&state)
-        .effective_folder
-        .ok_or("Choose a download folder first, or add a library folder in Settings.")?;
+    let folder = download_target_folder(&state)?;
     state.soulseek.download(std::path::Path::new(&folder), items)
 }
 
@@ -129,13 +146,15 @@ pub fn slsk_settings(state: State<'_, AppState>) -> SlskSettingsView {
 /// Saves Soulseek options. Listening changes apply at the next sign-in.
 #[tauri::command]
 pub fn slsk_update_settings(state: State<'_, AppState>, settings: SoulseekSettings) -> SlskSettingsView {
-    state.settings.update(|s| {
+    let saved = state.settings.update(|s| {
         s.soulseek = SoulseekSettings {
             download_folder: settings.download_folder.map(|f| f.trim().to_string()).filter(|f| !f.is_empty()),
             listen: settings.listen,
             listen_port: if settings.listen_port < 1024 { 2234 } else { settings.listen_port },
+            wifi_only: settings.wifi_only,
         };
     });
+    state.soulseek.set_settings(saved.soulseek);
     settings_view(&state)
 }
 
@@ -223,9 +242,7 @@ pub async fn find_missing(
         return Err("Nothing in this playlist is missing.".into());
     }
     let on_found: Option<super::missing::OnFound> = if mode == FindMode::YouTube {
-        let folder = settings_view(&state)
-            .effective_folder
-            .ok_or("Choose a download folder first, or add a library folder in Settings.")?;
+        let folder = download_target_folder(&state)?;
         let slsk = state.soulseek.clone();
         Some(std::sync::Arc::new(move |key: &str, f: &super::missing::Found| {
             let req = DownloadRequest { username: f.username.clone(), path: f.path.clone(), size: f.size, link_key: Some(key.into()), name: Some(f.name.clone()) };
@@ -269,9 +286,7 @@ pub fn download_found(state: State<'_, AppState>, items: Vec<DownloadRequest>) -
     if items.iter().any(|i| i.link_key.is_none()) {
         return Err("Each file needs the playlist entry it's for.".into());
     }
-    let folder = settings_view(&state)
-        .effective_folder
-        .ok_or("Choose a download folder first, or add a library folder in Settings.")?;
+    let folder = download_target_folder(&state)?;
     state.soulseek.download(std::path::Path::new(&folder), items)
 }
 
