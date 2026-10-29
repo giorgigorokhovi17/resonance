@@ -487,6 +487,8 @@ pub fn run() {
             commands::app_ready,
             commands::quit_app,
             commands::update_playlist,
+            commands::set_playlist_pinned,
+            commands::reorder_playlists,
             commands::set_playlist_cover,
             commands::stage_media,
             commands::commit_media,

@@ -109,6 +109,9 @@ export const api = {
   /** Applies to every playlist with this reference. Returns how many playlists changed. */
   decideMatch: (key: string, decision: MatchDecision, path: string | null = null) =>
     invoke<number>("decide_match", { key, decision, path }),
+  setPlaylistPinned: (id: number, pinned: boolean) => invoke<void>("set_playlist_pinned", { id, pinned }),
+  /** All playlist ids in the order the sidebar should show them. */
+  reorderPlaylists: (ids: number[]) => invoke<void>("reorder_playlists", { ids }),
   updatePlaylist: (id: number, name: string, description: string) =>
     invoke<void>("update_playlist", { id, name, description }),
   /** `motionId`: a GIF or video from commitMedia; `coverId` is then its poster. */

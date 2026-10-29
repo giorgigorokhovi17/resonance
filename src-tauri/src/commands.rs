@@ -916,6 +916,21 @@ pub fn update_playlist(app: AppHandle, state: State<'_, AppState>, id: i64, name
     Ok(())
 }
 
+#[tauri::command]
+pub fn set_playlist_pinned(app: AppHandle, state: State<'_, AppState>, id: i64, pinned: bool) -> CmdResult<()> {
+    db::set_playlist_pinned(&state.library.db.lock(), id, pinned).map_err(err)?;
+    emit_playlists(&app);
+    Ok(())
+}
+
+/// `ids`: the playlists in the order the sidebar should show them.
+#[tauri::command]
+pub fn reorder_playlists(app: AppHandle, state: State<'_, AppState>, ids: Vec<i64>) -> CmdResult<()> {
+    db::set_playlist_order(&mut state.library.db.lock(), &ids).map_err(err)?;
+    emit_playlists(&app);
+    Ok(())
+}
+
 fn emit_media(app: &AppHandle) {
     let _ = app.emit("media:changed", ());
 }

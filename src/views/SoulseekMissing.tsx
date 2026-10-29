@@ -1,6 +1,7 @@
 import { Check, Download, Layers, Loader2, RotateCw, Search, Square, X, TvMinimalPlay } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api";
+import { flyToDownloads } from "../lib/fly";
 import { fmtTime } from "../lib/format";
 import { YOUTUBE, type FindMode, type FoundFile, type ReviewItem, type SlskJob } from "../lib/types";
 import { usePlayer } from "../store/player";
@@ -119,21 +120,26 @@ export function SoulseekMissing({ playlistId, items }: { playlistId: number; ite
   };
   const selected = keys.filter((k) => filesOf(k).length > 0 && !jobFor(k) && chosen(k));
 
-  const find = async (mode: FindMode = "soulseekFirst") => {
+  const find = async (mode: FindMode = "soulseekFirst", from?: Element) => {
+    const rect = from?.getBoundingClientRect();
     try {
       const total = await api.findMissing(playlistId, null, mode);
+      // "Get all from YouTube" queues the songs straight away.
+      if (mode === "youTube") flyToDownloads(rect, total);
       useSoulseek.setState((s) => ({ findRuns: { ...s.findRuns, [playlistId]: { done: 0, total, running: true } } }));
     } catch (e) {
       toastErr(e);
     }
   };
-  const download = async () => {
+  const download = async (from: Element) => {
+    const rect = from.getBoundingClientRect();
     const reqs = selected.map((k) => {
       const f = chosen(k)!;
       return { username: f.username, path: f.path, size: f.size, linkKey: k, name: f.name };
     });
     try {
       const n = await api.downloadFound(reqs);
+      flyToDownloads(rect, n);
       usePlayer.getState().pushToast("info", `Downloading ${n} song${n === 1 ? "" : "s"}. Follow them with the Downloads button; each goes into the playlist when it finishes.`);
     } catch (e) {
       toastErr(e);
@@ -179,7 +185,7 @@ export function SoulseekMissing({ playlistId, items }: { playlistId: number; ite
             </button>
             {ytReady && (
               <button
-                onClick={() => find("youTube")}
+                onClick={(e) => find("youTube", e.currentTarget)}
                 title="Download every missing song from YouTube now, at YouTube's quality"
                 className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12.5px] font-medium ring-1 ring-line hover:bg-hover"
               >
@@ -189,7 +195,7 @@ export function SoulseekMissing({ playlistId, items }: { playlistId: number; ite
           </>
         )}
         {selected.length > 0 && (
-          <button onClick={download} className="accent-gradient text-on-accent inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-[12.5px] font-semibold">
+          <button onClick={(e) => download(e.currentTarget)} className="accent-gradient text-on-accent inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-[12.5px] font-semibold">
             <Download size={14} /> Download {selected.length}
           </button>
         )}

@@ -91,3 +91,6 @@ panic = "unwind"
 
 [profile.dev.package."*"]
 opt-level = 2
+# No debug info for dependencies: it takes much of the build folder's space, and stepping through
+# other crates' code isn't needed. Our own code keeps full debug info.
+debug = false

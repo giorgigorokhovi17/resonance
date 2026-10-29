@@ -391,6 +391,8 @@ export interface Playlist {
   /** Import source ("m3u", "xspf", …); null for playlists made in the app. */
   source: string | null;
   sourceId: string | null;
+  /** Kept at the top of the sidebar. */
+  pinned: boolean;
 }
 
 export interface PlaylistEntry {
