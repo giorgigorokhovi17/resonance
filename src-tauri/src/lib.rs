@@ -232,7 +232,9 @@ pub fn run() {
             if window.label() != "main" {
                 return;
             }
-            // The island window alone mustn't keep the app running.
+            // The island window alone mustn't keep the app running. On Android the window goes
+            // with the screen while music keeps playing in the background, so never exit there.
+            #[cfg(desktop)]
             if let WindowEvent::Destroyed = event {
                 window.app_handle().exit(0);
             }
@@ -373,6 +375,12 @@ pub fn run() {
                     let tx = smtc::start(hwnd.0 as isize, engine.clone(), move || show_main(&raise_handle));
                     *smtc_tx.lock() = tx;
                 }
+            }
+
+            // Android: the media session (notification, lock screen, Bluetooth buttons).
+            #[cfg(target_os = "android")]
+            {
+                *smtc_tx.lock() = smtc::start(engine.clone(), app.handle().clone());
             }
 
             #[cfg(desktop)]
@@ -569,6 +577,13 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building Undertone")
         .run(|app, event| {
+            // Android closes the window with the screen (swiped away, back button) while music
+            // plays on in the background service: only an explicit exit ends the app there.
+            #[cfg(mobile)]
+            if let tauri::RunEvent::ExitRequested { code: None, api, .. } = &event {
+                api.prevent_exit();
+                return;
+            }
             if let tauri::RunEvent::Exit = event {
                 if let Some(state) = app.try_state::<AppState>() {
                     persist::save_queue(&state.queue_file, &state.engine);

@@ -149,7 +149,7 @@ The private signing key is `%USERPROFILE%\.tauri\resonance-updater.key` (no pass
 
 ## Android (in progress)
 
-A standalone Android build is being added step by step (plan and status: `docs/android-design.md`). It runs today with the library and the full UI, but plays no sound yet: audio output and the media session come next. Needs Android Studio (SDK, NDK 28+; its bundled JDK is used).
+A standalone Android build is being added step by step (plan and status: `docs/android-design.md`). It plays today (AAudio output, background playback with the media notification, lock-screen and Bluetooth controls, pausing for calls), but has no folder picker yet: that comes next. Needs Android Studio (SDK, NDK 28+; its bundled JDK is used).
 
 ```powershell
 . scripts\android-env.ps1                                     # SDK/NDK/JDK and C compilers for this window

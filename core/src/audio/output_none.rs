@@ -1,4 +1,4 @@
-//! Output on platforms without a backend yet (Android gets its AAudio backend in a later step).
+//! Output on platforms other than Windows and Android, which have no backend.
 //! Same API as `output.rs`; opening always fails, so the engine reports an error and stays stopped.
 
 use std::sync::Arc;

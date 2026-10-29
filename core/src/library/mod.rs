@@ -219,6 +219,11 @@ impl Library {
             let Ok(events) = res else { return };
             let mut hit: Vec<i64> = Vec::new();
             for ev in events {
+                // inotify (Linux, Android) also reports reads; a scan reads every file, so reacting
+                // to them would rescan forever. Windows never reports reads.
+                if ev.kind.is_access() {
+                    continue;
+                }
                 for p in &ev.paths {
                     let relevant = model::is_audio_file(p)
                         || p.extension().is_none()
