@@ -1,8 +1,10 @@
-﻿import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Menu } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api } from "./lib/api";
+import { isMobile } from "./lib/platform";
 import { initPlayer, usePlayer } from "./store/player";
 import { initLibrary, useLiveCover } from "./store/library";
 import { initPlaylists, usePlaylists } from "./store/playlists";
@@ -130,6 +132,13 @@ function MainView() {
 export default function App() {
   const searchRef = useRef<HTMLInputElement>(null);
   const viewKey = useUi((s) => JSON.stringify(s.view));
+  const downloadsOpen = useUi((s) => s.downloadsOpen);
+  const [drawer, setDrawer] = useState(false);
+  // Picking a view or opening Downloads in the drawer closes it.
+  useEffect(() => setDrawer(false), [viewKey]);
+  useEffect(() => {
+    if (downloadsOpen) setDrawer(false);
+  }, [downloadsOpen]);
   const art = useArtColors();
   useAppearance(art.playing);
   const showAmbient = usePlayer((s) => s.settings?.appearance.ambient ?? true);
@@ -178,11 +187,37 @@ export default function App() {
   return (
     <div className={`relative isolate flex h-full flex-col text-fg ${backgrounds.skin ? "" : "bg-bg"}`}>
       {backgrounds.skin && <Backdrop backdrop={backgrounds.skin} place="app" scrim="bg" className="absolute inset-0 -z-10" />}
-      <TitleBar>
-        <NavSearch ref={searchRef} />
-      </TitleBar>
+      {isMobile ? (
+        // Phones: no window controls; the sidebar opens as a drawer from here.
+        <div className="flex h-12 shrink-0 items-center gap-2 px-2">
+          <button
+            aria-label="Menu"
+            data-downloads-target={!drawer || undefined}
+            onClick={() => setDrawer(true)}
+            className="rounded-full p-2 text-muted transition-colors hover:bg-hover hover:text-fg"
+          >
+            <Menu size={20} />
+          </button>
+          <NavSearch ref={searchRef} />
+        </div>
+      ) : (
+        <TitleBar>
+          <NavSearch ref={searchRef} />
+        </TitleBar>
+      )}
       <div className="relative flex min-h-0 flex-1 gap-2 px-2">
-        <Sidebar />
+        {isMobile ? (
+          drawer && (
+            <div className="fixed inset-0 z-40 flex" onClick={() => setDrawer(false)}>
+              <div className="flex h-full py-2 pl-2" onClick={(e) => e.stopPropagation()}>
+                <Sidebar />
+              </div>
+              <div className="flex-1 bg-black/50" />
+            </div>
+          )
+        ) : (
+          <Sidebar />
+        )}
         <main className="skin-glass np-hide relative min-w-0 flex-1 overflow-hidden rounded-xl bg-elev">
           {backgrounds.page ? (
             <Backdrop backdrop={backgrounds.page} place="page" scrim="elev" />

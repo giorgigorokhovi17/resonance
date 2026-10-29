@@ -1,7 +1,12 @@
 pub mod commands;
+// Desktop-only features; on phones each has a stand-in with the same API that does nothing.
+#[cfg_attr(mobile, path = "mobile/hotkeys.rs")]
 pub mod hotkeys;
+#[cfg_attr(mobile, path = "mobile/phone.rs")]
 pub mod phone;
+#[cfg_attr(mobile, path = "mobile/island.rs")]
 pub mod island;
+#[cfg_attr(mobile, path = "mobile/smtc.rs")]
 pub mod smtc;
 pub mod sources;
 
@@ -16,7 +21,9 @@ use std::time::Instant;
 
 use crossbeam_channel::Sender;
 use parking_lot::Mutex;
+#[cfg(desktop)]
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+#[cfg(desktop)]
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, WindowEvent};
 
@@ -61,6 +68,7 @@ fn serve_media(app: &AppHandle, uri: &tauri::http::Uri, range: Option<&str>) -> 
     library::media::serve(&path, mime, range).ok()
 }
 
+#[cfg(desktop)]
 /// Shrinks the window to fit the screen's work area and centres it there. On small or scaled
 /// screens the configured size can be taller than the space above the taskbar.
 fn fit_to_work_area(w: &tauri::WebviewWindow) {
@@ -79,6 +87,7 @@ fn fit_to_work_area(w: &tauri::WebviewWindow) {
 }
 
 pub fn show_main(app: &AppHandle) {
+    #[cfg(desktop)]
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.show();
         let _ = w.unminimize();
@@ -111,6 +120,7 @@ fn path_args(args: &[String]) -> Vec<String> {
         .collect()
 }
 
+#[cfg(desktop)]
 fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let toggle = MenuItem::with_id(app, "toggle", "Play / Pause", true, None::<&str>)?;
     let prev = MenuItem::with_id(app, "prev", "Previous", true, None::<&str>)?;
@@ -153,6 +163,7 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info,symphonia=warn,lofty=error"))
         .init();
@@ -160,7 +171,9 @@ pub fn run() {
     // Tauri and the core share one async runtime.
     tauri::async_runtime::set(undertone_core::rt::handle());
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    #[cfg(desktop)]
+    let builder = builder
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             show_main(app);
             let paths = path_args(&args);
@@ -168,11 +181,12 @@ pub fn run() {
                 commands::open_external(app, paths);
             }
         }))
-        .plugin(tauri_plugin_dialog::init())
         // Signed auto-updates from the GitHub Releases feed in tauri.conf.json.
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
-        .plugin(hotkeys::plugin())
+        .plugin(hotkeys::plugin());
+    builder
+        .plugin(tauri_plugin_dialog::init())
         // Album art is served from the local cache through a custom protocol (no network).
         .register_asynchronous_uri_scheme_protocol("cover", |ctx, request, responder| {
             let app = ctx.app_handle().clone();
@@ -321,6 +335,7 @@ pub fn run() {
                         if let Some(item) = &item {
                             let t = &item.track;
                             let artist = if t.artist.is_empty() { t.album_artist.clone() } else { t.artist.clone() };
+                            #[cfg(desktop)]
                             if let Some(tray) = handle.tray_by_id("main") {
                                 let _ = tray.set_tooltip(Some(format!("{} — {}", t.title, artist)));
                             }
@@ -350,6 +365,7 @@ pub fn run() {
             }
 
             // Media overlay + hardware media keys (System Media Transport Controls).
+            #[cfg(desktop)]
             if let Some(window) = app.get_webview_window("main") {
                 fit_to_work_area(&window);
                 if let Ok(hwnd) = window.hwnd() {
@@ -359,6 +375,7 @@ pub fn run() {
                 }
             }
 
+            #[cfg(desktop)]
             if let Err(e) = build_tray(app.handle()) {
                 log::warn!("system tray unavailable: {e}");
             }
@@ -379,9 +396,12 @@ pub fn run() {
             }
 
             // Soulseek stays offline until the user signs in (or saved a sign-in earlier).
+            #[cfg(windows)]
             let credentials = Arc::new(sources::credentials::WindowsCredentials {
                 target: sources::credentials::target_name(&app.config().identifier),
             });
+            #[cfg(not(windows))]
+            let credentials = Arc::new(sources::credentials::NotSaved);
             let soulseek = sources::soulseek::Soulseek::new(ui_events(app.handle()), credentials);
             soulseek.sign_in_saved(s.soulseek.clone());
             // A finished download that was found for an imported playlist entry replaces that

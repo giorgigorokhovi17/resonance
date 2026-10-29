@@ -4,5 +4,5 @@
 pub use undertone_core::sources::*;
 
 pub mod commands;
-#[cfg(windows)]
+#[cfg_attr(not(windows), path = "../mobile/credentials.rs")]
 pub mod credentials;

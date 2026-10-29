@@ -30,7 +30,6 @@ tauri-build = { version = "2", features = [] }
 undertone-core = { path = "../core" }
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-dialog = "2"
-tauri-plugin-single-instance = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 log = "0.4"
@@ -40,16 +39,17 @@ crossbeam-channel = "0.5"
 walkdir = "2"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif", "bmp"] }
 percent-encoding = "2"
+base64 = "0.22"
 
+# Desktop only (the Android app has none of these: docs/android-design.md §0).
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-single-instance = "2"
 # os integration (SMTC / media keys)
 souvlaki = "0.8"
-base64 = "0.22"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
-
 # global play/pause, next, previous and volume shortcuts (hotkeys.rs)
 tauri-plugin-global-shortcut = "2"
-
 # phone sync (phone.rs): the small web server on the home network, the QR code to open it, and
 # playlists as one .zip (stored, no compression; already in the build through another crate)
 tiny_http = "0.12"

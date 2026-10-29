@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { CORNER_SCALE, DEFAULT_APPEARANCE, resolveTheme } from "../lib/theme";
 import { usePlayer } from "../store/player";
+import { isMobile } from "../lib/platform";
 
 /** Whether the app is currently dark, following the theme setting and the Windows theme. */
 export function useIsDark(): boolean {
@@ -36,6 +37,8 @@ export function useAppearance(coverColor: string | null) {
 
   const zoom = a.uiScale;
   useEffect(() => {
+    // Mobile WebViews have no page zoom; phones use the system font size instead.
+    if (isMobile) return;
     getCurrentWebview()
       .setZoom(zoom)
       .catch((e) => console.error("setZoom failed", e));

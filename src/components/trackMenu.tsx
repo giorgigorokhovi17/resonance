@@ -2,6 +2,7 @@ import { FolderOpen, Image, ImageMinus, ImageOff, ImagePlus, ListEnd, ListPlus, 
 import { addToQueue, playNext, playTracks } from "../lib/actions";
 import { api } from "../lib/api";
 import { importCover, importError, pickMedia } from "../lib/mediaImport";
+import { isMobile } from "../lib/platform";
 import type { Track } from "../lib/types";
 import { folderOf, useLibrary } from "../store/library";
 import { usePlayer } from "../store/player";
@@ -100,7 +101,7 @@ export function trackMenuItems(tracks: Track[], opts: { playAll?: () => void; ex
   if (opts.extra?.length) {
     items.push(SEP, ...opts.extra);
   }
-  if (lib.length) {
+  if (lib.length && !isMobile) {
     items.push(SEP, {
       label: lib.length === 1 ? "Delete from disk…" : `Delete ${lib.length} songs from disk…`,
       icon: <Trash2 size={14} />,
