@@ -1,7 +1,7 @@
 # Runs the checks from AGENTS.md on every pull request: the frontend typecheck, the backend
-# warnings check and the Rust tests. Windows only: the crate doesn't build anywhere else.
+# warnings check and the Rust tests on Windows, and the core crate's Android build.
 #
-# The Rust steps take over 10 minutes, so they're skipped when nothing in src-tauri changed
+# The Rust steps take over 10 minutes, so they're skipped when nothing in src-tauri or core changed
 # (version bumps don't count). To run everything anyway, start the workflow by hand
 # (Actions → Checks → Run workflow) or put [full checks] in the pull request's title.
 name: Checks
@@ -52,15 +52,15 @@ jobs:
           if [ -z "$base" ] || ! git rev-parse -q --verify "$base^{commit}" > /dev/null; then
             echo "changed=true" >> "$GITHUB_OUTPUT"; echo "No base to compare with: running everything."; exit 0
           fi
-          files=$(git diff --name-only "$base"...HEAD -- src-tauri)
-          # Version bumps only touch the version line of these three files.
+          files=$(git diff --name-only "$base"...HEAD -- src-tauri core)
+          # Version bumps only touch the version line of these files.
           meta="src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json"
           other=$(echo "$files" | grep -v -x -F -e src-tauri/Cargo.toml -e src-tauri/Cargo.lock -e src-tauri/tauri.conf.json || true)
           meta_lines=$(git diff -U0 "$base"...HEAD -- $meta | grep -E '^[+-][^+-]' | grep -v -E '^[+-][[:space:]]*"?version"?[[:space:]]*[=:]' || true)
           if [ -n "$other" ] || [ -n "$meta_lines" ]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"; echo "Rust side changed:"; echo "$files"
           else
-            echo "changed=false" >> "$GITHUB_OUTPUT"; echo "Nothing in src-tauri changed (besides the version): skipping the Rust steps."
+            echo "changed=false" >> "$GITHUB_OUTPUT"; echo "Nothing in src-tauri or core changed (besides the version): skipping the Rust steps."
           fi
 
       - uses: actions/setup-node@v4
@@ -94,3 +94,39 @@ jobs:
         if: steps.rust.outputs.changed == 'true'
         working-directory: src-tauri
         run: cargo test
+
+  # The core crate (../core) is shared with the Android app (docs/android-design.md), so it must
+  # keep building for Android arm64. The runner's NDK provides the C compilers (SQLite, libopus).
+  android-core:
+    name: Core builds for Android
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CARGO_TERM_COLOR: always
+      RUSTFLAGS: -D warnings
+      # src-tauri/.cargo/config.toml points at a Windows CMake unless CMAKE is set.
+      CMAKE: cmake
+      CMAKE_GENERATOR: Ninja
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: android
+
+      - name: Check the core crate for Android arm64
+        working-directory: src-tauri
+        run: |
+          sudo apt-get install -y ninja-build
+          BIN="$ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          export ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME" ANDROID_NDK_ROOT="$ANDROID_NDK_LATEST_HOME"
+          export CC_aarch64_linux_android="$BIN/aarch64-linux-android34-clang"
+          export CXX_aarch64_linux_android="$BIN/aarch64-linux-android34-clang++"
+          export AR_aarch64_linux_android="$BIN/llvm-ar"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$BIN/aarch64-linux-android34-clang"
+          cargo check -p undertone-core --all-targets --target aarch64-linux-android

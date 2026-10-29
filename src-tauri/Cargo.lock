@@ -3991,35 +3991,19 @@ dependencies = [
 name = "resonance"
 version = "0.7.19"
 dependencies = [
- "anyhow",
  "base64 0.22.1",
- "blake3",
- "cpal",
  "crossbeam-channel",
  "env_logger",
  "image",
  "lofty",
  "log",
- "notify",
- "notify-debouncer-full",
  "parking_lot",
  "percent-encoding",
- "proptest",
  "qrcodegen",
- "quick-xml",
- "rayon",
- "realfft",
- "reqwest",
- "rtrb",
- "rubato",
- "rusqlite",
  "serde",
  "serde_json",
- "sha2",
- "soulseek-rs-lib",
  "souvlaki",
  "symphonia",
- "symphonia-adapter-libopus",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
@@ -4029,10 +4013,8 @@ dependencies = [
  "tauri-plugin-updater",
  "tiny_http",
  "tokio",
- "trash",
- "unicode-normalization",
+ "undertone-core",
  "walkdir",
- "wasapi",
  "windows 0.62.2",
  "zip",
 ]
@@ -5910,6 +5892,44 @@ name = "unarray"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "eaea85b334db583fe3274d12b4cd1880032beab409c0d774be044d4480ab9a94"
+
+[[package]]
+name = "undertone-core"
+version = "0.7.16"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "blake3",
+ "cpal",
+ "crossbeam-channel",
+ "image",
+ "lofty",
+ "log",
+ "notify",
+ "notify-debouncer-full",
+ "parking_lot",
+ "percent-encoding",
+ "proptest",
+ "quick-xml",
+ "rayon",
+ "realfft",
+ "reqwest",
+ "rtrb",
+ "rubato",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "soulseek-rs-lib",
+ "symphonia",
+ "symphonia-adapter-libopus",
+ "tokio",
+ "trash",
+ "unicode-normalization",
+ "walkdir",
+ "wasapi",
+ "windows 0.62.2",
+]
 
 [[package]]
 name = "unicode-ident"

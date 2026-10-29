@@ -5,11 +5,34 @@
 //! memory cards, network shares), when the bin is turned off for the drive, or when the file is
 //! bigger than the bin. Those cases are refused up front instead.
 
+#[cfg(windows)]
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
+#[cfg(windows)]
 use trash::TrashItem;
 
+#[cfg(not(windows))]
+pub fn check_can_recycle(_path: &Path, _size: u64) -> Result<(), String> {
+    Err("Deleting songs from disk is only supported on Windows.".into())
+}
+
+#[cfg(not(windows))]
+pub fn send_to_bin(_path: &Path) -> Result<bool, String> {
+    Err("Deleting songs from disk is only supported on Windows.".into())
+}
+
+#[cfg(not(windows))]
+pub fn restore(_path: &Path, _deleted_at: i64, _was_readonly: bool) -> Result<(), String> {
+    Err("Deleting songs from disk is only supported on Windows.".into())
+}
+
+#[cfg(not(windows))]
+pub fn in_bin(paths: &[(PathBuf, i64)]) -> Vec<bool> {
+    vec![false; paths.len()]
+}
+
+#[cfg(windows)]
 /// Checks the file can go to the Recycle Bin (rather than being deleted for good).
 pub fn check_can_recycle(path: &Path, size: u64) -> Result<(), String> {
     let drive = win::drive(path).ok_or("Can't tell which drive this song is on.")?;
@@ -25,6 +48,7 @@ pub fn check_can_recycle(path: &Path, size: u64) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(windows)]
 /// Sends a file to the Recycle Bin. Clears the read-only mark first (downloads have it) and
 /// returns whether it was set, so a restore can put it back.
 pub fn send_to_bin(path: &Path) -> Result<bool, String> {
@@ -46,6 +70,7 @@ pub fn send_to_bin(path: &Path) -> Result<bool, String> {
     Ok(was_readonly)
 }
 
+#[cfg(windows)]
 /// Puts a deleted file back where it was, from the Recycle Bin.
 pub fn restore(path: &Path, deleted_at: i64, was_readonly: bool) -> Result<(), String> {
     if path.exists() {
@@ -70,12 +95,14 @@ pub fn restore(path: &Path, deleted_at: i64, was_readonly: bool) -> Result<(), S
     Ok(())
 }
 
+#[cfg(windows)]
 /// Which of `paths` are still in the Recycle Bin (by their place in `paths`).
 pub fn in_bin(paths: &[(PathBuf, i64)]) -> Vec<bool> {
     let Ok(items) = trash::os_limited::list() else { return vec![true; paths.len()] };
     paths.iter().map(|(p, at)| pick_item(items.clone(), p, *at).is_some()).collect()
 }
 
+#[cfg(windows)]
 fn set_readonly(path: &Path) {
     if let Ok(meta) = std::fs::metadata(path) {
         let mut perms = meta.permissions();
@@ -84,6 +111,7 @@ fn set_readonly(path: &Path) {
     }
 }
 
+#[cfg(windows)]
 /// The bin item that is the file deleted from `path` around `deleted_at`: same folder and name
 /// (the bin may show names without their extension), the one deleted closest to that time. The
 /// result carries the file's real name, so restoring brings the extension back too.
@@ -98,6 +126,7 @@ fn pick_item(items: Vec<TrashItem>, path: &Path, deleted_at: i64) -> Option<Tras
         .map(|i| TrashItem { name: name.to_owned(), ..i })
 }
 
+#[cfg(windows)]
 mod win {
     use std::os::windows::ffi::OsStrExt;
     use std::path::Path;
@@ -166,7 +195,7 @@ mod win {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, windows))]
 mod tests {
     use super::*;
 

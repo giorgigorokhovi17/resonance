@@ -14,11 +14,10 @@ use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 
-use crate::commands::EqPreset;
 use crate::library::db::{self, Media, TrackArt};
 use crate::library::media::{self, Backdrop, MediaKind};
 use crate::library::Library;
-use crate::settings::Settings;
+use crate::settings::{EqPreset, Settings};
 
 const FORMAT: &str = "resonance-backup";
 const VERSION: u32 = 1;

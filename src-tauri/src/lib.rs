@@ -1,16 +1,12 @@
-﻿pub mod audio;
-pub mod backup;
 pub mod commands;
 pub mod hotkeys;
 pub mod phone;
 pub mod island;
-pub mod library;
-pub mod persist;
-pub mod queue;
-pub mod settings;
-pub mod sleep;
 pub mod smtc;
 pub mod sources;
+
+// The platform-neutral core (../core), under the paths the app and the examples already use.
+pub use undertone_core::{audio, backup, events, library, persist, queue, settings, sleep};
 
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -94,6 +90,14 @@ pub fn show_main(app: &AppHandle) {
     island::main_changed(app);
 }
 
+/// Core events go to the UI as Tauri events of the same name.
+fn ui_events(app: &AppHandle) -> events::Events {
+    let app = app.clone();
+    events::Events::new(move |name, payload| {
+        let _ = app.emit(name, payload);
+    })
+}
+
 /// Audio files/folders passed on the command line ("Open with", drag onto the .exe).
 fn path_args(args: &[String]) -> Vec<String> {
     args.iter()
@@ -152,6 +156,9 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
 pub fn run() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info,symphonia=warn,lofty=error"))
         .init();
+
+    // Tauri and the core share one async runtime.
+    tauri::async_runtime::set(undertone_core::rt::handle());
 
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
@@ -372,7 +379,10 @@ pub fn run() {
             }
 
             // Soulseek stays offline until the user signs in (or saved a sign-in earlier).
-            let soulseek = sources::soulseek::Soulseek::new(app.handle().clone(), &app.config().identifier);
+            let credentials = Arc::new(sources::credentials::WindowsCredentials {
+                target: sources::credentials::target_name(&app.config().identifier),
+            });
+            let soulseek = sources::soulseek::Soulseek::new(ui_events(app.handle()), credentials);
             soulseek.sign_in_saved(s.soulseek.clone());
             // A finished download that was found for an imported playlist entry replaces that
             // entry in every playlist that has it (recorded as the user's choice).
@@ -388,14 +398,14 @@ pub fn run() {
                     }
                 }));
             }
-            let finder = sources::missing::Finder::new(app.handle().clone());
-            let youtube = sources::youtube::YouTube::new(app.handle().clone(), cache_dir.join("tools"), s.youtube.enabled);
+            let finder = sources::missing::Finder::new(ui_events(app.handle()));
+            let youtube = sources::youtube::YouTube::new(ui_events(app.handle()), cache_dir.join("tools"), s.youtube.enabled);
             soulseek.set_youtube(youtube.clone());
             if s.youtube.enabled {
                 youtube.set_enabled(true);
             }
 
-            let sleep = sleep::SleepTimer::new(engine.clone(), app.handle().clone());
+            let sleep = sleep::SleepTimer::new(engine.clone(), ui_events(app.handle()));
             island::set_click_through(s.island_options.click_through);
             if s.island {
                 island::open(app.handle());

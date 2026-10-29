@@ -6,9 +6,24 @@ use windows::Win32::Security::Credentials::{
     CredDeleteW, CredFree, CredReadW, CredWriteW, CREDENTIALW, CRED_FLAGS, CRED_PERSIST_LOCAL_MACHINE, CRED_TYPE_GENERIC,
 };
 
-pub struct Credentials {
-    pub username: String,
-    pub password: String,
+pub use super::soulseek::Credentials;
+use super::soulseek::CredentialStore;
+
+/// The Soulseek sign-in in Credential Manager, under `target_name`.
+pub struct WindowsCredentials {
+    pub target: String,
+}
+
+impl CredentialStore for WindowsCredentials {
+    fn load(&self) -> Option<Credentials> {
+        load(&self.target)
+    }
+    fn save(&self, creds: &Credentials) -> Result<(), String> {
+        save(&self.target, creds)
+    }
+    fn delete(&self) {
+        delete(&self.target)
+    }
 }
 
 /// Credential name. Builds run under another identifier (test runs) get their own entry.

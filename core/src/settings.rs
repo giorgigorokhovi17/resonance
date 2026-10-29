@@ -438,6 +438,14 @@ impl SettingsStore {
     }
 }
 
+/// A saved equalizer setting (Settings → EQ presets, kept in backups).
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct EqPreset {
+    pub name: String,
+    pub eq: EqSettings,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

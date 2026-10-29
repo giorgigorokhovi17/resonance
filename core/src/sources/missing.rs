@@ -23,11 +23,11 @@ use std::time::Duration;
 
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter};
 
 use super::soulseek::model::{format_of, split_remote, FileAttrs, RawResponse};
 use super::soulseek::{ConnState, Soulseek};
 use super::youtube::YouTube;
+use crate::events::Events;
 use crate::library::interchange::TrackRef;
 use crate::library::matcher::normalize::{key, parse_title, readings, tokens, Reading};
 
@@ -295,7 +295,7 @@ pub enum FindMode {
 pub type OnFound = Arc<dyn Fn(&str, &Found) + Send + Sync>;
 
 pub struct Finder {
-    app: AppHandle,
+    events: Events,
     /// Cancel flags of running searches, by playlist.
     running: Mutex<HashMap<i64, Arc<AtomicBool>>>,
     /// Latest result per reference (kept while the app runs, so the screen can come back to it).
@@ -306,9 +306,9 @@ pub struct Finder {
 }
 
 impl Finder {
-    pub fn new(app: AppHandle) -> Arc<Self> {
+    pub fn new(events: Events) -> Arc<Self> {
         Arc::new(Self {
-            app,
+            events,
             running: Mutex::new(HashMap::new()),
             results: Mutex::new(HashMap::new()),
             skipped: Mutex::new(Default::default()),
@@ -347,7 +347,7 @@ impl Finder {
 
     fn set(&self, playlist_id: i64, result: FindResult, done: usize, total: usize, running: bool) {
         self.results.lock().insert(result.ref_key.clone(), result.clone());
-        let _ = self.app.emit("slsk:find", FindProgress { playlist_id, result, done, total, running });
+        self.events.emit("slsk:find", FindProgress { playlist_id, result, done, total, running });
     }
 
     /// Search for each reference, one after another, on a background thread: Soulseek first when
@@ -468,7 +468,7 @@ impl Finder {
                 }
             }
             me.running.lock().remove(&playlist_id);
-            let _ = me.app.emit("slsk:find-done", playlist_id);
+            me.events.emit("slsk:find-done", playlist_id);
         });
         total
     }
