@@ -26,11 +26,14 @@ Run from the repo root unless noted (PowerShell on Windows; pnpm comes through C
 - Matcher speed (in `src-tauri/`): `cargo run --release --example match_bench`
 - Release builds are signed: use `scripts/release.ps1`, not a bare `tauri build`.
 
-Before saying a change works, run the tests and the typecheck, and report the actual output.
+Before saying a change works, run the typecheck, and report the actual output. Run the Rust
+warnings check and tests only when something in `src-tauri/` changed (besides a version bump), or
+when the owner asks: they take over 10 minutes and add nothing for frontend-only changes.
 
-GitHub Actions (`.github/workflows/checks.yml`) runs the typecheck, the warnings check (warnings
-fail it) and the Rust tests on a Windows runner for every pull request and every push to `main`.
-Don't merge a pull request whose checks fail.
+GitHub Actions (`.github/workflows/checks.yml`) runs the typecheck on a Windows runner for every
+pull request and every push to `main`, and the warnings check (warnings fail it) and the Rust tests
+when `src-tauri/` changed. Put `[full checks]` in a pull request's title, or start the workflow by
+hand, to run everything. Don't merge a pull request whose checks fail.
 
 ## Platform
 
