@@ -2,6 +2,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { Download, FolderOpen, Loader2, LogOut, RotateCcw, Search, Square, X } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 import { api } from "../lib/api";
+import { flyToDownloads } from "../lib/fly";
 import { fmtRate, fmtTime } from "../lib/format";
 import type { SlskFile, SlskFolder, SlskJob, SlskSettingsView, SlskUser } from "../lib/types";
 import { usePlayer } from "../store/player";
@@ -355,10 +356,12 @@ function UserResults({ user }: { user: SlskUser }) {
 
 function FolderResults({ user, folder }: { user: SlskUser; folder: SlskFolder }) {
   const toast = usePlayer((s) => s.pushToast);
-  const get = async (files: SlskFile[]) => {
+  const get = async (files: SlskFile[], from: Element) => {
+    const rect = from.getBoundingClientRect();
     try {
       const n = await api.slskDownload(files.map((f) => ({ username: user.username, path: f.path, size: f.size })));
       if (n === 0) toast("info", "Already in the download queue.");
+      else flyToDownloads(rect, n);
     } catch (e) {
       toast("error", String(e));
     }
@@ -373,7 +376,7 @@ function FolderResults({ user, folder }: { user: SlskUser; folder: SlskFolder })
           {shortFolder(folder.path)}
         </span>
         {folder.files.length > 1 && (
-          <button className="flex shrink-0 items-center gap-1 text-faint hover:text-accent" onClick={() => get(folder.files)}>
+          <button className="flex shrink-0 items-center gap-1 text-faint hover:text-accent" onClick={(e) => get(folder.files, e.currentTarget)}>
             <Download size={13} /> All {folder.files.length} · {fmtBytes(total)}
           </button>
         )}
@@ -387,7 +390,7 @@ function FolderResults({ user, folder }: { user: SlskUser; folder: SlskFolder })
           <span className="w-28 shrink-0 text-right text-faint">{quality(f)}</span>
           <span className="w-12 shrink-0 text-right tabular-nums text-faint">{f.length ? fmtTime(f.length) : ""}</span>
           <span className="w-16 shrink-0 text-right tabular-nums text-faint">{fmtBytes(f.size)}</span>
-          <button aria-label={`Download ${f.name}`} title="Download" className="shrink-0 text-faint hover:text-accent" onClick={() => get([f])}>
+          <button aria-label={`Download ${f.name}`} title="Download" className="shrink-0 text-faint hover:text-accent" onClick={(e) => get([f], e.currentTarget)}>
             <Download size={14} />
           </button>
         </div>

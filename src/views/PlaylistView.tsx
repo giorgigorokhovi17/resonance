@@ -1,5 +1,5 @@
 import { save } from "@tauri-apps/plugin-dialog";
-import { AlertTriangle, AudioLines, Download, FileOutput, GripVertical, ListChecks, ListMusic, MoreHorizontal, Pause, Pencil, Play, Shuffle, Trash2, X } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, AudioLines, Download, FileOutput, GripVertical, ListChecks, ListMusic, MoreHorizontal, Pause, Pencil, Pin, PinOff, Play, Shuffle, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { openMenu, SEP, type MenuItem } from "../components/ContextMenu";
 import { Cover } from "../components/Cover";
@@ -17,7 +17,7 @@ import { displayArtist, fmtDuration, fmtTime } from "../lib/format";
 import type { Playlist, PlaylistDetail, PlaylistEntry } from "../lib/types";
 import { liveCoverId, longEnough, useLibrary } from "../store/library";
 import { usePlayer } from "../store/player";
-import { usePlaylists } from "../store/playlists";
+import { movePlaylist, setPinned, usePlaylists } from "../store/playlists";
 import { useUi } from "../store/ui";
 
 const toastErr = (e: unknown) => usePlayer.getState().pushToast("error", String(e));
@@ -65,9 +65,19 @@ export async function exportUnmatchedReport(p: Playlist) {
 }
 
 export function playlistItemMenu(p: Playlist): MenuItem[] {
+  const all = usePlaylists.getState().playlists;
+  const at = all.findIndex((x) => x.id === p.id);
+  // Moving up or down stays among the pinned (or unpinned) ones; pinning changes groups.
+  const canUp = at > 0 && all[at - 1].pinned === p.pinned;
+  const canDown = at >= 0 && at < all.length - 1 && all[at + 1].pinned === p.pinned;
   return [
     { label: "Play", icon: <Play size={14} />, onClick: () => playPlaylist(p.id, 0, false) },
     { label: "Edit details…", icon: <Pencil size={14} />, onClick: () => openPlaylistEditor(p) },
+    p.pinned
+      ? { label: "Unpin", icon: <PinOff size={14} />, onClick: () => setPinned(p, false) }
+      : { label: "Pin to top", icon: <Pin size={14} />, onClick: () => setPinned(p, true) },
+    ...(canUp ? [{ label: "Move up", icon: <ArrowUp size={14} />, onClick: () => movePlaylist(at, at - 1) }] : []),
+    ...(canDown ? [{ label: "Move down", icon: <ArrowDown size={14} />, onClick: () => movePlaylist(at, at + 1) }] : []),
     { label: "Export playlist…", icon: <FileOutput size={14} />, onClick: () => exportPlaylist(p) },
     ...(p.source
       ? [

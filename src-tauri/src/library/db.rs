@@ -204,6 +204,10 @@ fn migrate(conn: &Connection) -> Result<()> {
             deleted_at INTEGER NOT NULL
          );",
     )?;
+    // v10: pinned playlists stay on top of the sidebar, and the user can move playlists around.
+    // `sort_order` NULL means never moved: those keep sorting by name, after the moved ones.
+    add_column(conn, "playlists", "pinned", "INTEGER NOT NULL DEFAULT 0")?;
+    add_column(conn, "playlists", "sort_order", "INTEGER")?;
     Ok(())
 }
 
@@ -590,15 +594,19 @@ pub struct Playlist {
     /// Import source ("m3u", "xspf", …) and its id there; `None` for playlists made in the app.
     pub source: Option<String>,
     pub source_id: Option<String>,
+    /// Kept at the top of the sidebar.
+    pub pinned: bool,
 }
 
+/// Pinned first, then the order the user moved them into, then by name.
 pub fn playlists(conn: &Connection) -> Result<Vec<Playlist>> {
     let mut stmt = conn.prepare(
         "SELECT p.id, p.name, p.created_at, p.updated_at,
                 (SELECT COUNT(*) FROM playlist_items i WHERE i.playlist_id = p.id),
                 p.description, p.cover_id, p.source, p.source_id, p.motion_id,
-                p.background_id, p.background_fit, p.background_dim, p.background_blur
-         FROM playlists p ORDER BY p.name COLLATE NOCASE",
+                p.background_id, p.background_fit, p.background_dim, p.background_blur, p.pinned
+         FROM playlists p
+         ORDER BY p.pinned DESC, p.sort_order IS NULL, p.sort_order, p.name COLLATE NOCASE",
     )?;
     let mut rows = stmt
         .query_map([], |r| {
@@ -618,6 +626,7 @@ pub fn playlists(conn: &Connection) -> Result<Vec<Playlist>> {
                 preview_covers: Vec::new(),
                 source: r.get(7)?,
                 source_id: r.get(8)?,
+                pinned: r.get::<_, i64>(14)? != 0,
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;
@@ -646,6 +655,25 @@ pub fn update_playlist(conn: &Connection, id: i64, name: &str, description: &str
         "UPDATE playlists SET name = ?2, description = ?3, updated_at = ?4 WHERE id = ?1",
         params![id, name, description, now()],
     )?;
+    Ok(())
+}
+
+pub fn set_playlist_pinned(conn: &Connection, id: i64, pinned: bool) -> Result<()> {
+    conn.execute("UPDATE playlists SET pinned = ?2 WHERE id = ?1", params![id, pinned as i64])?;
+    Ok(())
+}
+
+/// Store the sidebar order: `ids` in the order shown. Playlists not listed keep their place
+/// after these (by name).
+pub fn set_playlist_order(conn: &mut Connection, ids: &[i64]) -> Result<()> {
+    let tx = conn.transaction()?;
+    {
+        let mut stmt = tx.prepare_cached("UPDATE playlists SET sort_order = ?2 WHERE id = ?1")?;
+        for (i, id) in ids.iter().enumerate() {
+            stmt.execute(params![id, i as i64])?;
+        }
+    }
+    tx.commit()?;
     Ok(())
 }
 
@@ -1020,6 +1048,32 @@ mod tests {
         assert_eq!(saved_lyrics(&conn, r"C:\Music\a.flac").unwrap(), None);
         let n: i64 = conn.query_row("SELECT COUNT(*) FROM plays", [], |r| r.get(0)).unwrap();
         assert_eq!(n, 0);
+        drop(conn);
+        remove_db(file);
+    }
+
+    #[test]
+    fn playlist_pin_and_order_columns_migrate() {
+        let (mut conn, file) =
+            reopen_after("v10", "ALTER TABLE playlists DROP COLUMN pinned; ALTER TABLE playlists DROP COLUMN sort_order;");
+        let old = playlists(&conn).unwrap();
+        assert_eq!((old[0].name.as_str(), old[0].pinned), ("Old", false), "older playlists are kept, unpinned");
+        assert!(columns(&conn, "playlists").contains(&"sort_order".to_string()));
+
+        let b = create_playlist(&conn, "B").unwrap();
+        let a = create_playlist(&conn, "A").unwrap();
+        let names = |c: &Connection| playlists(c).unwrap().into_iter().map(|p| p.name).collect::<Vec<_>>();
+        assert_eq!(names(&conn), ["A", "B", "Old"], "never moved: by name");
+
+        set_playlist_order(&mut conn, &[b, a]).unwrap();
+        assert_eq!(names(&conn), ["B", "A", "Old"], "moved ones first, the rest by name after them");
+
+        set_playlist_pinned(&conn, a, true).unwrap();
+        let ps = playlists(&conn).unwrap();
+        assert_eq!((ps[0].name.as_str(), ps[0].pinned), ("A", true), "pinned on top");
+        assert_eq!(names(&conn), ["A", "B", "Old"]);
+        set_playlist_pinned(&conn, a, false).unwrap();
+        assert_eq!(names(&conn), ["B", "A", "Old"], "unpinning puts it back where it was");
         drop(conn);
         remove_db(file);
     }

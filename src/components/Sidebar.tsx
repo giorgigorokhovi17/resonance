@@ -41,29 +41,74 @@ function NavItem({
   );
 }
 
-/** Opens the Downloads panel (Soulseek searches and downloads), with a count of active work. */
-function DownloadsItem() {
-  const open = useUi((s) => s.downloadsOpen);
-  const toggle = useUi((s) => s.toggleDownloads);
-  const badge = useDownloadsBadge();
+/** A square icon button for the bottom row, which keeps the room above for playlists. */
+function IconItem({
+  icon,
+  label,
+  active,
+  onClick,
+  badge,
+  target,
+}: {
+  icon: ReactNode;
+  label: string;
+  active: boolean;
+  onClick: () => void;
+  badge?: number;
+  /** Where the fly-to-Downloads animation lands. */
+  target?: boolean;
+}) {
   return (
-    <div
-      onClick={toggle}
-      role="button"
-      aria-pressed={open}
-      className={`group flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-[13.5px] transition-colors duration-200 ${
-        open ? "bg-hover font-semibold text-fg" : "text-muted hover:text-fg"
+    <button
+      onClick={onClick}
+      aria-label={label}
+      aria-pressed={active}
+      title={label}
+      data-downloads-target={target || undefined}
+      className={`relative flex h-9 flex-1 items-center justify-center rounded-lg transition-colors duration-200 ${
+        active ? "bg-hover text-accent" : "text-muted hover:bg-hover/70 hover:text-fg"
       }`}
     >
-      <span className={`transition-colors duration-200 ${open ? "text-accent" : ""}`}>
-        <ArrowDownToLine size={18} />
-      </span>
-      <span className="flex-1">Downloads</span>
-      {badge > 0 && (
-        <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-accent px-1.5 text-[11px] font-bold text-black">
+      {icon}
+      {!!badge && badge > 0 && (
+        <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-bold text-black">
           {badge > 99 ? "99+" : badge}
         </span>
       )}
+    </button>
+  );
+}
+
+/** Downloads, Queue, Equalizer, Settings and Donate as one row of icons. */
+function BottomBar() {
+  const view = useUi((s) => s.view);
+  const nowPlaying = useUi((s) => s.nowPlaying);
+  const setView = useUi((s) => s.setView);
+  const downloadsOpen = useUi((s) => s.downloadsOpen);
+  const toggleDownloads = useUi((s) => s.toggleDownloads);
+  const badge = useDownloadsBadge();
+  const on = (kind: View["kind"]) => !nowPlaying && view.kind === kind;
+  return (
+    <div className="flex items-center gap-1 border-t border-line/60 px-2 py-2">
+      <IconItem
+        icon={<ArrowDownToLine size={18} />}
+        label={badge > 0 ? `Downloads (${badge} active)` : "Downloads"}
+        active={downloadsOpen}
+        onClick={toggleDownloads}
+        badge={badge}
+        target
+      />
+      <IconItem icon={<ListOrdered size={18} />} label="Queue" active={on("queue")} onClick={() => setView({ kind: "queue" })} />
+      <IconItem icon={<SlidersHorizontal size={18} />} label="Equalizer" active={on("eq")} onClick={() => setView({ kind: "eq" })} />
+      <IconItem icon={<Settings2 size={18} />} label="Settings" active={on("settings")} onClick={() => setView({ kind: "settings" })} />
+      <button
+        onClick={() => api.openUrl(DONATE_URL).catch((e) => usePlayer.getState().pushToast("error", String(e)))}
+        aria-label="Donate"
+        title={`Support Undertone (${DONATE_URL.replace("https://", "")})`}
+        className="group flex h-9 flex-1 items-center justify-center rounded-lg ring-1 ring-line/70 transition-colors duration-200 hover:bg-hover"
+      >
+        <Heart size={18} className="text-[#ef5b8a] transition-transform duration-200 group-hover:scale-110" />
+      </button>
     </div>
   );
 }
@@ -100,24 +145,11 @@ export function Sidebar() {
 
       <div className="mx-4 my-2 h-px bg-line/70" />
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+      <div className="min-h-0 flex-1">
         <PlaylistNav />
       </div>
 
-      <div className="flex flex-col gap-0.5 border-t border-line/60 px-2 py-2">
-        <DownloadsItem />
-        <NavItem icon={<ListOrdered size={18} />} label="Queue" view={{ kind: "queue" }} match={["queue"]} />
-        <NavItem icon={<SlidersHorizontal size={18} />} label="Equalizer" view={{ kind: "eq" }} match={["eq"]} />
-        <NavItem icon={<Settings2 size={18} />} label="Settings" view={{ kind: "settings" }} match={["settings"]} />
-        <button
-          onClick={() => api.openUrl(DONATE_URL).catch((e) => usePlayer.getState().pushToast("error", String(e)))}
-          title={`Support Undertone (${DONATE_URL.replace("https://", "")})`}
-          className="group mt-1 flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[13.5px] text-muted ring-1 ring-line/70 transition-colors duration-200 hover:bg-hover hover:text-fg"
-        >
-          <Heart size={18} className="text-[#ef5b8a] transition-transform duration-200 group-hover:scale-110" />
-          <span className="flex-1 text-left">Donate</span>
-        </button>
-      </div>
+      <BottomBar />
     </nav>
   );
 }
