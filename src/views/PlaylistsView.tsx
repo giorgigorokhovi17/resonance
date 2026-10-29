@@ -1,4 +1,3 @@
-import { open } from "@tauri-apps/plugin-dialog";
 import { FileInput, Link2, Play, Plus } from "lucide-react";
 import { openMenu } from "../components/ContextMenu";
 import { SecondaryButton } from "../components/EmptyState";
@@ -7,6 +6,7 @@ import { openPlaylistEditor } from "../components/PlaylistEditor";
 import { openLinkImport } from "../components/LinkImportDialog";
 import { ViewHeader } from "../components/ViewHeader";
 import { api } from "../lib/api";
+import { pickFiles } from "../lib/files";
 import type { Playlist } from "../lib/types";
 import { usePlayer } from "../store/player";
 import { usePlaylists } from "../store/playlists";
@@ -14,7 +14,7 @@ import { useUi } from "../store/ui";
 import { playlistItemMenu, playPlaylist } from "./PlaylistView";
 
 export async function importPlaylist() {
-  const picked = await open({
+  const picked = await pickFiles({
     multiple: true,
     title: "Import playlist",
     filters: [
@@ -22,8 +22,7 @@ export async function importPlaylist() {
       { name: "Undertone CSV export", extensions: ["csv"] },
     ],
   });
-  if (!picked) return;
-  for (const p of Array.isArray(picked) ? picked : [picked]) {
+  for (const p of picked) {
     try {
       const r = await api.importPlaylist(p);
       const notes = [

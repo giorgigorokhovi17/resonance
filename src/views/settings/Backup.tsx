@@ -1,9 +1,9 @@
-import { open, save } from "@tauri-apps/plugin-dialog";
 import { ArchiveRestore, Download } from "lucide-react";
 import { useState } from "react";
 import { confirmDialog } from "../../components/Dialog";
 import { SecondaryButton } from "../../components/EmptyState";
 import { api } from "../../lib/api";
+import { pickFiles, saveFile } from "../../lib/files";
 import type { RestoreSummary } from "../../lib/types";
 import { usePlayer } from "../../store/player";
 import { Section } from "../SettingsView";
@@ -42,15 +42,18 @@ export function BackupSection() {
 
   const doExport = async () => {
     const date = new Date().toISOString().slice(0, 10);
-    const path = await save({
-      title: "Save Undertone backup",
-      defaultPath: `Undertone ${date}.${EXT}`,
-      filters: [{ name: "Undertone backup", extensions: [EXT] }],
-    });
-    if (!path) return;
     setBusy("export");
     try {
-      const s = await api.exportBackup(path, uiPrefs());
+      const saved = await saveFile(
+        {
+          title: "Save Undertone backup",
+          name: `Undertone ${date}.${EXT}`,
+          filters: [{ name: "Undertone backup", extensions: [EXT] }],
+        },
+        (path) => api.exportBackup(path, uiPrefs()),
+      );
+      if (!saved) return;
+      const s = saved.result;
       const media = s.media ? `, ${plural(s.media, "custom media file")}` : "";
       const left = s.mediaSkipped ? ` ${plural(s.mediaSkipped, "large media file was", "large media files were")} left out.` : "";
       toast(
@@ -65,12 +68,12 @@ export function BackupSection() {
   };
 
   const doImport = async () => {
-    const path = await open({
+    const [path] = await pickFiles({
       multiple: false,
       title: "Restore Undertone backup",
       filters: [{ name: "Undertone backup", extensions: [EXT, "json"] }],
     });
-    if (!path || Array.isArray(path)) return;
+    if (!path) return;
     const ok = await confirmDialog(
       "Restore this backup?",
       "Playlists with the same name are replaced, EQ presets and settings are overwritten, and library folders from the backup are added if they exist on this PC. Your music files are not touched.",

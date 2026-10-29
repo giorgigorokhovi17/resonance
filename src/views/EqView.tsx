@@ -1,10 +1,10 @@
-import { open } from "@tauri-apps/plugin-dialog";
 import { FileInput, RotateCcw, Save, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { confirmDialog, promptText } from "../components/Dialog";
 import { SecondaryButton } from "../components/EmptyState";
 import { api } from "../lib/api";
 import { BUILTIN_PRESETS, bandActive, curve, effectivePreamp, flatEq, maxResponseDb } from "../lib/eqmath";
+import { pickFiles } from "../lib/files";
 import type { EqBand, EqPreset, EqSettings, FilterType } from "../lib/types";
 import { usePlayer } from "../store/player";
 import { HeadphoneFinder } from "./eq/HeadphoneFinder";
@@ -318,12 +318,12 @@ export function EqView() {
   };
 
   const importAutoEq = async () => {
-    const picked = await open({
+    const [picked] = await pickFiles({
       multiple: false,
       title: "Import AutoEQ ParametricEQ.txt",
       filters: [{ name: "AutoEQ / Equalizer APO", extensions: ["txt"] }],
     });
-    if (!picked || Array.isArray(picked)) return;
+    if (!picked) return;
     try {
       const r = await api.importAutoEq(picked);
       update(r.eq);

@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 use std::path::Path;
 
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::audio::engine::{Command, PlayerStatus, MAX_CROSSFADE};
 use crate::audio::eq::EqSettings;
@@ -190,6 +190,48 @@ pub async fn pick_music_folder() -> CmdResult<Option<String>> {
     #[cfg(not(target_os = "android"))]
     {
         Err("Only the Android app has this picker.".into())
+    }
+}
+
+/// Android: the system file picker. Returns the paths of copies in the app's cache (documents
+/// there aren't files the app can open by path). Desktop uses the dialog plugin instead.
+#[tauri::command]
+pub async fn pick_files(multiple: bool) -> CmdResult<Vec<String>> {
+    #[cfg(target_os = "android")]
+    {
+        tauri::async_runtime::spawn_blocking(move || crate::android_library::pick_files(multiple)).await.map_err(err)?
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = multiple;
+        Err("Only the Android app has this picker.".into())
+    }
+}
+
+/// Android: where to write an export before `export_file` copies it out (in the app's cache).
+#[tauri::command]
+pub fn export_path(app: AppHandle, name: String) -> CmdResult<String> {
+    let safe: String = name.chars().map(|c| if c == '/' || c == '\\' || c.is_control() { '_' } else { c }).collect();
+    let dir = app.path().app_cache_dir().map_err(err)?.join("export");
+    std::fs::create_dir_all(&dir).map_err(err)?;
+    Ok(dir.join(safe).to_string_lossy().to_string())
+}
+
+/// Android: opens the system "save as" screen for `name` and copies the file at `path` there.
+/// False when cancelled. The cache copy is removed either way.
+#[tauri::command]
+pub async fn export_file(path: String, name: String) -> CmdResult<bool> {
+    #[cfg(target_os = "android")]
+    {
+        let p = path.clone();
+        let saved = tauri::async_runtime::spawn_blocking(move || crate::android_library::export_file(&p, &name)).await.map_err(err)?;
+        let _ = std::fs::remove_file(&path);
+        saved
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = (path, name);
+        Err("Only the Android app has this screen.".into())
     }
 }
 
