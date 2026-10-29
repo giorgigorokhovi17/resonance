@@ -1,5 +1,9 @@
 # Runs the checks from AGENTS.md on every pull request: the frontend typecheck, the backend
 # warnings check and the Rust tests. Windows only: the crate doesn't build anywhere else.
+#
+# The Rust steps take over 10 minutes, so they're skipped when nothing in src-tauri changed
+# (version bumps don't count). To run everything anyway, start the workflow by hand
+# (Actions → Checks → Run workflow) or put [full checks] in the pull request's title.
 name: Checks
 
 on:
@@ -29,6 +33,35 @@ jobs:
       CMAKE: cmake
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Did the Rust code change?
+        id: rust
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          TITLE: ${{ github.event.pull_request.title }}
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [ "$EVENT" = workflow_dispatch ] || [[ "$TITLE" == *"[full checks]"* ]]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"; echo "Full checks requested."; exit 0
+          fi
+          if [ "$EVENT" = pull_request ]; then base="origin/$BASE_REF"; else base="$BEFORE"; fi
+          if [ -z "$base" ] || ! git rev-parse -q --verify "$base^{commit}" > /dev/null; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"; echo "No base to compare with: running everything."; exit 0
+          fi
+          files=$(git diff --name-only "$base"...HEAD -- src-tauri)
+          # Version bumps only touch the version line of these three files.
+          meta="src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json"
+          other=$(echo "$files" | grep -v -x -F -e src-tauri/Cargo.toml -e src-tauri/Cargo.lock -e src-tauri/tauri.conf.json || true)
+          meta_lines=$(git diff -U0 "$base"...HEAD -- $meta | grep -E '^[+-][^+-]' | grep -v -E '^[+-][[:space:]]*"?version"?[[:space:]]*[=:]' || true)
+          if [ -n "$other" ] || [ -n "$meta_lines" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"; echo "Rust side changed:"; echo "$files"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"; echo "Nothing in src-tauri changed (besides the version): skipping the Rust steps."
+          fi
 
       - uses: actions/setup-node@v4
         with:
@@ -45,15 +78,19 @@ jobs:
         run: corepack pnpm exec vite build
 
       - uses: dtolnay/rust-toolchain@stable
+        if: steps.rust.outputs.changed == 'true'
 
       - uses: Swatinem/rust-cache@v2
+        if: steps.rust.outputs.changed == 'true'
         with:
           workspaces: src-tauri
 
       - name: Warnings check
+        if: steps.rust.outputs.changed == 'true'
         working-directory: src-tauri
         run: cargo check --all-targets
 
       - name: Rust tests
+        if: steps.rust.outputs.changed == 'true'
         working-directory: src-tauri
         run: cargo test
