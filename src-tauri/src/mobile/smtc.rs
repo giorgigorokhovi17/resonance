@@ -65,6 +65,30 @@ pub fn start(engine: Arc<Engine>, app: AppHandle) -> Option<Sender<SmtcUpdate>> 
     Some(tx)
 }
 
+/// Runs `f` with a JNI environment and the NativeBridge class, on any thread. None until Kotlin
+/// has registered, or when the call fails (a Java exception is logged and cleared).
+pub fn with_bridge<T>(f: impl FnOnce(&mut JNIEnv, &JClass) -> jni::errors::Result<T>) -> Option<T> {
+    let bridge = BRIDGE.get()?;
+    let mut env = bridge.vm.attach_current_thread_permanently().ok()?;
+    let class: &JClass = bridge.class.as_obj().into();
+    // A frame per call: threads stay attached, so local references must not pile up.
+    let res = env.with_local_frame(16, |env| f(env, class));
+    if let Err(e) = &res {
+        if env.exception_check().unwrap_or(false) {
+            let _ = env.exception_describe();
+            let _ = env.exception_clear();
+        }
+        log::warn!("call into the app failed: {e}");
+    }
+    res.ok()
+}
+
+/// Calls a static `()V` method of NativeBridge (e.g. "pickMusicFolder").
+pub fn call_static(method: &str) -> Result<(), String> {
+    with_bridge(|env, class| env.call_static_method(class, method, "()V", &[]).map(|_| ()))
+        .ok_or_else(|| format!("{method} isn't available yet."))
+}
+
 fn publish(update: &SmtcUpdate) {
     let Some(bridge) = BRIDGE.get() else { return };
     let Ok(mut env) = bridge.vm.attach_current_thread_permanently() else { return };

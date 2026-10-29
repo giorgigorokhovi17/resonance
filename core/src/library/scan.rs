@@ -1,4 +1,4 @@
-﻿//! Incremental, parallel folder scanning.
+//! Incremental, parallel folder scanning.
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -11,7 +11,7 @@ use rayon::prelude::*;
 use serde::Serialize;
 use walkdir::WalkDir;
 
-use super::covers::{find_folder_image, CoverCache};
+use super::covers::{read_folder_image, CoverCache};
 use super::db::{self, Folder};
 use super::model::{is_audio_file, Track};
 use super::tags::read_track;
@@ -189,10 +189,8 @@ pub fn scan_folder(
                 }
             }
             if cover.is_none() {
-                if let Some(img) = find_folder_image(Path::new(&key.0)) {
-                    if let Ok(bytes) = std::fs::read(&img) {
-                        cover = covers.store(&bytes);
-                    }
+                if let Some(bytes) = read_folder_image(Path::new(&key.0)) {
+                    cover = covers.store(&bytes);
                 }
             }
             (idxs.clone(), cover)

@@ -179,6 +179,20 @@ pub fn get_library_folders(state: State<'_, AppState>) -> CmdResult<Vec<Folder>>
     state.library.folders().map_err(err)
 }
 
+/// Android: asks for the audio permission if needed and opens the system folder picker. Returns
+/// the picked folder's path, or None when cancelled. Desktop uses the dialog plugin instead.
+#[tauri::command]
+pub async fn pick_music_folder() -> CmdResult<Option<String>> {
+    #[cfg(target_os = "android")]
+    {
+        tauri::async_runtime::spawn_blocking(crate::android_library::pick_folder).await.map_err(err)?
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        Err("Only the Android app has this picker.".into())
+    }
+}
+
 #[tauri::command]
 pub fn add_library_folder(state: State<'_, AppState>, path: String) -> CmdResult<Vec<Folder>> {
     let p = Path::new(&path);

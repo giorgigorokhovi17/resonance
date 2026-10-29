@@ -2,6 +2,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { FolderOpen, FolderPlus, RefreshCw, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../../lib/api";
+import { isMobile } from "../../lib/platform";
 import type { LibraryFolder } from "../../lib/types";
 import { useLibrary } from "../../store/library";
 import { usePlayer } from "../../store/player";
@@ -19,7 +20,14 @@ export function LibraryFoldersSection() {
   }, [scanning, trackCount]);
 
   const add = async () => {
-    const picked = await open({ directory: true, multiple: true, title: "Add music folder" });
+    let picked: string | string[] | null;
+    try {
+      // Android: the system folder picker (after asking for access to music and audio).
+      picked = isMobile ? await api.pickMusicFolder() : await open({ directory: true, multiple: true, title: "Add music folder" });
+    } catch (e) {
+      toast("error", String(e));
+      return;
+    }
     if (!picked) return;
     for (const p of Array.isArray(picked) ? picked : [picked]) {
       try {
