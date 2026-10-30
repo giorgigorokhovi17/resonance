@@ -50,6 +50,16 @@ export async function movePlaylist(from: number, to: number) {
   }
 }
 
+export async function setHidden(p: Playlist, hidden: boolean) {
+  usePlaylists.setState((s) => ({ playlists: s.playlists.map((x) => (x.id === p.id ? { ...x, hidden } : x)) }));
+  try {
+    await api.setPlaylistHidden(p.id, hidden);
+  } catch (e) {
+    toastErr(e);
+    usePlaylists.getState().load();
+  }
+}
+
 /** Pinning puts the playlist at the bottom of the pinned ones; unpinning, at the top of the rest. */
 export async function setPinned(p: Playlist, pinned: boolean) {
   const list = usePlaylists.getState().playlists.filter((x) => x.id !== p.id);

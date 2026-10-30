@@ -28,8 +28,9 @@ use tauri::{AppHandle, Emitter};
 use super::soulseek::model::{format_of, split_remote, FileAttrs, RawResponse};
 use super::soulseek::{ConnState, Soulseek};
 use super::youtube::YouTube;
-use crate::library::interchange::TrackRef;
+use crate::library::interchange::{track_ref_from_track, TrackRef};
 use crate::library::matcher::normalize::{key, parse_title, readings, tokens, Reading};
+use crate::library::model::Track;
 
 /// How long each search collects answers.
 const SEARCH_WINDOW: Duration = Duration::from_secs(10);
@@ -37,6 +38,9 @@ const SEARCH_WINDOW: Duration = Duration::from_secs(10);
 const BETWEEN_SEARCHES: Duration = Duration::from_millis(1500);
 const LENGTH_TOLERANCE_S: f64 = 3.0;
 const KEEP: usize = 3;
+/// Start of a key that stands for a local file to replace ("upgrade:<path>") instead of a playlist
+/// reference, in searches and downloads.
+pub const UPGRADE_KEY: &str = "upgrade:";
 
 /// One acceptable file.
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -240,6 +244,16 @@ pub fn rank(r: &TrackRef, responses: &[RawResponse]) -> Vec<Found> {
 
 fn wanted_has_no_dash(title: &str) -> bool {
     !parse_title(title).main.contains(" - ")
+}
+
+/// What to search for to replace a YouTube download: the playlist's reference when it came from
+/// one, otherwise the file's own tags. The same rules apply as for a missing song.
+pub fn upgrade_ref(track: &Track, stored: Option<TrackRef>) -> TrackRef {
+    let own = track_ref_from_track(track);
+    match stored.filter(|r| !r.title.is_empty()) {
+        Some(r) => TrackRef { duration_ms: r.duration_ms.or(own.duration_ms), ..r },
+        None => own,
+    }
 }
 
 // ---- runner -----------------------------------------------------------------------------------
@@ -550,6 +564,15 @@ mod tests {
         assert_eq!((found[3].username.as_str(), found[3].size), ("d", 19_000_000), "smallest added as a 4th choice");
         // When the smallest is already among the best three, nothing is added.
         assert_eq!(rank(&want, &answers[..3]).len(), 3);
+    }
+
+    #[test]
+    fn upgrades_search_for_the_playlists_song_or_the_files_tags() {
+        let t = Track { title: "Dark Red".into(), artist: "Steve Lacy".into(), duration: 173.2, ..Default::default() };
+        let own = upgrade_ref(&t, None);
+        assert_eq!((own.title.as_str(), own.artists.as_slice(), own.duration_ms), ("Dark Red", &["Steve Lacy".to_string()][..], Some(173_200)));
+        let stored = upgrade_ref(&t, Some(r("Dark Red (Official Audio)", &["Steve Lacy"], None)));
+        assert_eq!((stored.title.as_str(), stored.duration_ms), ("Dark Red (Official Audio)", Some(173_200)), "the file's length fills the gap");
     }
 
     #[test]

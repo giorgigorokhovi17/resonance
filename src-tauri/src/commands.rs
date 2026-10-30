@@ -438,6 +438,8 @@ pub struct PlaylistEntry {
     pub missing: bool,
     /// The imported reference this entry came from, if any (for review and Soulseek search).
     pub ref_key: Option<String>,
+    /// One of our YouTube downloads, so a better copy can be looked for on Soulseek.
+    pub from_youtube: bool,
 }
 
 #[derive(serde::Serialize)]
@@ -523,7 +525,8 @@ pub async fn get_playlist(state: State<'_, AppState>, id: i64) -> CmdResult<Play
                         track.duration = r.duration_ms.map(|ms| ms as f64 / 1000.0).unwrap_or(0.0);
                     }
                 }
-                PlaylistEntry { track, missing, ref_key }
+                let from_youtube = !missing && crate::sources::youtube::is_download(&track.path);
+                PlaylistEntry { track, missing, ref_key, from_youtube }
             })
             .collect();
         Ok(PlaylistDetail { playlist, entries })
@@ -919,6 +922,14 @@ pub fn update_playlist(app: AppHandle, state: State<'_, AppState>, id: i64, name
 #[tauri::command]
 pub fn set_playlist_pinned(app: AppHandle, state: State<'_, AppState>, id: i64, pinned: bool) -> CmdResult<()> {
     db::set_playlist_pinned(&state.library.db.lock(), id, pinned).map_err(err)?;
+    emit_playlists(&app);
+    Ok(())
+}
+
+/// Hide a playlist from the sidebar, or show it again. It stays on the Playlists page.
+#[tauri::command]
+pub fn set_playlist_hidden(app: AppHandle, state: State<'_, AppState>, id: i64, hidden: bool) -> CmdResult<()> {
+    db::set_playlist_hidden(&state.library.db.lock(), id, hidden).map_err(err)?;
     emit_playlists(&app);
     Ok(())
 }

@@ -244,7 +244,7 @@ export function Island() {
     api
       .getPlaylists()
       .then((l) => {
-        setLists(l);
+        setLists(l.filter((p) => !p.hidden));
         setPanel("playlists");
         pickerCloseIn(PICKER_IDLE_MS);
       })

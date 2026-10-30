@@ -1,5 +1,5 @@
 import { save } from "@tauri-apps/plugin-dialog";
-import { AlertTriangle, ArrowDown, ArrowUp, AudioLines, Download, FileOutput, GripVertical, ListChecks, ListMusic, MoreHorizontal, Pause, Pencil, Pin, PinOff, Play, Shuffle, Trash2, X } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, AudioLines, Download, Eye, EyeOff, FileOutput, GripVertical, ListChecks, ListMusic, MoreHorizontal, Pause, Pencil, Pin, PinOff, Play, Search, Shuffle, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { openMenu, SEP, type MenuItem } from "../components/ContextMenu";
 import { Cover } from "../components/Cover";
@@ -17,8 +17,9 @@ import { displayArtist, fmtDuration, fmtTime } from "../lib/format";
 import type { Playlist, PlaylistDetail, PlaylistEntry } from "../lib/types";
 import { liveCoverId, longEnough, useLibrary } from "../store/library";
 import { usePlayer } from "../store/player";
-import { movePlaylist, setPinned, usePlaylists } from "../store/playlists";
+import { movePlaylist, setHidden, setPinned, usePlaylists } from "../store/playlists";
 import { useUi } from "../store/ui";
+import { SoulseekUpgrade } from "./SoulseekUpgrade";
 
 const toastErr = (e: unknown) => usePlayer.getState().pushToast("error", String(e));
 
@@ -67,17 +68,23 @@ export async function exportUnmatchedReport(p: Playlist) {
 export function playlistItemMenu(p: Playlist): MenuItem[] {
   const all = usePlaylists.getState().playlists;
   const at = all.findIndex((x) => x.id === p.id);
-  // Moving up or down stays among the pinned (or unpinned) ones; pinning changes groups.
-  const canUp = at > 0 && all[at - 1].pinned === p.pinned;
-  const canDown = at >= 0 && at < all.length - 1 && all[at + 1].pinned === p.pinned;
+  // Moving up or down stays among the pinned (or unpinned) ones; pinning changes groups. Sidebar
+  // playlists move past each other, not past hidden ones they'd seem not to move over.
+  const peers = all.filter((x) => x.pinned === p.pinned && x.hidden === p.hidden);
+  const place = peers.findIndex((x) => x.id === p.id);
+  const up = peers[place - 1];
+  const down = peers[place + 1];
   return [
     { label: "Play", icon: <Play size={14} />, onClick: () => playPlaylist(p.id, 0, false) },
     { label: "Edit details…", icon: <Pencil size={14} />, onClick: () => openPlaylistEditor(p) },
     p.pinned
       ? { label: "Unpin", icon: <PinOff size={14} />, onClick: () => setPinned(p, false) }
       : { label: "Pin to top", icon: <Pin size={14} />, onClick: () => setPinned(p, true) },
-    ...(canUp ? [{ label: "Move up", icon: <ArrowUp size={14} />, onClick: () => movePlaylist(at, at - 1) }] : []),
-    ...(canDown ? [{ label: "Move down", icon: <ArrowDown size={14} />, onClick: () => movePlaylist(at, at + 1) }] : []),
+    ...(up ? [{ label: "Move up", icon: <ArrowUp size={14} />, onClick: () => movePlaylist(at, all.indexOf(up)) }] : []),
+    ...(down ? [{ label: "Move down", icon: <ArrowDown size={14} />, onClick: () => movePlaylist(at, all.indexOf(down)) }] : []),
+    p.hidden
+      ? { label: "Show in sidebar", icon: <Eye size={14} />, onClick: () => setHidden(p, false) }
+      : { label: "Hide from sidebar", icon: <EyeOff size={14} />, onClick: () => setHidden(p, true) },
     { label: "Export playlist…", icon: <FileOutput size={14} />, onClick: () => exportPlaylist(p) },
     ...(p.source
       ? [
@@ -115,6 +122,7 @@ export function PlaylistView({ id }: { id: number }) {
   const [toReview, setToReview] = useState(0);
   /** Imported songs with nothing like them in the library (can be found on Soulseek). */
   const [notOwned, setNotOwned] = useState(0);
+  const [scanning, setScanning] = useState(false);
   const currentPath = usePlayer((s) => s.status?.track?.path);
   const playing = usePlayer((s) => s.status?.state === "playing");
   const queuePaths = usePlayer((s) => s.queue.items);
@@ -192,6 +200,7 @@ export function PlaylistView({ id }: { id: number }) {
   const playable = shown.filter((e) => !e.missing);
   const total = playable.reduce((s, e) => s + e.track.duration, 0);
   const missing = shown.length - playable.length;
+  const fromYoutube = detail.entries.filter((e) => e.fromYoutube);
   // "This playlist is playing" = the current song belongs to it and the queue matches it.
   const isPlayingThis =
     !!currentPath &&
@@ -250,6 +259,15 @@ export function PlaylistView({ id }: { id: number }) {
           className="inline-flex items-center gap-1.5 rounded-full bg-accent/15 px-3 py-1 text-[12.5px] font-medium text-accent ring-1 ring-accent/30 transition-colors hover:bg-accent/25"
         >
           <ListChecks size={14} /> {toReview} song{toReview === 1 ? "" : "s"} need{toReview === 1 ? "s" : ""} a decision · Review
+        </button>
+      )}
+      {fromYoutube.length > 0 && (
+        <button
+          onClick={() => setScanning(true)}
+          className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[12.5px] font-medium ring-1 ring-line transition-colors hover:bg-hover"
+          title="Look on Soulseek for better copies of the songs that came from YouTube"
+        >
+          <Search size={14} /> Scan on Soulseek
         </button>
       )}
       </div>
@@ -407,6 +425,8 @@ export function PlaylistView({ id }: { id: number }) {
     />
   );
 
+  const scan = scanning && <SoulseekUpgrade playlistId={id} entries={fromYoutube} onClose={() => setScanning(false)} />;
+
   if (split) {
     // The cover with the playing song's lyrics below it on the left; details and songs on the right.
     return (
@@ -423,16 +443,20 @@ export function PlaylistView({ id }: { id: number }) {
             </div>
           )}
         </div>
+        {scan}
       </div>
     );
   }
 
   return (
-    list || (
-      <div className="h-full overflow-y-auto">
-        {header}
-        {emptyNote}
-      </div>
-    )
+    <>
+      {list || (
+        <div className="h-full overflow-y-auto">
+          {header}
+          {emptyNote}
+        </div>
+      )}
+      {scan}
+    </>
   );
 }

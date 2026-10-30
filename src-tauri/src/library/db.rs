@@ -208,6 +208,8 @@ fn migrate(conn: &Connection) -> Result<()> {
     // `sort_order` NULL means never moved: those keep sorting by name, after the moved ones.
     add_column(conn, "playlists", "pinned", "INTEGER NOT NULL DEFAULT 0")?;
     add_column(conn, "playlists", "sort_order", "INTEGER")?;
+    // v11: playlists the user hid from the sidebar. They stay on the Playlists page.
+    add_column(conn, "playlists", "hidden", "INTEGER NOT NULL DEFAULT 0")?;
     Ok(())
 }
 
@@ -596,6 +598,8 @@ pub struct Playlist {
     pub source_id: Option<String>,
     /// Kept at the top of the sidebar.
     pub pinned: bool,
+    /// Left out of the sidebar; still on the Playlists page.
+    pub hidden: bool,
 }
 
 /// Pinned first, then the order the user moved them into, then by name.
@@ -604,7 +608,7 @@ pub fn playlists(conn: &Connection) -> Result<Vec<Playlist>> {
         "SELECT p.id, p.name, p.created_at, p.updated_at,
                 (SELECT COUNT(*) FROM playlist_items i WHERE i.playlist_id = p.id),
                 p.description, p.cover_id, p.source, p.source_id, p.motion_id,
-                p.background_id, p.background_fit, p.background_dim, p.background_blur, p.pinned
+                p.background_id, p.background_fit, p.background_dim, p.background_blur, p.pinned, p.hidden
          FROM playlists p
          ORDER BY p.pinned DESC, p.sort_order IS NULL, p.sort_order, p.name COLLATE NOCASE",
     )?;
@@ -627,6 +631,7 @@ pub fn playlists(conn: &Connection) -> Result<Vec<Playlist>> {
                 source: r.get(7)?,
                 source_id: r.get(8)?,
                 pinned: r.get::<_, i64>(14)? != 0,
+                hidden: r.get::<_, i64>(15)? != 0,
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;
@@ -660,6 +665,11 @@ pub fn update_playlist(conn: &Connection, id: i64, name: &str, description: &str
 
 pub fn set_playlist_pinned(conn: &Connection, id: i64, pinned: bool) -> Result<()> {
     conn.execute("UPDATE playlists SET pinned = ?2 WHERE id = ?1", params![id, pinned as i64])?;
+    Ok(())
+}
+
+pub fn set_playlist_hidden(conn: &Connection, id: i64, hidden: bool) -> Result<()> {
+    conn.execute("UPDATE playlists SET hidden = ?2 WHERE id = ?1", params![id, hidden as i64])?;
     Ok(())
 }
 
@@ -956,6 +966,27 @@ pub fn set_path_for_ref(conn: &Connection, key: &str, path: &str) -> Result<usiz
     Ok(ids.len())
 }
 
+/// Point every playlist item with file `old` at `new`. Items from a reference keep it, with `new`
+/// recorded as the choice, so a re-import or re-match doesn't go back. Returns the playlists touched.
+pub fn replace_in_playlists(conn: &mut Connection, old: &str, new: &str) -> Result<usize> {
+    let tx = conn.transaction()?;
+    let ids: Vec<i64> =
+        tx.prepare("SELECT DISTINCT playlist_id FROM playlist_items WHERE path = ?1")?.query_map(params![old], |r| r.get(0))?.collect::<Result<_, _>>()?;
+    let keys: Vec<String> = tx
+        .prepare("SELECT DISTINCT ref_key FROM playlist_items WHERE path = ?1 AND ref_key IS NOT NULL")?
+        .query_map(params![old], |r| r.get(0))?
+        .collect::<Result<_, _>>()?;
+    tx.execute("UPDATE playlist_items SET path = ?2 WHERE path = ?1", params![old, new])?;
+    for k in &keys {
+        set_match_decision(&tx, k, "accept", Some(new))?;
+    }
+    for id in &ids {
+        tx.execute("UPDATE playlists SET updated_at = ?2 WHERE id = ?1", params![id, now()])?;
+    }
+    tx.commit()?;
+    Ok(ids.len())
+}
+
 pub fn set_match_decision(conn: &Connection, key: &str, decision: &str, path: Option<&str>) -> Result<()> {
     conn.execute(
         "INSERT INTO match_decisions(ref_key, decision, path, decided_at) VALUES(?1, ?2, ?3, ?4)
@@ -1074,6 +1105,34 @@ mod tests {
         assert_eq!(names(&conn), ["A", "B", "Old"]);
         set_playlist_pinned(&conn, a, false).unwrap();
         assert_eq!(names(&conn), ["B", "A", "Old"], "unpinning puts it back where it was");
+        drop(conn);
+        remove_db(file);
+    }
+
+    #[test]
+    fn playlist_hidden_column_migrates() {
+        let (conn, file) = reopen_after("v11", "ALTER TABLE playlists DROP COLUMN hidden;");
+        let old = playlists(&conn).unwrap();
+        assert_eq!((old[0].name.as_str(), old[0].hidden), ("Old", false), "older playlists stay in the sidebar");
+        set_playlist_hidden(&conn, old[0].id, true).unwrap();
+        assert!(playlists(&conn).unwrap()[0].hidden, "still listed, marked hidden");
+        drop(conn);
+        remove_db(file);
+    }
+
+    #[test]
+    fn replacing_a_file_follows_it_into_every_playlist() {
+        let (mut conn, file) = reopen_after("replace", "");
+        let (a, b) = (create_playlist(&conn, "A").unwrap(), create_playlist(&conn, "B").unwrap());
+        let (old, new) = (r"C:\Music\YouTube\Song.m4a", r"C:\Music\Song.flac");
+        set_playlist_items(&mut conn, a, &[("other".into(), None), (old.into(), Some("k".into()))]).unwrap();
+        set_playlist_items(&mut conn, b, &[(old.into(), None), (old.into(), None)]).unwrap();
+        assert_eq!(replace_in_playlists(&mut conn, old, new).unwrap(), 2);
+        assert_eq!(playlist_items(&conn, a).unwrap(), [("other".to_string(), None), (new.to_string(), Some("k".to_string()))], "keeps its place and reference");
+        assert_eq!(playlist_paths(&conn, b).unwrap(), [new, new]);
+        let d = match_decisions(&conn).unwrap();
+        assert_eq!((d["k"].decision.as_str(), d["k"].path.as_deref()), ("accept", Some(new)));
+        assert_eq!(d.len(), 1, "items without a reference record nothing");
         drop(conn);
         remove_db(file);
     }
