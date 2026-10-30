@@ -1,13 +1,14 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ArrowDown, ArrowUp, AudioLines, Play } from "lucide-react";
+import { ArrowDown, ArrowUp, AudioLines, CheckSquare, Play } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { fmtTime, isHiRes } from "../lib/format";
+import { fmtTime } from "../lib/format";
 import { isMobile } from "../lib/platform";
 import type { Track } from "../lib/types";
 import { compareText } from "../store/library";
+import { useRowHeight } from "../store/listStyle";
 import { usePlayer } from "../store/player";
 import { openMenu, type MenuItem } from "./ContextMenu";
-import { TRACK_ROW, TrackRow } from "./TrackRow";
+import { Quality, SelectionBar, TrackRow, useBackAction } from "./TrackRow";
 import { trackMenuItems } from "./trackMenu";
 
 export type Column = "index" | "title" | "artist" | "album" | "year" | "genre" | "quality" | "duration" | "added";
@@ -66,19 +67,6 @@ export function sortTracks(tracks: Track[], key: SortKey, dir: 1 | -1): Track[] 
   return out;
 }
 
-function Quality({ t }: { t: Track }) {
-  const hi = isHiRes(t);
-  const label = t.bitDepth && t.sampleRate ? `${t.bitDepth}/${+(t.sampleRate / 1000).toFixed(1)}` : t.bitrate ? `${t.bitrate}k` : "";
-  return (
-    <span className="flex items-center gap-1.5 truncate text-[11.5px]">
-      <span className={`rounded px-1 py-px text-[10px] font-semibold ring-1 ${hi ? "text-accent ring-accent/40" : "text-faint ring-line"}`}>
-        {t.codec || "?"}
-      </span>
-      <span className="text-muted">{label}</span>
-    </span>
-  );
-}
-
 interface TrackTableProps {
   tracks: Track[];
   columns?: Column[];
@@ -86,17 +74,23 @@ interface TrackTableProps {
   defaultSort?: { key: SortKey; dir: 1 | -1 };
   numbering?: "row" | "track";
   header?: ReactNode;
+  /** Phone: the header, given what starts selecting. Used instead of header. */
+  mobileHeader?: (select: () => void) => ReactNode;
   onPlay: (sorted: Track[], index: number) => void;
   extraMenu?: (t: Track, index: number) => MenuItem[];
   emptyText?: string;
 }
 
-/** The same list for a phone: one song to a row, no columns. */
-function TrackList({ tracks, defaultSort, header, onPlay, extraMenu, emptyText = "No tracks" }: TrackTableProps) {
+/** The same list for a phone: one song to a row, no columns, and songs can be selected. */
+function TrackList({ tracks, defaultSort, header, mobileHeader, onPlay, extraMenu, emptyText = "No tracks" }: TrackTableProps) {
   const parentRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const [margin, setMargin] = useState(0);
+  /** Paths of the ticked songs; null when not selecting. */
+  const [picked, setPicked] = useState<Set<string> | null>(null);
+  const size = useRowHeight();
   const sorted = useMemo(() => (defaultSort ? sortTracks(tracks, defaultSort.key, defaultSort.dir) : tracks), [tracks, defaultSort]);
+  useBackAction(picked ? () => setPicked(null) : null);
 
   useLayoutEffect(() => {
     const el = listRef.current;
@@ -111,35 +105,57 @@ function TrackList({ tracks, defaultSort, header, onPlay, extraMenu, emptyText =
   const virt = useVirtualizer({
     count: sorted.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => TRACK_ROW,
+    estimateSize: () => size,
     overscan: 8,
     scrollMargin: margin,
   });
 
+  const toggle = (t: Track) => {
+    const next = new Set(picked);
+    next.has(t.path) ? next.delete(t.path) : next.add(t.path);
+    setPicked(next);
+  };
+  const chosen = sorted.filter((t) => picked?.has(t.path));
+
   return (
-    <div ref={parentRef} className="h-full overflow-y-auto">
-      {header}
-      {sorted.length === 0 ? (
-        <div className="px-6 py-10 text-center text-[13px] text-faint">{emptyText}</div>
-      ) : (
-        <div ref={listRef} className="relative" style={{ height: virt.getTotalSize() }}>
-          {virt.getVirtualItems().map((vi) => {
-            const t = sorted[vi.index];
-            return (
-              <div key={vi.key} className="absolute inset-x-0" style={{ top: vi.start - margin, height: vi.size }}>
-                <TrackRow
-                  track={t}
-                  onPlay={() => onPlay(sorted, vi.index)}
-                  onMenu={(e) =>
-                    openMenu(e, trackMenuItems([t], { playAll: () => onPlay(sorted, vi.index), extra: extraMenu?.(t, vi.index) }))
-                  }
-                />
-              </div>
-            );
-          })}
-        </div>
+    <div className="relative h-full">
+      {picked && (
+        <SelectionBar
+          count={chosen.length}
+          total={sorted.length}
+          onAll={(all) => setPicked(new Set(all ? sorted.map((t) => t.path) : []))}
+          onClose={() => setPicked(null)}
+          onMenu={(e) => openMenu(e, trackMenuItems(chosen))}
+        />
       )}
-      <div className="h-3" />
+      <div ref={parentRef} className="h-full overflow-y-auto">
+        {mobileHeader ? mobileHeader(() => setPicked(new Set())) : header}
+        {sorted.length === 0 ? (
+          <div className="px-6 py-10 text-center text-[13px] text-faint">{emptyText}</div>
+        ) : (
+          <div ref={listRef} className="relative" style={{ height: virt.getTotalSize() }}>
+            {virt.getVirtualItems().map((vi) => {
+              const t = sorted[vi.index];
+              return (
+                <div key={vi.key} className="absolute inset-x-0" style={{ top: vi.start - margin, height: vi.size }}>
+                  <TrackRow
+                    track={t}
+                    selected={picked ? picked.has(t.path) : undefined}
+                    onPlay={() => (picked ? toggle(t) : onPlay(sorted, vi.index))}
+                    onMenu={(e) =>
+                      openMenu(e, [
+                        { label: "Select", icon: <CheckSquare size={14} />, onClick: () => setPicked(new Set([t.path])) },
+                        ...trackMenuItems([t], { playAll: () => onPlay(sorted, vi.index), extra: extraMenu?.(t, vi.index) }),
+                      ])
+                    }
+                  />
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <div className="h-3" />
+      </div>
     </div>
   );
 }

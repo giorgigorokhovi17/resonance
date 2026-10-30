@@ -102,7 +102,7 @@ object NativeBridge {
     }
   }
 
-  /** "play", "pause", "toggle", "next", "previous", "stop", or "seek" to `value` seconds. */
+  /** "play", "pause", "toggle", "next", "previous", "stop", "shuffle", "repeat", or "seek" to `value` seconds. */
   @JvmStatic external fun command(name: String, value: Double)
 
   fun command(name: String) = command(name, 0.0)
@@ -119,8 +119,17 @@ object NativeBridge {
   @Volatile var positionAt = 0L
     private set
 
+  @Volatile var shuffle = false
+    private set
+  /** 0 off, 1 all, 2 one. */
+  @Volatile var repeat = 0
+    private set
+
   /** Called on the main thread after every change. */
   var listener: (() -> Unit)? = null
+
+  /** Called on the main thread when shuffle or repeat changes. */
+  var modesListener: (() -> Unit)? = null
 
   private val main = Handler(Looper.getMainLooper())
 
@@ -128,6 +137,13 @@ object NativeBridge {
   fun onTrack(title: String, artist: String, album: String, cover: String?, duration: Double) {
     track = Track(title, artist, album, cover, (duration * 1000).toLong())
     main.post { listener?.invoke() }
+  }
+
+  @JvmStatic
+  fun onModes(newShuffle: Boolean, newRepeat: Int) {
+    shuffle = newShuffle
+    repeat = newRepeat
+    main.post { modesListener?.invoke() }
   }
 
   @JvmStatic

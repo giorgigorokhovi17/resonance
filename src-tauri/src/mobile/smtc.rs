@@ -14,6 +14,7 @@ use tauri::{AppHandle, Manager};
 
 use crate::audio::engine::{Command, Engine};
 use crate::audio::types::PlayState;
+use crate::queue::RepeatMode;
 
 #[derive(Clone)]
 pub enum SmtcUpdate {
@@ -144,6 +145,13 @@ pub extern "system" fn Java_app_resonance_player_NativeBridge_register(env: JNIE
         for update in [track, playback].into_iter().flatten() {
             publish(&update);
         }
+        if let Some(state) = APP.get().and_then(|a| a.try_state::<crate::AppState>()) {
+            let (shuffle, repeat) = {
+                let q = state.engine.queue.lock();
+                (q.shuffle, q.repeat)
+            };
+            push_modes(shuffle, repeat);
+        }
     }));
 }
 
@@ -174,7 +182,42 @@ pub extern "system" fn Java_app_resonance_player_NativeBridge_activityCreated(_e
     }));
 }
 
-/// NativeBridge.command(name, value): play, pause, toggle, next, previous, stop, seek.
+/// Tells the media session whether shuffle and repeat are on, for its buttons.
+pub fn push_modes(shuffle: bool, repeat: RepeatMode) {
+    let code = match repeat {
+        RepeatMode::Off => 0,
+        RepeatMode::All => 1,
+        RepeatMode::One => 2,
+    };
+    with_bridge(|env, class| {
+        env.call_static_method(class, "onModes", "(ZI)V", &[JValue::Bool(shuffle.into()), JValue::Int(code)]).map(|_| ())
+    });
+}
+
+/// The notification's shuffle and repeat buttons: the same change as the app's own.
+fn toggle_mode(name: &str) {
+    let Some(app) = APP.get() else { return };
+    let Some(state) = app.try_state::<crate::AppState>() else { return };
+    let (shuffle, repeat) = {
+        let mut q = state.engine.queue.lock();
+        if name == "shuffle" {
+            let on = !q.shuffle;
+            q.set_shuffle(on);
+        } else {
+            q.repeat = match q.repeat {
+                RepeatMode::Off => RepeatMode::All,
+                RepeatMode::All => RepeatMode::One,
+                RepeatMode::One => RepeatMode::Off,
+            };
+        }
+        (q.shuffle, q.repeat)
+    };
+    state.engine.send(Command::QueueChanged);
+    crate::commands::emit_queue(app, &state);
+    push_modes(shuffle, repeat);
+}
+
+/// NativeBridge.command(name, value): play, pause, toggle, next, previous, stop, seek, shuffle, repeat.
 #[no_mangle]
 pub extern "system" fn Java_app_resonance_player_NativeBridge_command(
     mut env: JNIEnv,
@@ -192,6 +235,7 @@ pub extern "system" fn Java_app_resonance_player_NativeBridge_command(
             "previous" => Command::Previous,
             "stop" => Command::Stop,
             "seek" if value.is_finite() => Command::Seek(value.max(0.0)),
+            "shuffle" | "repeat" => return toggle_mode(&name),
             _ => return,
         };
         if let Some(engine) = ENGINE.get() {

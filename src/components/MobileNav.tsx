@@ -3,12 +3,14 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api } from "../lib/api";
 import { displayArtist } from "../lib/format";
 import { useLiveCover, useLiveMotion } from "../store/library";
+import { useListStyle } from "../store/listStyle";
 import { livePosition, usePlayer } from "../store/player";
 import { useUi, type View } from "../store/ui";
 import { useMenu } from "./ContextMenu";
 import { Cover } from "./Cover";
 import { useDownloadsBadge } from "./DownloadsPanel";
 import { DONATE_URL } from "./Sidebar";
+import { Quality } from "./TrackRow";
 import { ViewHeader } from "./ViewHeader";
 
 const TABS: { label: string; icon: ReactNode; view: View; match: View["kind"][] }[] = [
@@ -27,7 +29,7 @@ export function BottomTabs() {
   const setView = useUi((s) => s.setView);
   const badge = useDownloadsBadge();
   return (
-    <nav className="skin-clear flex h-[60px] shrink-0 items-stretch border-t border-line/60 bg-bg" aria-label="Main">
+    <nav className="glass-bar flex h-[64px] shrink-0 items-stretch" aria-label="Main">
       {TABS.map((t) => {
         const on = t.match.includes(view.kind);
         return (
@@ -38,7 +40,7 @@ export function BottomTabs() {
             onClick={() => setView(t.view)}
             className={`relative flex flex-1 flex-col items-center justify-center gap-0.5 text-[11px] font-medium ${on ? "text-accent" : "text-muted"}`}
           >
-            {t.icon}
+            <span className={`flex h-7 w-14 items-center justify-center rounded-full transition-colors ${on ? "bg-accent/15" : ""}`}>{t.icon}</span>
             {t.label}
             {t.label === "Sources" && badge > 0 && (
               <span className="absolute left-1/2 top-1.5 ml-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-bold text-on-accent">
@@ -78,14 +80,18 @@ export function MiniPlayer() {
   const coverId = useLiveCover(track);
   const motionId = useLiveMotion(track);
   const setNowPlaying = useUi((s) => s.setNowPlaying);
+  const showQuality = useListStyle((s) => s.playerQuality);
   if (!track) return null;
   return (
-    <div className="skin-clear shrink-0 bg-bg px-2 pt-2">
-      <div onClick={() => setNowPlaying(true)} className="relative flex h-14 items-center gap-3 overflow-hidden rounded-xl bg-panel pl-2 pr-1 ring-1 ring-line">
-        <Cover coverId={coverId} motionId={motionId} motion="tile" className="h-10 w-10" rounded="rounded-md" iconSize={18} />
+    <div className="shrink-0 px-2 pb-2">
+      <div onClick={() => setNowPlaying(true)} className="glass-card relative flex h-14 items-center gap-3 overflow-hidden rounded-2xl pl-2 pr-1 ring-1 ring-line">
+        <Cover coverId={coverId} motionId={motionId} motion="tile" className="h-10 w-10" rounded="rounded-lg" iconSize={18} />
         <div className="min-w-0 flex-1">
-          <div className="truncate text-[14px] font-medium">{track.title}</div>
-          <div className="truncate text-[12.5px] text-muted">{displayArtist(track)}</div>
+          <div className="truncate text-[14px] font-semibold">{track.title}</div>
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="min-w-0 truncate text-[12.5px] text-muted">{displayArtist(track)}</span>
+            {showQuality && <Quality t={track} />}
+          </div>
         </div>
         <button
           aria-label={playing ? "Pause" : "Play"}
@@ -206,7 +212,7 @@ export function useBackButton() {
     let armed = false;
     const canGoBack = () => {
       const u = useUi.getState();
-      return !!useMenu.getState().open || u.lyricsOpen || u.queueOpen || u.downloadsOpen || u.nowPlaying || u.back.length > 0 || !!document.querySelector("[aria-modal=true]");
+      return !!useMenu.getState().open || !!u.backAction || u.lyricsOpen || u.queueOpen || u.downloadsOpen || u.nowPlaying || u.back.length > 0 || !!document.querySelector("[aria-modal=true]");
     };
     const arm = () => {
       if (!armed && canGoBack()) {
@@ -220,6 +226,7 @@ export function useBackButton() {
       const dialog = document.querySelector("[aria-modal=true]");
       if (useMenu.getState().open) useMenu.getState().close();
       else if (dialog) dialog.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      else if (u.backAction) u.backAction();
       else if (u.lyricsOpen) u.setLyricsOpen(false);
       else if (u.queueOpen) u.toggleQueue();
       else if (u.downloadsOpen) u.toggleDownloads();

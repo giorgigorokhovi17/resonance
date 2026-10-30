@@ -9,6 +9,7 @@ import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.net.Uri
+import android.os.Bundle
 import android.os.Looper
 import android.os.SystemClock
 import androidx.annotation.OptIn
@@ -17,17 +18,25 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.common.SimpleBasePlayer
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.session.CommandButton
+import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionResult
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import java.io.File
+
+private val SHUFFLE = SessionCommand("shuffle", Bundle.EMPTY)
+private val REPEAT = SessionCommand("repeat", Bundle.EMPTY)
 
 /**
  * Keeps playback going with the screen off and the app swiped away, and gives Android the media
  * notification, lock-screen and Bluetooth controls (docs/android-design.md §2). The sound itself
  * comes from the Rust engine; this only mirrors its state and forwards commands.
  */
+@OptIn(UnstableApi::class)
 class PlaybackService : MediaSessionService() {
   private var session: MediaSession? = null
 
@@ -37,12 +46,53 @@ class PlaybackService : MediaSessionService() {
     val open = PendingIntent.getActivity(
       this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
     )
-    session = MediaSession.Builder(this, RustPlayer(this)).setSessionActivity(open).build()
+    setMediaNotificationProvider(
+      DefaultMediaNotificationProvider.Builder(this).build().apply { setSmallIcon(R.drawable.ic_notification) }
+    )
+    session = MediaSession.Builder(this, RustPlayer(this))
+      .setSessionActivity(open)
+      .setCallback(ModeCommands)
+      .build()
+    NativeBridge.modesListener = ::showModeButtons
+    showModeButtons()
+  }
+
+  /** Shuffle and repeat beside the usual controls, showing their current state. */
+  private fun showModeButtons() {
+    val shuffle = CommandButton.Builder(if (NativeBridge.shuffle) CommandButton.ICON_SHUFFLE_ON else CommandButton.ICON_SHUFFLE_OFF)
+      .setDisplayName("Shuffle")
+      .setSessionCommand(SHUFFLE)
+      .build()
+    val repeatIcon = when (NativeBridge.repeat) {
+      1 -> CommandButton.ICON_REPEAT_ALL
+      2 -> CommandButton.ICON_REPEAT_ONE
+      else -> CommandButton.ICON_REPEAT_OFF
+    }
+    val repeat = CommandButton.Builder(repeatIcon).setDisplayName("Repeat").setSessionCommand(REPEAT).build()
+    session?.setMediaButtonPreferences(listOf(shuffle, repeat))
+  }
+
+  private object ModeCommands : MediaSession.Callback {
+    override fun onConnect(session: MediaSession, controller: MediaSession.ControllerInfo): MediaSession.ConnectionResult {
+      val commands = MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon().add(SHUFFLE).add(REPEAT).build()
+      return MediaSession.ConnectionResult.AcceptedResultBuilder(session).setAvailableSessionCommands(commands).build()
+    }
+
+    override fun onCustomCommand(
+      session: MediaSession,
+      controller: MediaSession.ControllerInfo,
+      command: SessionCommand,
+      args: Bundle,
+    ): ListenableFuture<SessionResult> {
+      NativeBridge.command(command.customAction)
+      return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+    }
   }
 
   override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session
 
   override fun onDestroy() {
+    NativeBridge.modesListener = null
     session?.run {
       player.release()
       release()

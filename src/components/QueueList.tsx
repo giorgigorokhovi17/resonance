@@ -6,16 +6,18 @@ import { isMobile } from "../lib/platform";
 import type { QueueItem } from "../lib/types";
 import { usePlayer } from "../store/player";
 import { liveCoverId, useLibrary } from "../store/library";
+import { useRowHeight } from "../store/listStyle";
 import { openMenu, SEP } from "./ContextMenu";
 import { Cover } from "./Cover";
 import { ReorderList } from "./ReorderList";
-import { TRACK_ROW, TrackRow } from "./TrackRow";
+import { TrackRow } from "./TrackRow";
 import { trackMenuItems } from "./trackMenu";
 
 export function QueueList({ compact = false, header }: { compact?: boolean; header?: ReactNode }) {
   const queue = usePlayer((s) => s.queue);
   const playing = usePlayer((s) => s.status?.state === "playing");
   useLibrary((s) => s.byId); // re-render when artwork visibility changes
+  const phoneRow = useRowHeight();
   const currentIdx = useMemo(
     () => queue.items.findIndex((i) => i.uid === queue.currentUid),
     [queue.items, queue.currentUid],
@@ -34,7 +36,7 @@ export function QueueList({ compact = false, header }: { compact?: boolean; head
     <ReorderList<QueueItem>
       items={queue.items}
       getKey={(i) => i.uid}
-      rowHeight={isMobile ? TRACK_ROW : compact ? 48 : 52}
+      rowHeight={isMobile ? phoneRow : compact ? 48 : 52}
       onMove={onMove}
       header={header}
       scrollToIndex={currentIdx >= 0 ? currentIdx : undefined}

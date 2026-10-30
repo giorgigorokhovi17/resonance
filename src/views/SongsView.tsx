@@ -1,4 +1,4 @@
-import { CheckCheck, Ellipsis, FolderPlus, Music2, Shuffle, X } from "lucide-react";
+import { ArrowUpDown, Check, CheckCheck, Ellipsis, FolderPlus, Music2, Shuffle, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { openMenu, useMenu } from "../components/ContextMenu";
 import { EmptyState, PrimaryButton, SecondaryButton } from "../components/EmptyState";
@@ -17,6 +17,13 @@ import { usePlayer } from "../store/player";
 import { useUi } from "../store/ui";
 
 type SongSort = "artist" | "title" | "added" | "year";
+
+const SORTS: { value: SongSort; label: string }[] = [
+  { value: "artist", label: "Artist" },
+  { value: "title", label: "Title" },
+  { value: "added", label: "Recently added" },
+  { value: "year", label: "Year" },
+];
 
 function loadSort(): SongSort {
   try {
@@ -137,7 +144,7 @@ export function SongsView() {
       <TrackTable
         tracks={sorted}
         onPlay={(list, i) => playTracks(list, i)}
-        header={
+        mobileHeader={(select) => (
           <>
             <ScanBanner />
             <ViewHeader
@@ -150,24 +157,31 @@ export function SongsView() {
               }
               actions={
                 <>
-                  <SortSelect<SongSort>
-                    value={sort}
-                    onChange={setSort}
-                    options={[
-                      { value: "artist", label: "Artist" },
-                      { value: "title", label: "Title" },
-                      { value: "added", label: "Recently added" },
-                      { value: "year", label: "Year" },
-                    ]}
-                  />
-                  <SecondaryButton onClick={() => playShuffled(sorted)}>
+                  <PrimaryButton onClick={() => playShuffled(sorted)}>
                     <Shuffle size={15} /> Shuffle
+                  </PrimaryButton>
+                  <SecondaryButton
+                    onClick={(e) =>
+                      openMenu(
+                        e,
+                        SORTS.map((s) => ({
+                          label: s.label,
+                          icon: s.value === sort ? <Check size={14} /> : undefined,
+                          onClick: () => setSort(s.value),
+                        })),
+                      )
+                    }
+                  >
+                    <ArrowUpDown size={15} /> {SORTS.find((s) => s.value === sort)?.label}
+                  </SecondaryButton>
+                  <SecondaryButton onClick={select}>
+                    <CheckCheck size={15} /> Select
                   </SecondaryButton>
                 </>
               }
             />
           </>
-        }
+        )}
       />
     );
   }

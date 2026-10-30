@@ -12,6 +12,7 @@ import {
   TEXT_MIN_CONTRAST,
 } from "../../lib/theme";
 import { importBackground, importError, pickMedia } from "../../lib/mediaImport";
+import { isMobile } from "../../lib/platform";
 import type { AnimatedArt, Appearance, Backdrop as BackdropOptions, PlaylistLayout, Settings } from "../../lib/types";
 import { Backdrop, useBackdropReadability } from "../../components/Backdrop";
 import { useMedia } from "../../store/media";
@@ -23,6 +24,7 @@ import { useIsDark } from "../../hooks/useAppearance";
 import { useLiveCover } from "../../store/library";
 import { useCoverColor } from "../../hooks/useCoverColor";
 import { Section, Segmented, Toggle } from "../SettingsView";
+import { SongListSection } from "./SongList";
 
 // Settings writes are applied locally first so sliders track the pointer; only the reply to the
 // latest write is taken back from the backend.
@@ -59,7 +61,9 @@ export function VisualSettings({ settings }: { settings: Settings }) {
   };
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5 mobile:space-y-3">
+      {isMobile && <SongListSection />}
+
       <Section title="Theme" description="Each theme has a dark and a light version. The previews show the current mode.">
         <div className="space-y-5">
           <Row label="Mode">
@@ -172,24 +176,26 @@ export function VisualSettings({ settings }: { settings: Settings }) {
         </div>
       </Section>
 
-      <Section title="Playlist page" description="How a playlist's page is laid out.">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <LayoutCard
-            value="classic"
-            current={a.playlistLayout}
-            name="Classic"
-            hint="Cover and title on top, songs below."
-            onClick={() => setAppearance({ playlistLayout: "classic" })}
-          />
-          <LayoutCard
-            value="split"
-            current={a.playlistLayout}
-            name="Cover and lyrics"
-            hint="Cover on the left with the playing song and its lyrics below it; title and songs on the right."
-            onClick={() => setAppearance({ playlistLayout: "split" })}
-          />
-        </div>
-      </Section>
+      {!isMobile && (
+        <Section title="Playlist page" description="How a playlist's page is laid out.">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <LayoutCard
+              value="classic"
+              current={a.playlistLayout}
+              name="Classic"
+              hint="Cover and title on top, songs below."
+              onClick={() => setAppearance({ playlistLayout: "classic" })}
+            />
+            <LayoutCard
+              value="split"
+              current={a.playlistLayout}
+              name="Cover and lyrics"
+              hint="Cover on the left with the playing song and its lyrics below it; title and songs on the right."
+              onClick={() => setAppearance({ playlistLayout: "split" })}
+            />
+          </div>
+        </Section>
+      )}
 
       <Section
         title="GIFs and videos"
@@ -243,13 +249,15 @@ export function VisualSettings({ settings }: { settings: Settings }) {
               ]}
             />
           </Row>
-          <Row label="Interface size" hint="Scales text and controls.">
-            <Segmented
-              value={String(a.uiScale)}
-              onChange={(v) => setAppearance({ uiScale: parseFloat(v) })}
-              options={["0.9", "1", "1.1", "1.25"].map((v) => ({ value: v, label: `${Math.round(parseFloat(v) * 100)}%` }))}
-            />
-          </Row>
+          {!isMobile && (
+            <Row label="Interface size" hint="Scales text and controls.">
+              <Segmented
+                value={String(a.uiScale)}
+                onChange={(v) => setAppearance({ uiScale: parseFloat(v) })}
+                options={["0.9", "1", "1.1", "1.25"].map((v) => ({ value: v, label: `${Math.round(parseFloat(v) * 100)}%` }))}
+              />
+            </Row>
+          )}
         </div>
       </Section>
 

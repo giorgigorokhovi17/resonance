@@ -4,7 +4,7 @@ export function ViewHeader({ title, subtitle, actions }: { title: string; subtit
   return (
     <div className="flex flex-wrap items-end justify-between gap-4 px-8 pb-4 pt-6 mobile:gap-3 mobile:pb-3 mobile:pt-4">
       <div className="min-w-0">
-        <h1 className="font-display text-[28px] font-semibold leading-tight">{title}</h1>
+        <h1 className="font-display text-[28px] font-semibold leading-tight mobile:font-bold mobile:tracking-tight">{title}</h1>
         {subtitle && <div className="mt-1 text-[12.5px] text-muted">{subtitle}</div>}
       </div>
       {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}

@@ -229,3 +229,31 @@ input[type="range"].slider:hover::-webkit-slider-runnable-track {
   margin-top: -8px;
   opacity: 1;
 }
+
+/* Glass: see-through bars and cards, with the page scrolling behind them. */
+.mobile .glass-bar {
+  background-color: color-mix(in srgb, var(--c-bg) 58%, transparent);
+  -webkit-backdrop-filter: blur(26px) saturate(1.7);
+  backdrop-filter: blur(26px) saturate(1.7);
+  box-shadow: 0 -1px 0 color-mix(in srgb, var(--c-fg) 8%, transparent);
+}
+.mobile .glass-card,
+.mobile section.bg-panel {
+  background-color: color-mix(in srgb, var(--c-panel) 62%, transparent);
+  -webkit-backdrop-filter: blur(26px) saturate(1.7);
+  backdrop-filter: blur(26px) saturate(1.7);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--c-fg) 10%, transparent),
+    0 10px 28px -12px rgba(0, 0, 0, 0.65);
+}
+.mobile.no-glass .glass-bar,
+.mobile.no-glass .glass-card,
+.mobile.no-glass section.bg-panel {
+  background-color: var(--c-panel);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+/* Pages scroll under the player and the tabs (--dock is their height, set in App.tsx). */
+.mobile main .h-full.overflow-y-auto {
+  padding-bottom: var(--dock, 0);
+}

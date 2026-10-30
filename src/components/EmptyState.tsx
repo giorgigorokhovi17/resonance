@@ -35,7 +35,7 @@ export function SecondaryButton({
     <button
       onClick={onClick}
       title={title}
-      className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-[13px] font-medium text-fg ring-1 ring-line transition-colors hover:bg-hover"
+      className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-[13px] font-medium text-fg ring-1 ring-line transition-colors hover:bg-hover mobile:bg-hover"
     >
       {children}
     </button>

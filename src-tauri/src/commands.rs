@@ -375,6 +375,11 @@ pub fn set_shuffle(app: AppHandle, state: State<'_, AppState>, shuffle: bool) {
     state.engine.queue.lock().set_shuffle(shuffle);
     state.engine.send(Command::QueueChanged);
     emit_queue(&app, &state);
+    #[cfg(target_os = "android")]
+    {
+        let repeat = state.engine.queue.lock().repeat;
+        crate::smtc::push_modes(shuffle, repeat);
+    }
 }
 
 #[tauri::command]
@@ -382,6 +387,11 @@ pub fn set_repeat(app: AppHandle, state: State<'_, AppState>, repeat: RepeatMode
     state.engine.queue.lock().repeat = repeat;
     state.engine.send(Command::QueueChanged);
     emit_queue(&app, &state);
+    #[cfg(target_os = "android")]
+    {
+        let shuffle = state.engine.queue.lock().shuffle;
+        crate::smtc::push_modes(shuffle, repeat);
+    }
 }
 
 // ---- settings ---------------------------------------------------------------------------------

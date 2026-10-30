@@ -98,7 +98,7 @@ function MenuSheet({ items, onDone }: { items: MenuItem[]; onDone: () => void })
   const shown = trail.length ? trail[trail.length - 1].submenu! : items;
   return (
     <div className="fixed inset-0 z-[100] flex flex-col justify-end bg-black/55 animate-in" onClick={onDone} onContextMenu={(e) => e.preventDefault()}>
-      <div role="menu" className="max-h-[78%] overflow-y-auto rounded-t-2xl bg-panel pb-2 text-[15px] shadow-2xl ring-1 ring-line" onClick={(e) => e.stopPropagation()}>
+      <div role="menu" className="glass-card max-h-[78%] overflow-y-auto rounded-t-2xl pb-2 text-[15px] ring-1 ring-line" onClick={(e) => e.stopPropagation()}>
         <div className="mx-auto mb-1 mt-2.5 h-1 w-9 rounded-full bg-fg/20" />
         {trail.length > 0 && (
           <button onClick={() => setTrail(trail.slice(0, -1))} className="flex h-12 w-full items-center gap-3 border-b border-line px-4 text-left font-semibold active:bg-hover">

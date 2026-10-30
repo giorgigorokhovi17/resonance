@@ -25,6 +25,8 @@ interface UiStore {
   downloadsOpen: boolean;
   /** The lyrics window over the app. */
   lyricsOpen: boolean;
+  /** Android: what Back does first, such as leaving selection. */
+  backAction: (() => void) | null;
   setView: (v: View, replace?: boolean) => void;
   goBack: () => void;
   goForward: () => void;
@@ -45,6 +47,7 @@ export const useUi = create<UiStore>((set, get) => ({
   queueOpen: false,
   downloadsOpen: false,
   lyricsOpen: false,
+  backAction: null,
   setView: (v, replace) => {
     const cur = get().view;
     if (same(cur, v)) {

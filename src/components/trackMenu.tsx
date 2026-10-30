@@ -13,6 +13,11 @@ import { playlistSubmenu } from "./playlistMenu";
 
 async function setArtworkHidden(tracks: Track[], hidden: boolean) {
   const ids = tracks.filter((t) => t.id > 0).map((t) => t.id);
+  // On a phone this sits at the bottom of the menu, right under a thumb.
+  if (hidden && isMobile) {
+    const what = ids.length === 1 ? `"${tracks[0].title}"` : `${ids.length} songs`;
+    if (!(await confirmDialog(`Remove artwork from ${what}?`, "You can bring it back from the same menu.", "Remove"))) return;
+  }
   try {
     await api.setTracksCoverHidden(ids, hidden);
     usePlayer

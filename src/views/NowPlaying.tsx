@@ -115,7 +115,7 @@ export function NowPlaying() {
                 <div className="mt-1 flex justify-center">
                   <TransportControls big />
                 </div>
-                <div className="mt-3 flex items-center justify-around">
+                <div className="mt-3 flex items-center justify-around rounded-2xl bg-fg/5 ring-1 ring-fg/10">
                   <IconButton label="Lyrics" onClick={() => useUi.getState().setLyricsOpen(true)}>
                     <Mic2 size={20} />
                   </IconButton>

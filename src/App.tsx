@@ -4,6 +4,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api } from "./lib/api";
 import { isMobile } from "./lib/platform";
+import type { Backdrop as BackdropOptions } from "./lib/types";
 import { initPlayer, usePlayer } from "./store/player";
 import { initLibrary, useLiveCover } from "./store/library";
 import { initPlaylists, usePlaylists } from "./store/playlists";
@@ -132,19 +133,28 @@ function MainView() {
 }
 
 /** The Android app: one page at a time, the player and the tabs below it. */
-function MobileApp() {
+function MobileApp({ page, ambient }: { page: BackdropOptions | null; ambient: string | null }) {
   const viewKey = useUi((s) => JSON.stringify(s.view));
+  const hasSong = usePlayer((s) => !!s.status?.track || !!s.queue.currentUid);
   useBackButton();
   return (
     <>
-      <MobileTopBar />
-      <main className="relative min-h-0 flex-1 overflow-hidden">
-        <div key={viewKey} className="relative h-full animate-in">
-          <MainView />
+      <div className="relative min-h-0 flex-1 overflow-hidden" style={{ ["--dock" as string]: hasSong ? "136px" : "72px" }}>
+        {page ? <Backdrop backdrop={page} place="page" scrim="elev" /> : <Ambient color={ambient} />}
+        <div className="relative flex h-full flex-col">
+          <MobileTopBar />
+          <main className="relative min-h-0 flex-1 overflow-hidden">
+            <div key={viewKey} className="relative h-full animate-in">
+              <MainView />
+            </div>
+          </main>
         </div>
-      </main>
-      <MiniPlayer />
-      <BottomTabs />
+        {/* Over the page, which scrolls behind them. */}
+        <div className="absolute inset-x-0 bottom-0 z-10">
+          <MiniPlayer />
+          <BottomTabs />
+        </div>
+      </div>
       <NowPlaying />
       <QueuePanel />
       <DownloadsPanel />
@@ -204,7 +214,7 @@ export default function App() {
     <div className={`relative isolate flex h-full flex-col text-fg ${backgrounds.skin ? "" : "bg-bg"}`}>
       {backgrounds.skin && <Backdrop backdrop={backgrounds.skin} place="app" scrim="bg" className="absolute inset-0 -z-10" />}
       {isMobile ? (
-        <MobileApp />
+        <MobileApp page={backgrounds.page} ambient={showAmbient && !backgrounds.skin ? art.ambient : null} />
       ) : (
         <>
           <TitleBar>

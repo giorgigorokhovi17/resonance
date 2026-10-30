@@ -1,4 +1,4 @@
-import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, AudioLines, Download, EllipsisVertical, FileOutput, GripVertical, ListChecks, ListMusic, MoreHorizontal, Pause, Pencil, Pin, PinOff, Play, Shuffle, Trash2, X } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, AudioLines, CheckCheck, Download, EllipsisVertical, FileOutput, GripVertical, ListChecks, ListMusic, MoreHorizontal, Pause, Pencil, Pin, PinOff, Play, Shuffle, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { openMenu, SEP, type MenuItem } from "../components/ContextMenu";
 import { Cover } from "../components/Cover";
@@ -10,7 +10,7 @@ import { PlaylistCover } from "../components/PlaylistCover";
 import { PlaylistRecommendations } from "../components/PlaylistRecommendations";
 import { openPlaylistEditor } from "../components/PlaylistEditor";
 import { ReorderList } from "../components/ReorderList";
-import { TRACK_ROW, TrackRow } from "../components/TrackRow";
+import { SelectionBar, TrackRow, useBackAction } from "../components/TrackRow";
 import { trackMenuItems } from "../components/trackMenu";
 import { api } from "../lib/api";
 import { saveFile } from "../lib/files";
@@ -18,6 +18,7 @@ import { displayArtist, fmtDuration, fmtTime } from "../lib/format";
 import { isMobile } from "../lib/platform";
 import type { Playlist, PlaylistDetail, PlaylistEntry } from "../lib/types";
 import { liveCoverId, longEnough, useLibrary } from "../store/library";
+import { useRowHeight } from "../store/listStyle";
 import { usePlayer } from "../store/player";
 import { movePlaylist, setPinned, usePlaylists } from "../store/playlists";
 import { useUi } from "../store/ui";
@@ -128,6 +129,10 @@ export function PlaylistView({ id }: { id: number }) {
   const split = usePlayer((s) => s.settings?.appearance.playlistLayout === "split");
   /** Phone: the songs show drag handles (a finger on a row scrolls). */
   const [reordering, setReordering] = useState(false);
+  /** Phone: positions of the ticked songs in the full list; null when not selecting. */
+  const [picked, setPicked] = useState<Set<number> | null>(null);
+  const phoneRow = useRowHeight();
+  useBackAction(picked ? () => setPicked(null) : null);
 
   useEffect(() => {
     let alive = true;
@@ -326,6 +331,9 @@ export function PlaylistView({ id }: { id: number }) {
         <button aria-label="More options" onClick={(e) => openMenu(e, playlistItemMenu(playlist))} className="-ml-2.5 flex h-11 w-11 items-center justify-center text-muted">
           <EllipsisVertical size={22} />
         </button>
+        <button aria-label="Select songs" onClick={() => setPicked(new Set())} className="flex h-11 w-11 items-center justify-center text-muted">
+          <CheckCheck size={21} />
+        </button>
         <button
           aria-label="Reorder songs"
           aria-pressed={reordering}
@@ -383,7 +391,7 @@ export function PlaylistView({ id }: { id: number }) {
     <ReorderList<PlaylistEntry>
       items={shown}
       getKey={(e) => e.track.path + "#" + slots[shown.indexOf(e)]}
-      rowHeight={isMobile ? TRACK_ROW : 56}
+      rowHeight={isMobile ? phoneRow : 56}
       onMove={onMove}
       header={isMobile ? mobileHeader : split ? splitHeader : header}
       footer={<PlaylistRecommendations id={id} />}
@@ -410,10 +418,21 @@ export function PlaylistView({ id }: { id: number }) {
               track={t}
               dimmed={entry.missing}
               subtitle={entry.missing && !entry.refKey ? "File not found" : undefined}
-              onPlay={entry.missing ? undefined : () => playPlaylist(id, at, false)}
+              selected={picked ? picked.has(at) : undefined}
+              onPlay={
+                picked
+                  ? () => {
+                      const next = new Set(picked);
+                      next.has(at) ? next.delete(at) : next.add(at);
+                      setPicked(next);
+                    }
+                  : entry.missing
+                    ? undefined
+                    : () => playPlaylist(id, at, false)
+              }
               onMenu={menu}
               trailing={
-                reordering ? (
+                reordering && !picked ? (
                   <span data-drag-handle className="flex h-11 w-7 shrink-0 touch-none items-center justify-center text-muted" onClick={(e) => e.stopPropagation()}>
                     <GripVertical size={18} />
                   </span>
@@ -482,16 +501,48 @@ export function PlaylistView({ id }: { id: number }) {
     />
   );
 
-  if (isMobile && !list) {
+  if (isMobile) {
+    if (!list) {
+      return (
+        <div className="h-full overflow-y-auto">
+          {mobileHeader}
+          {emptyNote}
+        </div>
+      );
+    }
+    const chosen = [...(picked ?? [])].sort((a, b) => a - b);
+    const chosenTracks = chosen.map((i) => detail.entries[i]).filter((e) => !e.missing).map((e) => e.track);
     return (
-      <div className="h-full overflow-y-auto">
-        {mobileHeader}
-        {emptyNote}
+      <div className="relative h-full">
+        {picked && (
+          <SelectionBar
+            count={picked.size}
+            total={slots.length}
+            onAll={(all) => setPicked(new Set(all ? slots : []))}
+            onClose={() => setPicked(null)}
+            onMenu={(e) =>
+              openMenu(e, [
+                ...(chosenTracks.length ? trackMenuItems(chosenTracks) : []),
+                SEP,
+                {
+                  label: `Remove ${chosen.length} from playlist`,
+                  icon: <X size={14} />,
+                  danger: true,
+                  onClick: () => {
+                    persist(detail.entries.filter((_, i) => !picked.has(i)));
+                    setPicked(null);
+                  },
+                },
+              ])
+            }
+          />
+        )}
+        {list}
       </div>
     );
   }
 
-  if (split && !isMobile) {
+  if (split) {
     // The cover with the playing song's lyrics below it on the left; details and songs on the right.
     return (
       <div className="flex h-full gap-2 pl-8">
