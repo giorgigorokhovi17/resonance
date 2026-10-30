@@ -59,7 +59,7 @@ export function DialogHost() {
         role="dialog"
         aria-modal="true"
         aria-label={open.title}
-        className="w-[420px] rounded-xl bg-panel p-5 shadow-2xl ring-1 ring-line"
+        className="w-[420px] max-w-[calc(100vw-32px)] rounded-xl bg-panel p-5 shadow-2xl ring-1 ring-line"
         onMouseDown={(e) => e.stopPropagation()}
         onKeyDown={(e) => {
           if (e.key === "Escape") close(null);

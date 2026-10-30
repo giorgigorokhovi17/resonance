@@ -36,7 +36,7 @@ export function DownloadsPanel() {
 
   return (
     <aside
-      className="absolute bottom-0 right-0 top-0 z-30 flex w-[420px] flex-col border-l border-line bg-elev/95 shadow-2xl backdrop-blur-xl animate-in"
+      className="absolute bottom-0 right-0 top-0 z-30 flex w-[420px] flex-col border-l border-line bg-elev/95 shadow-2xl backdrop-blur-xl animate-in mobile:fixed mobile:inset-0 mobile:z-50 mobile:w-auto mobile:border-0 mobile:bg-bg"
       aria-label="Downloads"
     >
       <div className="flex items-center justify-between px-4 pb-2 pt-4">
@@ -58,8 +58,8 @@ export function DownloadsPanel() {
               <Trash2 size={12} /> Clear finished
             </button>
           )}
-          <button aria-label="Close downloads" onClick={toggle} className="ml-1 rounded-md p-1.5 text-muted hover:bg-hover hover:text-fg">
-            <X size={16} />
+          <button aria-label="Close downloads" onClick={toggle} className="ml-1 rounded-md p-1.5 text-muted hover:bg-hover hover:text-fg mobile:p-2.5">
+            <X size={16} className="mobile:h-5 mobile:w-5" />
           </button>
         </div>
       </div>

@@ -12,7 +12,9 @@ export type View =
   | { kind: "eq" }
   | { kind: "sources" }
   | { kind: "stats" }
-  | { kind: "settings" };
+  | { kind: "settings" }
+  /** Android: the list of everything that isn't a bottom tab. */
+  | { kind: "more" };
 
 interface UiStore {
   view: View;

@@ -1,6 +1,8 @@
 @import "tailwindcss";
 
 @custom-variant dark (&:where(.dark, .dark *));
+/* The Android app (main.tsx sets the class). */
+@custom-variant mobile (&:where(.mobile, .mobile *));
 
 @theme {
   --color-bg: var(--c-bg);
@@ -197,4 +199,33 @@ input[type="range"].slider:hover::-webkit-slider-runnable-track {
 }
 .animate-in {
   animation: fade-in 0.18s ease-out;
+}
+
+/* The Android app: touch sizes, no scrollbars, and page margins that fit a phone. */
+.mobile {
+  -webkit-tap-highlight-color: transparent;
+}
+.mobile body {
+  overscroll-behavior: none;
+}
+.mobile ::-webkit-scrollbar {
+  display: none;
+}
+.mobile .px-8,
+.mobile .px-6 {
+  padding-inline: 16px;
+}
+.mobile input:not([type="range"]):not([type="checkbox"]):not([type="radio"]),
+.mobile textarea,
+.mobile select {
+  font-size: 15px;
+}
+.mobile input[type="range"].slider {
+  height: 32px;
+}
+.mobile input[type="range"].slider::-webkit-slider-thumb {
+  width: 20px;
+  height: 20px;
+  margin-top: -8px;
+  opacity: 1;
 }

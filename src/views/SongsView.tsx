@@ -5,10 +5,12 @@ import { EmptyState, PrimaryButton, SecondaryButton } from "../components/EmptyS
 import { HiddenNote, MinLengthSelect } from "../components/MinLengthSelect";
 import { ScanBanner } from "../components/ScanBanner";
 import { SongCard } from "../components/SongCard";
+import { TrackTable } from "../components/TrackTable";
 import { trackMenuItems } from "../components/trackMenu";
 import { SortSelect, ViewHeader } from "../components/ViewHeader";
 import { VirtualGrid } from "../components/VirtualGrid";
 import { playShuffled, playTracks } from "../lib/actions";
+import { isMobile } from "../lib/platform";
 import type { Track } from "../lib/types";
 import { compareText, useLibrary } from "../store/library";
 import { usePlayer } from "../store/player";
@@ -125,6 +127,46 @@ export function SongsView() {
           <PrimaryButton onClick={() => useUi.getState().setView({ kind: "settings" })}>
             <FolderPlus size={16} /> Add music folder
           </PrimaryButton>
+        }
+      />
+    );
+  }
+
+  if (isMobile) {
+    return (
+      <TrackTable
+        tracks={sorted}
+        onPlay={(list, i) => playTracks(list, i)}
+        header={
+          <>
+            <ScanBanner />
+            <ViewHeader
+              title="Songs"
+              subtitle={
+                <>
+                  {tracks.length.toLocaleString()} songs
+                  <HiddenNote count={allCount - tracks.length} />
+                </>
+              }
+              actions={
+                <>
+                  <SortSelect<SongSort>
+                    value={sort}
+                    onChange={setSort}
+                    options={[
+                      { value: "artist", label: "Artist" },
+                      { value: "title", label: "Title" },
+                      { value: "added", label: "Recently added" },
+                      { value: "year", label: "Year" },
+                    ]}
+                  />
+                  <SecondaryButton onClick={() => playShuffled(sorted)}>
+                    <Shuffle size={15} /> Shuffle
+                  </SecondaryButton>
+                </>
+              }
+            />
+          </>
         }
       />
     );

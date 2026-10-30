@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../lib/api";
 import { fmtTime } from "../lib/format";
+import { isMobile } from "../lib/platform";
 import { livePosition, usePlayer } from "../store/player";
 
 /** Seek bar with smooth (rAF-interpolated) progress and drag-to-seek. */
@@ -51,6 +52,39 @@ export function Seekbar({ compact = false }: { compact?: boolean }) {
 
   const shown = drag !== null ? drag * duration : pos;
   const frac = duration > 0 ? Math.min(1, shown / duration) : 0;
+
+  if (isMobile) {
+    // A tall bar for a thumb, with the times under it.
+    return (
+      <div className="w-full">
+        <div
+          ref={barRef}
+          className="relative flex h-8 touch-none items-center"
+          onPointerDown={onDown}
+          onPointerMove={onMove}
+          onPointerUp={onUp}
+          onPointerCancel={() => setDrag(null)}
+          role="slider"
+          aria-label="Seek"
+          aria-valuemin={0}
+          aria-valuemax={Math.round(duration)}
+          aria-valuenow={Math.round(shown)}
+        >
+          <div className="relative h-1 w-full overflow-hidden rounded-full bg-fg/20">
+            <div className="absolute inset-y-0 left-0 rounded-full bg-fg" style={{ width: `${frac * 100}%` }} />
+          </div>
+          <div
+            className={`pointer-events-none absolute top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-fg shadow ${drag !== null ? "h-5 w-5" : "h-3.5 w-3.5"}`}
+            style={{ left: `${frac * 100}%` }}
+          />
+        </div>
+        <div className="tabular -mt-1 flex justify-between text-[12px] text-muted">
+          <span>{fmtTime(shown)}</span>
+          <span>{fmtTime(duration)}</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`flex w-full items-center gap-3 ${compact ? "text-[11px]" : "text-[11.5px]"}`}>

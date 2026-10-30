@@ -6,7 +6,7 @@ export function Toasts() {
   const toasts = usePlayer((s) => s.toasts);
   const dismiss = usePlayer((s) => s.dismissToast);
   return (
-    <div className="pointer-events-none fixed bottom-28 right-5 z-50 flex w-[380px] flex-col gap-2" role="status" aria-live="polite">
+    <div className="pointer-events-none fixed bottom-28 right-5 z-[130] flex w-[380px] flex-col gap-2 mobile:inset-x-3 mobile:bottom-36 mobile:w-auto" role="status" aria-live="polite">
       <UpdateToast />
       {toasts.map((t) => (
         <div

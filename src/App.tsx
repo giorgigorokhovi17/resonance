@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Menu } from "lucide-react";
+import { useCallback, useEffect, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -21,6 +20,7 @@ import { ContextMenuHost } from "./components/ContextMenu";
 import { NavSearch } from "./components/SearchBox";
 import { DialogHost } from "./components/Dialog";
 import { DownloadsPanel } from "./components/DownloadsPanel";
+import { BottomTabs, MiniPlayer, MobileTopBar, MoreView, useBackButton } from "./components/MobileNav";
 import { LinkImportHost } from "./components/LinkImportDialog";
 import { PlaylistEditorHost } from "./components/PlaylistEditor";
 import { LyricsDialog } from "./components/LyricsPanel";
@@ -98,6 +98,8 @@ function useBackgrounds() {
 function MainView() {
   const view = useUi((s) => s.view);
   switch (view.kind) {
+    case "more":
+      return <MoreView />;
     case "songs":
       return <SongsView />;
     case "tracks":
@@ -129,16 +131,30 @@ function MainView() {
   }
 }
 
+/** The Android app: one page at a time, the player and the tabs below it. */
+function MobileApp() {
+  const viewKey = useUi((s) => JSON.stringify(s.view));
+  useBackButton();
+  return (
+    <>
+      <MobileTopBar />
+      <main className="relative min-h-0 flex-1 overflow-hidden">
+        <div key={viewKey} className="relative h-full animate-in">
+          <MainView />
+        </div>
+      </main>
+      <MiniPlayer />
+      <BottomTabs />
+      <NowPlaying />
+      <QueuePanel />
+      <DownloadsPanel />
+    </>
+  );
+}
+
 export default function App() {
   const searchRef = useRef<HTMLInputElement>(null);
   const viewKey = useUi((s) => JSON.stringify(s.view));
-  const downloadsOpen = useUi((s) => s.downloadsOpen);
-  const [drawer, setDrawer] = useState(false);
-  // Picking a view or opening Downloads in the drawer closes it.
-  useEffect(() => setDrawer(false), [viewKey]);
-  useEffect(() => {
-    if (downloadsOpen) setDrawer(false);
-  }, [downloadsOpen]);
   const art = useArtColors();
   useAppearance(art.playing);
   const showAmbient = usePlayer((s) => s.settings?.appearance.ambient ?? true);
@@ -188,51 +204,31 @@ export default function App() {
     <div className={`relative isolate flex h-full flex-col text-fg ${backgrounds.skin ? "" : "bg-bg"}`}>
       {backgrounds.skin && <Backdrop backdrop={backgrounds.skin} place="app" scrim="bg" className="absolute inset-0 -z-10" />}
       {isMobile ? (
-        // Phones: no window controls; the sidebar opens as a drawer from here.
-        <div className="flex h-12 shrink-0 items-center gap-2 px-2">
-          <button
-            aria-label="Menu"
-            data-downloads-target={!drawer || undefined}
-            onClick={() => setDrawer(true)}
-            className="rounded-full p-2 text-muted transition-colors hover:bg-hover hover:text-fg"
-          >
-            <Menu size={20} />
-          </button>
-          <NavSearch ref={searchRef} />
-        </div>
+        <MobileApp />
       ) : (
-        <TitleBar>
-          <NavSearch ref={searchRef} />
-        </TitleBar>
-      )}
-      <div className="relative flex min-h-0 flex-1 gap-2 px-2">
-        {isMobile ? (
-          drawer && (
-            <div className="fixed inset-0 z-40 flex" onClick={() => setDrawer(false)}>
-              <div className="flex h-full py-2 pl-2" onClick={(e) => e.stopPropagation()}>
-                <Sidebar />
+        <>
+          <TitleBar>
+            <NavSearch ref={searchRef} />
+          </TitleBar>
+          <div className="relative flex min-h-0 flex-1 gap-2 px-2">
+            <Sidebar />
+            <main className="skin-glass np-hide relative min-w-0 flex-1 overflow-hidden rounded-xl bg-elev">
+              {backgrounds.page ? (
+                <Backdrop backdrop={backgrounds.page} place="page" scrim="elev" />
+              ) : (
+                <Ambient color={showAmbient && !backgrounds.skin ? art.ambient : null} />
+              )}
+              <div key={viewKey} className="relative h-full animate-in">
+                <MainView />
               </div>
-              <div className="flex-1 bg-black/50" />
-            </div>
-          )
-        ) : (
-          <Sidebar />
-        )}
-        <main className="skin-glass np-hide relative min-w-0 flex-1 overflow-hidden rounded-xl bg-elev">
-          {backgrounds.page ? (
-            <Backdrop backdrop={backgrounds.page} place="page" scrim="elev" />
-          ) : (
-            <Ambient color={showAmbient && !backgrounds.skin ? art.ambient : null} />
-          )}
-          <div key={viewKey} className="relative h-full animate-in">
-            <MainView />
+              <QueuePanel />
+              <DownloadsPanel />
+            </main>
+            <NowPlaying />
           </div>
-          <QueuePanel />
-          <DownloadsPanel />
-        </main>
-        <NowPlaying />
-      </div>
-      <PlayerBar />
+          <PlayerBar />
+        </>
+      )}
       <Toasts />
       <ContextMenuHost />
       <DialogHost />

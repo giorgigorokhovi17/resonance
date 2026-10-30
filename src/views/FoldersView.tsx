@@ -5,6 +5,7 @@ import { MinLengthSelect } from "../components/MinLengthSelect";
 import { TrackTable } from "../components/TrackTable";
 import { trackMenuItems } from "../components/trackMenu";
 import { playTracks } from "../lib/actions";
+import { isMobile } from "../lib/platform";
 import { useLibrary, type FolderNode } from "../store/library";
 import { useUi } from "../store/ui";
 
@@ -56,7 +57,7 @@ export function FoldersView({ path }: { path?: string }) {
         {crumbs.map((c) => (
           <span key={c.path} className="flex items-center gap-1">
             <ChevronRight size={14} className="text-faint" />
-            <button className="max-w-[260px] truncate hover:text-fg" title={c.path} onClick={() => setView({ kind: "folders", path: c.path })}>
+            <button className="max-w-[260px] truncate hover:text-fg mobile:max-w-[40vw]" title={c.path} onClick={() => setView({ kind: "folders", path: c.path })}>
               {c === crumbs[0] ? c.path : c.name}
             </button>
           </span>
@@ -64,10 +65,10 @@ export function FoldersView({ path }: { path?: string }) {
       </div>
       <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
         <h1 className="min-w-0 truncate font-display text-[26px] font-semibold">{node ? node.name : "Library folders"}</h1>
-        <MinLengthSelect />
+        {!isMobile && <MinLengthSelect />}
       </div>
       {children.length > 0 && (
-        <div className="mt-4 grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-2">
+        <div className="mt-4 grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-2 mobile:grid-cols-1">
           {children.map((c) => (
             <div
               key={c.path}

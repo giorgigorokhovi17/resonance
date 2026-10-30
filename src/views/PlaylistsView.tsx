@@ -60,7 +60,7 @@ function PlaylistCard({ p }: { p: Playlist }) {
             e.stopPropagation();
             playPlaylist(p.id, 0, false);
           }}
-          className="absolute bottom-2 right-2 flex h-11 w-11 translate-y-1.5 items-center justify-center rounded-full bg-accent text-on-accent opacity-0 shadow-lg transition-all duration-200 hover:scale-105 group-hover:translate-y-0 group-hover:opacity-100"
+          className="absolute bottom-2 right-2 flex h-11 w-11 translate-y-1.5 items-center justify-center rounded-full bg-accent text-on-accent opacity-0 shadow-lg transition-all duration-200 hover:scale-105 group-hover:translate-y-0 group-hover:opacity-100 mobile:hidden"
         >
           <Play size={18} fill="currentColor" strokeWidth={0} className="translate-x-px" />
         </button>
@@ -91,7 +91,7 @@ export function PlaylistsView() {
           </>
         }
       />
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(184px,1fr))] gap-1 px-6 pb-10">
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(184px,1fr))] gap-1 px-6 pb-10 mobile:grid-cols-2 mobile:px-2">
         <div
           onClick={() => openPlaylistEditor(null)}
           className="group cursor-pointer rounded-lg p-2.5 transition-colors duration-200 hover:bg-hover"

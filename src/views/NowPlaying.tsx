@@ -1,12 +1,15 @@
-﻿import { ChevronDown, Disc3 } from "lucide-react";
+﻿import { ChevronDown, Disc3, EllipsisVertical, ListMusic, Mic2 } from "lucide-react";
 import { useMemo } from "react";
 import { Backdrop } from "../components/Backdrop";
+import { openMenu } from "../components/ContextMenu";
 import { Cover, coverUrl } from "../components/Cover";
 import { FormatBadge } from "../components/FormatBadge";
-import { TransportControls, VolumeControl } from "../components/PlayerBar";
+import { EffectsButton, IconButton, SleepButton, TransportControls, VolumeControl } from "../components/PlayerBar";
 import { Seekbar } from "../components/Seekbar";
+import { trackMenuItems } from "../components/trackMenu";
 import { api } from "../lib/api";
 import { displayArtist, fmtTime } from "../lib/format";
+import { isMobile } from "../lib/platform";
 import { liveCoverId, useLiveCover, useLiveMotion } from "../store/library";
 import { useMedia } from "../store/media";
 import { useCoverColor } from "../hooks/useCoverColor";
@@ -41,6 +44,94 @@ export function NowPlaying() {
 
   if (!open) return null;
   const bg = coverUrl(coverId, "full");
+
+  if (isMobile) {
+    return (
+      <div
+        className={`fixed inset-0 z-40 overflow-hidden transition-colors duration-700 animate-in ${custom === "app" ? "" : "bg-bg"}`}
+        style={{ backgroundColor: color && !custom ? `color-mix(in srgb, ${color} ${Math.round(38 * tint)}%, var(--c-bg))` : undefined }}
+        role="dialog"
+        aria-label="Now playing"
+      >
+        {custom === "nowPlaying" && skin && <Backdrop backdrop={skin} place="nowPlaying" scrim="bg" />}
+        {bg && !custom && (
+          <div className="absolute inset-0" style={{ opacity: tint }}>
+            <div
+              className="absolute -inset-24 scale-110 bg-cover bg-center opacity-55"
+              style={{ backgroundImage: `url("${bg}")`, filter: "blur(var(--np-blur, 90px)) saturate(1.5)" }}
+            />
+          </div>
+        )}
+        {/* Solid at the edges, to meet the system bars above and below. */}
+        {!custom && <div className="absolute inset-0 bg-gradient-to-b from-bg via-bg/50 to-bg" />}
+        <div className="relative flex h-full flex-col px-6 pb-4 pt-[max(8px,env(safe-area-inset-top))]">
+          <div className="flex h-12 shrink-0 items-center">
+            <button onClick={close} aria-label="Close now playing" className="-ml-3 flex h-12 w-12 items-center justify-center">
+              <ChevronDown size={28} />
+            </button>
+            <div className="min-w-0 flex-1 truncate text-center text-[13px] font-medium text-fg/75">{track?.album || "Now playing"}</div>
+            <button
+              disabled={!track}
+              onClick={(e) => track && openMenu(e, trackMenuItems([track]))}
+              aria-label="Options for this song"
+              className="-mr-3 flex h-12 w-12 items-center justify-center disabled:opacity-30"
+            >
+              <EllipsisVertical size={22} />
+            </button>
+          </div>
+          {!track ? (
+            <div className="flex flex-1 flex-col items-center justify-center gap-3 text-muted">
+              <Disc3 size={48} strokeWidth={1.2} />
+              Nothing playing
+            </div>
+          ) : (
+            <>
+              {/* The cover takes what's left, so short screens keep the controls in view. */}
+              <div className="flex min-h-0 flex-1 items-center justify-center py-3">
+                <Cover
+                  coverId={coverId}
+                  motionId={motionId}
+                  motion="nowPlaying"
+                  size="full"
+                  className="aspect-square max-h-full w-full max-w-full shadow-[0_24px_60px_-20px_rgba(0,0,0,0.7)]"
+                  rounded="rounded-2xl"
+                  iconSize={96}
+                />
+              </div>
+              <div className="shrink-0">
+                <h1 className="truncate font-display text-[24px] font-bold leading-tight">{track.title}</h1>
+                <button
+                  className="block max-w-full truncate text-left text-[16px] text-fg/75"
+                  onClick={() => setView({ kind: "search", q: displayArtist(track) })}
+                >
+                  {displayArtist(track)}
+                </button>
+                <div className="mt-1.5">
+                  <FormatBadge />
+                </div>
+                <div className="mt-2">
+                  <Seekbar />
+                </div>
+                <div className="mt-1 flex justify-center">
+                  <TransportControls big />
+                </div>
+                <div className="mt-3 flex items-center justify-around">
+                  <IconButton label="Lyrics" onClick={() => useUi.getState().setLyricsOpen(true)}>
+                    <Mic2 size={20} />
+                  </IconButton>
+                  <EffectsButton />
+                  <SleepButton />
+                  <IconButton label="Queue" onClick={() => useUi.getState().toggleQueue()}>
+                    <ListMusic size={21} />
+                  </IconButton>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div

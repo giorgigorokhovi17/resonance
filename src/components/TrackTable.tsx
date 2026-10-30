@@ -2,10 +2,12 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowDown, ArrowUp, AudioLines, Play } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { fmtTime, isHiRes } from "../lib/format";
+import { isMobile } from "../lib/platform";
 import type { Track } from "../lib/types";
 import { compareText } from "../store/library";
 import { usePlayer } from "../store/player";
 import { openMenu, type MenuItem } from "./ContextMenu";
+import { TRACK_ROW, TrackRow } from "./TrackRow";
 import { trackMenuItems } from "./trackMenu";
 
 export type Column = "index" | "title" | "artist" | "album" | "year" | "genre" | "quality" | "duration" | "added";
@@ -77,21 +79,7 @@ function Quality({ t }: { t: Track }) {
   );
 }
 
-/**
- * Virtualized, sortable track table. Rows are 36px; handles 20k+ rows smoothly.
- * `onPlay(sortedTracks, index)` is called on double-click / Enter.
- */
-export function TrackTable({
-  tracks,
-  columns = ["index", "title", "artist", "album", "year", "quality", "duration"],
-  sortable = true,
-  defaultSort,
-  numbering = "row",
-  header,
-  onPlay,
-  extraMenu,
-  emptyText = "No tracks",
-}: {
+interface TrackTableProps {
   tracks: Track[];
   columns?: Column[];
   sortable?: boolean;
@@ -101,7 +89,80 @@ export function TrackTable({
   onPlay: (sorted: Track[], index: number) => void;
   extraMenu?: (t: Track, index: number) => MenuItem[];
   emptyText?: string;
-}) {
+}
+
+/** The same list for a phone: one song to a row, no columns. */
+function TrackList({ tracks, defaultSort, header, onPlay, extraMenu, emptyText = "No tracks" }: TrackTableProps) {
+  const parentRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const [margin, setMargin] = useState(0);
+  const sorted = useMemo(() => (defaultSort ? sortTracks(tracks, defaultSort.key, defaultSort.dir) : tracks), [tracks, defaultSort]);
+
+  useLayoutEffect(() => {
+    const el = listRef.current;
+    if (!el) return;
+    const measure = () => setMargin(el.offsetTop);
+    measure();
+    const ro = new ResizeObserver(measure);
+    if (el.parentElement) ro.observe(el.parentElement);
+    return () => ro.disconnect();
+  }, [sorted.length > 0]);
+
+  const virt = useVirtualizer({
+    count: sorted.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => TRACK_ROW,
+    overscan: 8,
+    scrollMargin: margin,
+  });
+
+  return (
+    <div ref={parentRef} className="h-full overflow-y-auto">
+      {header}
+      {sorted.length === 0 ? (
+        <div className="px-6 py-10 text-center text-[13px] text-faint">{emptyText}</div>
+      ) : (
+        <div ref={listRef} className="relative" style={{ height: virt.getTotalSize() }}>
+          {virt.getVirtualItems().map((vi) => {
+            const t = sorted[vi.index];
+            return (
+              <div key={vi.key} className="absolute inset-x-0" style={{ top: vi.start - margin, height: vi.size }}>
+                <TrackRow
+                  track={t}
+                  onPlay={() => onPlay(sorted, vi.index)}
+                  onMenu={(e) =>
+                    openMenu(e, trackMenuItems([t], { playAll: () => onPlay(sorted, vi.index), extra: extraMenu?.(t, vi.index) }))
+                  }
+                />
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <div className="h-3" />
+    </div>
+  );
+}
+
+export function TrackTable(props: TrackTableProps) {
+  return isMobile ? <TrackList {...props} /> : <DesktopTrackTable {...props} />;
+}
+
+/**
+ * Virtualized, sortable track table. Rows are 36px; handles 20k+ rows smoothly.
+ * `onPlay(sortedTracks, index)` is called on double-click / Enter.
+ */
+function DesktopTrackTable({
+  tracks,
+  columns = ["index", "title", "artist", "album", "year", "quality", "duration"],
+  sortable = true,
+  defaultSort,
+  numbering = "row",
+  header,
+  onPlay,
+  extraMenu,
+  emptyText = "No tracks",
+}: TrackTableProps) {
   const parentRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 } | null>(defaultSort ?? null);

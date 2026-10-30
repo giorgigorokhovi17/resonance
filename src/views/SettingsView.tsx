@@ -5,6 +5,7 @@ import { isMobile } from "../lib/platform";
 import type { DeviceInfo, OutputMode, Settings } from "../lib/types";
 import { usePlayer } from "../store/player";
 import { FormatBadge } from "../components/FormatBadge";
+import { MinLengthSelect } from "../components/MinLengthSelect";
 import { BackupSection } from "./settings/Backup";
 import { HotkeysSection } from "./settings/Hotkeys";
 import { IslandSection } from "./settings/Island";
@@ -25,7 +26,7 @@ export function showSettingsTab(t: Tab) {
 
 export function Section({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
   return (
-    <section className="rounded-xl bg-panel p-5 ring-1 ring-line">
+    <section className="rounded-xl bg-panel p-5 ring-1 ring-line mobile:p-4">
       <h2 className="text-[15px] font-semibold">{title}</h2>
       {description && <p className="mt-1 text-[12.5px] leading-relaxed text-muted">{description}</p>}
       <div className="mt-4">{children}</div>
@@ -113,7 +114,7 @@ export function SettingsView() {
   };
 
   return (
-    <div className="mx-auto max-w-3xl space-y-5 px-8 py-6 animate-in">
+    <div className="mx-auto max-w-3xl space-y-5 px-8 py-6 animate-in mobile:space-y-3 mobile:px-3 mobile:pt-2">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <h1 className="font-display text-[28px] font-semibold">Settings</h1>
         <Segmented<Tab>
@@ -201,7 +202,7 @@ export function SettingsView() {
                   { value: "album", label: "Album" },
                 ]}
               />
-              <label className="flex items-center gap-3 text-[12.5px] text-muted">
+              <label className="flex items-center gap-3 text-[12.5px] text-muted mobile:w-full">
                 Pre-amp
                 <input
                   type="range"
@@ -209,7 +210,7 @@ export function SettingsView() {
                   max={15}
                   step={0.5}
                   value={settings.replayGainPreamp}
-                  className="slider w-40"
+                  className="slider w-40 mobile:min-w-0 mobile:flex-1"
                   style={{ ["--fill" as string]: `${((settings.replayGainPreamp + 15) / 30) * 100}%` }}
                   onChange={(e) => patch({ replayGainPreamp: parseFloat(e.target.value) })}
                 />
@@ -241,7 +242,7 @@ export function SettingsView() {
                 step={1}
                 value={settings.crossfade}
                 aria-label="Crossfade length"
-                className="slider w-56"
+                className="slider w-56 mobile:w-auto mobile:min-w-0 mobile:flex-1"
                 style={{ ["--fill" as string]: `${(settings.crossfade / 10) * 100}%` }}
                 onChange={(e) => patch({ crossfade: parseFloat(e.target.value) })}
               />
@@ -267,6 +268,11 @@ export function SettingsView() {
               <Row label="Watch library folders for changes">
                 <Toggle label="Watch folders" checked={settings.watchFolders} onChange={(v) => patch({ watchFolders: v })} />
               </Row>
+              {isMobile && (
+                <Row label="Hide short tracks">
+                  <MinLengthSelect />
+                </Row>
+              )}
             </div>
           </Section>
 

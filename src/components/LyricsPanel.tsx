@@ -143,12 +143,12 @@ export function LyricsDialog() {
   const motionId = useLiveMotion(track);
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/50 p-6 backdrop-blur-sm animate-in" onMouseDown={() => setOpen(false)}>
+    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/50 p-6 backdrop-blur-sm animate-in mobile:p-0" onMouseDown={() => setOpen(false)}>
       <div
         role="dialog"
         aria-modal="true"
         aria-label="Lyrics"
-        className="flex h-[min(720px,82vh)] w-[min(620px,92vw)] flex-col overflow-hidden rounded-2xl bg-panel shadow-2xl ring-1 ring-line"
+        className="flex h-[min(720px,82vh)] w-[min(620px,92vw)] flex-col overflow-hidden rounded-2xl bg-panel shadow-2xl ring-1 ring-line mobile:h-full mobile:w-full mobile:rounded-none mobile:ring-0"
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="flex shrink-0 items-center gap-4 border-b border-line/70 p-4">

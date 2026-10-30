@@ -1,4 +1,4 @@
-import { AlertTriangle, ArrowDown, ArrowUp, AudioLines, Download, FileOutput, GripVertical, ListChecks, ListMusic, MoreHorizontal, Pause, Pencil, Pin, PinOff, Play, Shuffle, Trash2, X } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, AudioLines, Download, EllipsisVertical, FileOutput, GripVertical, ListChecks, ListMusic, MoreHorizontal, Pause, Pencil, Pin, PinOff, Play, Shuffle, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { openMenu, SEP, type MenuItem } from "../components/ContextMenu";
 import { Cover } from "../components/Cover";
@@ -10,10 +10,12 @@ import { PlaylistCover } from "../components/PlaylistCover";
 import { PlaylistRecommendations } from "../components/PlaylistRecommendations";
 import { openPlaylistEditor } from "../components/PlaylistEditor";
 import { ReorderList } from "../components/ReorderList";
+import { TRACK_ROW, TrackRow } from "../components/TrackRow";
 import { trackMenuItems } from "../components/trackMenu";
 import { api } from "../lib/api";
 import { saveFile } from "../lib/files";
 import { displayArtist, fmtDuration, fmtTime } from "../lib/format";
+import { isMobile } from "../lib/platform";
 import type { Playlist, PlaylistDetail, PlaylistEntry } from "../lib/types";
 import { liveCoverId, longEnough, useLibrary } from "../store/library";
 import { usePlayer } from "../store/player";
@@ -124,6 +126,8 @@ export function PlaylistView({ id }: { id: number }) {
   const playing = usePlayer((s) => s.status?.state === "playing");
   const queuePaths = usePlayer((s) => s.queue.items);
   const split = usePlayer((s) => s.settings?.appearance.playlistLayout === "split");
+  /** Phone: the songs show drag handles (a finger on a row scrolls). */
+  const [reordering, setReordering] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -297,6 +301,54 @@ export function PlaylistView({ id }: { id: number }) {
     </div>
   );
 
+  const mobileHeader = (
+    <div className="px-4 pb-3">
+      <div className="flex justify-center pb-4">{cover("aspect-square w-[58vw] max-w-[260px]")}</div>
+      <h1 onClick={() => openPlaylistEditor(playlist)} className="line-clamp-2 font-display text-[24px] font-bold leading-tight">
+        {playlist.name}
+      </h1>
+      {playlist.description && <p className="mt-1 line-clamp-2 text-[13.5px] text-fg/70">{playlist.description}</p>}
+      <div className="mt-1 text-[13px] text-muted">
+        {shown.length} song{shown.length === 1 ? "" : "s"}
+        {total > 0 && ` · ${fmtDuration(total)}`}
+        <HiddenNote count={hidden} />
+        {missing > 0 && <span className="text-warn"> · {missing} missing</span>}
+      </div>
+      {notOwned + toReview > 0 && (
+        <button
+          onClick={() => useUi.getState().setView({ kind: "review", id })}
+          className="accent-gradient text-on-accent mt-3 inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-[13px] font-semibold"
+        >
+          <Download size={15} /> Get {notOwned + toReview} missing song{notOwned + toReview === 1 ? "" : "s"}
+        </button>
+      )}
+      <div className="mt-2 flex items-center gap-1">
+        <button aria-label="More options" onClick={(e) => openMenu(e, playlistItemMenu(playlist))} className="-ml-2.5 flex h-11 w-11 items-center justify-center text-muted">
+          <EllipsisVertical size={22} />
+        </button>
+        <button
+          aria-label="Reorder songs"
+          aria-pressed={reordering}
+          onClick={() => setReordering(!reordering)}
+          className={`flex h-11 w-11 items-center justify-center ${reordering ? "text-accent" : "text-muted"}`}
+        >
+          <ArrowUpDown size={21} />
+        </button>
+        <button aria-label="Shuffle play" disabled={!playable.length} onClick={() => playPlaylist(id, 0, true)} className="ml-auto flex h-11 w-11 items-center justify-center text-muted disabled:opacity-40">
+          <Shuffle size={22} />
+        </button>
+        <button
+          aria-label={isPlayingThis && playing ? "Pause" : "Play"}
+          disabled={!playable.length}
+          onClick={() => (isPlayingThis ? api.togglePlay() : playPlaylist(id, 0, false))}
+          className="ml-1 flex h-14 w-14 items-center justify-center rounded-full bg-accent text-on-accent shadow-lg active:scale-95 disabled:opacity-40"
+        >
+          {isPlayingThis && playing ? <Pause size={24} fill="currentColor" strokeWidth={0} /> : <Play size={24} fill="currentColor" strokeWidth={0} className="translate-x-0.5" />}
+        </button>
+      </div>
+    </div>
+  );
+
   const header = (
     <div>
       <div className="flex items-end gap-7 px-8 pb-6 pt-10">
@@ -321,7 +373,7 @@ export function PlaylistView({ id }: { id: number }) {
         "Every song in this playlist is shorter than the minimum length."
       ) : (
         <>
-          This playlist is empty. Right-click any song and choose <span className="text-fg">Add to playlist</span>.
+          This playlist is empty. {isMobile ? "Hold" : "Right-click"} any song and choose <span className="text-fg">Add to playlist</span>.
         </>
       )}
     </p>
@@ -331,32 +383,50 @@ export function PlaylistView({ id }: { id: number }) {
     <ReorderList<PlaylistEntry>
       items={shown}
       getKey={(e) => e.track.path + "#" + slots[shown.indexOf(e)]}
-      rowHeight={56}
+      rowHeight={isMobile ? TRACK_ROW : 56}
       onMove={onMove}
-      header={split ? splitHeader : header}
+      header={isMobile ? mobileHeader : split ? splitHeader : header}
       footer={<PlaylistRecommendations id={id} />}
       renderRow={(entry, index) => {
         const t = entry.track;
         const isCur = t.path === currentPath;
         const at = slots[index];
         const remove = () => persist(detail.entries.filter((_, i) => i !== at));
+        const menu = (e: React.MouseEvent) =>
+          openMenu(e, [
+            ...(entry.missing
+              ? [
+                  entry.refKey
+                    ? { label: "Find on Soulseek…", icon: <Download size={14} />, onClick: () => useUi.getState().setView({ kind: "review", id }) }
+                    : { label: "File not found", disabled: true, icon: <AlertTriangle size={14} /> },
+                ]
+              : trackMenuItems([t], { playAll: () => playPlaylist(id, at, false) })),
+            SEP,
+            { label: "Remove from playlist", icon: <X size={14} />, danger: true, onClick: remove },
+          ]);
+        if (isMobile) {
+          return (
+            <TrackRow
+              track={t}
+              dimmed={entry.missing}
+              subtitle={entry.missing && !entry.refKey ? "File not found" : undefined}
+              onPlay={entry.missing ? undefined : () => playPlaylist(id, at, false)}
+              onMenu={menu}
+              trailing={
+                reordering ? (
+                  <span data-drag-handle className="flex h-11 w-7 shrink-0 touch-none items-center justify-center text-muted" onClick={(e) => e.stopPropagation()}>
+                    <GripVertical size={18} />
+                  </span>
+                ) : undefined
+              }
+            />
+          );
+        }
         return (
           <div
             className={`group mx-6 flex h-full items-center gap-3 rounded-md px-2 transition-colors duration-150 hover:bg-hover ${entry.missing ? "opacity-50" : ""}`}
             onDoubleClick={() => !entry.missing && playPlaylist(id, at, false)}
-            onContextMenu={(e) =>
-              openMenu(e, [
-                ...(entry.missing
-                  ? [
-                      entry.refKey
-                        ? { label: "Find on Soulseek…", icon: <Download size={14} />, onClick: () => useUi.getState().setView({ kind: "review", id }) }
-                        : { label: "File not found", disabled: true, icon: <AlertTriangle size={14} /> },
-                    ]
-                  : trackMenuItems([t], { playAll: () => playPlaylist(id, at, false) })),
-                SEP,
-                { label: "Remove from playlist", icon: <X size={14} />, danger: true, onClick: remove },
-              ])
-            }
+            onContextMenu={menu}
             title={entry.missing ? (entry.refKey ? "Not in your library yet" : `Missing: ${t.path}`) : t.path}
           >
             <GripVertical size={14} className="shrink-0 cursor-grab text-faint opacity-0 transition-opacity group-hover:opacity-100" />
@@ -412,7 +482,16 @@ export function PlaylistView({ id }: { id: number }) {
     />
   );
 
-  if (split) {
+  if (isMobile && !list) {
+    return (
+      <div className="h-full overflow-y-auto">
+        {mobileHeader}
+        {emptyNote}
+      </div>
+    );
+  }
+
+  if (split && !isMobile) {
     // The cover with the playing song's lyrics below it on the left; details and songs on the right.
     return (
       <div className="flex h-full gap-2 pl-8">

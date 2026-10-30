@@ -1,7 +1,6 @@
 import { AudioWaveform, Download, ListMusic, Maximize2, Mic2, Moon, Pause, Play, Repeat, Repeat1, Shuffle, SkipBack, SkipForward, Volume1, Volume2, VolumeX } from "lucide-react";
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { api } from "../lib/api";
-import { isMobile } from "../lib/platform";
 import type { EffectSettings } from "../lib/types";
 import { useDownloadsBadge } from "./DownloadsPanel";
 import { displayArtist } from "../lib/format";
@@ -36,7 +35,7 @@ export function IconButton({
       disabled={disabled}
       onClick={onClick}
       className={`relative flex items-center justify-center rounded-full transition-colors disabled:opacity-30 ${
-        size === "sm" ? "h-8 w-8" : "h-9 w-9"
+        size === "sm" ? "h-8 w-8" : "h-9 w-9 mobile:h-11 mobile:w-11"
       } ${active ? "text-accent" : "text-muted hover:text-fg"} hover:bg-hover`}
     >
       {children}
@@ -147,7 +146,7 @@ function setEffects(next: EffectSettings) {
 }
 
 /** Speed (pitch follows, like a record) and reverb, in a small panel above the button. */
-function EffectsButton() {
+export function EffectsButton() {
   const fx = usePlayer((s) => s.settings?.effects) ?? { speed: 1, reverb: 0 };
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
@@ -173,7 +172,7 @@ function EffectsButton() {
         <AudioWaveform size={16} />
       </IconButton>
       {open && (
-        <div className="absolute bottom-full right-0 z-50 mb-2 w-72 rounded-xl bg-panel p-4 text-left shadow-xl ring-1 ring-line">
+        <div className="absolute bottom-full right-0 z-50 mb-2 w-72 rounded-xl bg-panel p-4 text-left shadow-xl ring-1 ring-line mobile:fixed mobile:inset-x-3 mobile:bottom-24 mobile:mb-0 mobile:w-auto">
           <div className="text-[13px] font-semibold">Effects</div>
           <div className="mt-3 flex gap-1.5">
             {EFFECT_PRESETS.map((p) => {
@@ -249,7 +248,7 @@ function fmtLeft(secs: number) {
 }
 
 /** Sleep timer: pause after a while, or stop when this song ends. */
-function SleepButton() {
+export function SleepButton() {
   const status = useSleep((s) => s.status);
   const [left, setLeft] = useState(sleepRemaining);
   useEffect(() => {
@@ -306,36 +305,6 @@ export function PlayerBar() {
   const downloadsBadge = useDownloadsBadge();
   const lyricsOpen = useUi((s) => s.lyricsOpen);
   const setLyricsOpen = useUi((s) => s.setLyricsOpen);
-
-  if (isMobile) {
-    // Phones: song and queue on one row, the controls and seek bar full width below.
-    return (
-      <div className="skin-clear shrink-0 bg-bg px-3 pb-1 pt-2">
-        <div className="flex min-w-0 items-center gap-3">
-          <button className="shrink-0" onClick={toggleNowPlaying} aria-label="Open now playing">
-            <Cover coverId={coverId} motionId={motionId} motion="tile" className="h-11 w-11" iconSize={18} />
-          </button>
-          <div className="min-w-0 flex-1">
-            {track ? (
-              <>
-                <div className="truncate text-[13.5px] font-semibold">{track.title}</div>
-                <div className="truncate text-[12.5px] text-muted">{displayArtist(track)}</div>
-              </>
-            ) : (
-              <div className="text-[13px] text-faint">Nothing playing</div>
-            )}
-          </div>
-          <IconButton label="Queue" active={queueOpen || view.kind === "queue"} onClick={toggleQueue}>
-            <ListMusic size={20} />
-          </IconButton>
-        </div>
-        <div className="flex flex-col items-center gap-1">
-          <TransportControls />
-          <Seekbar />
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="skin-clear grid h-[84px] shrink-0 grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)_minmax(0,1fr)] items-center gap-4 bg-bg px-4">

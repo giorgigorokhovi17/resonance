@@ -14,7 +14,7 @@ export function SourcesView() {
     <div className="h-full overflow-y-auto pb-8">
       <div className="mx-auto max-w-3xl">
         <ViewHeader title="Sources" subtitle="Get music and playlists in from other places." />
-        <div className="space-y-4 px-8">
+        <div className="space-y-4 px-8 mobile:space-y-3 mobile:px-3">
           <SourceCard
             icon={<Download size={20} />}
             name="Soulseek"
@@ -82,9 +82,9 @@ function SourceCard({
   children?: ReactNode;
 }) {
   return (
-    <section className="rounded-xl bg-panel p-5 ring-1 ring-line" aria-disabled={!live}>
-      <div className="flex items-start gap-4">
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-bg text-accent ring-1 ring-line">{icon}</div>
+    <section className="rounded-xl bg-panel p-5 ring-1 ring-line mobile:p-4" aria-disabled={!live}>
+      <div className="flex items-start gap-4 mobile:block">
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-bg text-accent ring-1 ring-line mobile:hidden">{icon}</div>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-[15px] font-semibold">{name}</h2>

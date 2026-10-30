@@ -5,6 +5,7 @@ import { SecondaryButton } from "../components/EmptyState";
 import { api } from "../lib/api";
 import { BUILTIN_PRESETS, bandActive, curve, effectivePreamp, flatEq, maxResponseDb } from "../lib/eqmath";
 import { pickFiles } from "../lib/files";
+import { isMobile } from "../lib/platform";
 import type { EqBand, EqPreset, EqSettings, FilterType } from "../lib/types";
 import { usePlayer } from "../store/player";
 import { HeadphoneFinder } from "./eq/HeadphoneFinder";
@@ -129,7 +130,7 @@ function ResponseGraph({ eq, onBand }: { eq: EqSettings; onBand: (i: number, pat
         <path d={path} fill="none" stroke="url(#eqline)" strokeWidth={2.25} opacity={eq.enabled ? 1 : 0.35} />
         {eq.bands.map((b, i) =>
           b.enabled ? (
-            <g key={i} style={{ cursor: "grab" }}>
+            <g key={i} className="touch-none" style={{ cursor: "grab" }}>
               <circle
                 cx={x(Math.max(20, Math.min(20000, b.freq)))}
                 cy={y(b.filter === "lowPass" || b.filter === "highPass" ? 0 : Math.max(-range, Math.min(range, b.gain)))}
@@ -375,7 +376,7 @@ export function EqView() {
             value={eq.presetName ?? ""}
             onChange={(e) => loadPreset(e.target.value)}
             aria-label="Preset"
-            className="h-9 min-w-[220px] rounded-full bg-panel px-4 text-[13px] outline-none ring-1 ring-line focus:ring-accent"
+            className="h-9 min-w-[220px] rounded-full bg-panel px-4 text-[13px] outline-none ring-1 ring-line focus:ring-accent mobile:w-full"
           >
             <option value="" disabled>
               Custom
@@ -444,14 +445,17 @@ export function EqView() {
           </div>
         </div>
 
-        <div className="grid grid-cols-5 gap-2 lg:grid-cols-10">
+        {/* Phones: one row of bands that scrolls sideways, each wide enough for a thumb. */}
+        <div className="grid grid-cols-5 gap-2 lg:grid-cols-10 mobile:-mx-4 mobile:auto-cols-[92px] mobile:grid-flow-col mobile:grid-cols-none mobile:overflow-x-auto mobile:px-4 mobile:py-1">
           {eq.bands.map((b, i) => (
             <BandStrip key={i} band={b} index={i} onChange={(p) => setBand(i, p)} />
           ))}
         </div>
         <p className="pb-4 text-[11.5px] text-faint">
-          Tip: drag the numbered points on the graph to move a band, scroll over a point to change its Q, double-click a
-          slider to reset it. AutoEQ files ("ParametricEQ.txt") come from the AutoEQ project's per-headphone results.
+          {isMobile
+            ? "Tip: drag the numbered points on the graph to move a band. Swipe sideways for all 10 bands."
+            : "Tip: drag the numbered points on the graph to move a band, scroll over a point to change its Q, double-click a slider to reset it."}{" "}
+          AutoEQ files ("ParametricEQ.txt") come from the AutoEQ project's per-headphone results.
         </p>
       </div>
     </div>

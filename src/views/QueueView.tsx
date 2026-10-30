@@ -5,6 +5,7 @@ import { QueueList } from "../components/QueueList";
 import { ViewHeader } from "../components/ViewHeader";
 import { api } from "../lib/api";
 import { fmtDuration } from "../lib/format";
+import { isMobile } from "../lib/platform";
 import { usePlayer } from "../store/player";
 import { useUi } from "../store/ui";
 
@@ -42,7 +43,7 @@ export function QueueView() {
       <EmptyState
         icon={<ListOrdered size={28} strokeWidth={1.4} />}
         title="The queue is empty"
-        body="Play an album, playlist or track, or use “Add to queue” from any right-click menu."
+        body={isMobile ? "Play a song or playlist, or hold a song and choose “Add to queue”." : "Play an album, playlist or track, or use “Add to queue” from any right-click menu."}
       />
     );
   }
@@ -52,7 +53,7 @@ export function QueueView() {
       header={
         <ViewHeader
           title="Queue"
-          subtitle={`${items.length.toLocaleString()} tracks · ${fmtDuration(total)} · drag to reorder`}
+          subtitle={`${items.length.toLocaleString()} tracks · ${fmtDuration(total)}${isMobile ? "" : " · drag to reorder"}`}
           actions={<QueueActions />}
         />
       }
@@ -68,7 +69,7 @@ export function QueuePanel() {
   if (!open) return null;
   return (
     <aside
-      className="absolute bottom-0 right-0 top-0 z-30 flex w-[380px] flex-col border-l border-line bg-elev/95 shadow-2xl backdrop-blur-xl animate-in"
+      className="absolute bottom-0 right-0 top-0 z-30 flex w-[380px] flex-col border-l border-line bg-elev/95 shadow-2xl backdrop-blur-xl animate-in mobile:fixed mobile:inset-0 mobile:z-50 mobile:w-auto mobile:border-0 mobile:bg-bg"
       aria-label="Queue"
     >
       <div className="flex items-center justify-between px-4 pb-2 pt-4">
@@ -78,8 +79,8 @@ export function QueuePanel() {
         </div>
         <div className="flex items-center gap-1">
           <QueueActions compact />
-          <button aria-label="Close queue" onClick={toggle} className="ml-1 rounded-md p-1.5 text-muted hover:bg-hover hover:text-fg">
-            <X size={16} />
+          <button aria-label="Close queue" onClick={toggle} className="ml-1 rounded-md p-1.5 text-muted hover:bg-hover hover:text-fg mobile:p-2.5">
+            <X size={16} className="mobile:h-5 mobile:w-5" />
           </button>
         </div>
       </div>

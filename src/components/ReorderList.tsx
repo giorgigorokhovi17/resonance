@@ -1,5 +1,6 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { isMobile } from "../lib/platform";
 
 /**
  * Virtualized list with drag-to-reorder. Works with very large lists (only visible rows are
@@ -95,9 +96,11 @@ export function ReorderList<T>({
     };
     window.addEventListener("pointermove", onMoveEv);
     window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
     return () => {
       window.removeEventListener("pointermove", onMoveEv);
       window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
     };
   }, [items.length, onMove]);
 
@@ -128,6 +131,8 @@ export function ReorderList<T>({
             style={{ top: vi.start - margin, height: vi.size }}
             onPointerDown={(e) => {
               if (e.button !== 0 || (e.target as HTMLElement).closest("button")) return;
+              // On a phone a finger on the row scrolls; only the handle drags.
+              if (isMobile && !(e.target as HTMLElement).closest("[data-drag-handle]")) return;
               pending.current = { from: vi.index, startY: e.clientY, pointerId: e.pointerId };
             }}
           >

@@ -2,12 +2,14 @@
 import { useMemo, type ReactNode } from "react";
 import { api } from "../lib/api";
 import { fmtTime, displayArtist } from "../lib/format";
+import { isMobile } from "../lib/platform";
 import type { QueueItem } from "../lib/types";
 import { usePlayer } from "../store/player";
 import { liveCoverId, useLibrary } from "../store/library";
 import { openMenu, SEP } from "./ContextMenu";
 import { Cover } from "./Cover";
 import { ReorderList } from "./ReorderList";
+import { TRACK_ROW, TrackRow } from "./TrackRow";
 import { trackMenuItems } from "./trackMenu";
 
 export function QueueList({ compact = false, header }: { compact?: boolean; header?: ReactNode }) {
@@ -32,7 +34,7 @@ export function QueueList({ compact = false, header }: { compact?: boolean; head
     <ReorderList<QueueItem>
       items={queue.items}
       getKey={(i) => i.uid}
-      rowHeight={compact ? 48 : 52}
+      rowHeight={isMobile ? TRACK_ROW : compact ? 48 : 52}
       onMove={onMove}
       header={header}
       scrollToIndex={currentIdx >= 0 ? currentIdx : undefined}
@@ -40,26 +42,41 @@ export function QueueList({ compact = false, header }: { compact?: boolean; head
         const isCur = item.uid === queue.currentUid;
         const isPast = currentIdx >= 0 && index < currentIdx;
         const t = item.track;
+        const menu = (e: React.MouseEvent) =>
+          openMenu(e, [
+            { label: "Play", onClick: () => api.playQueueItem(item.uid) },
+            ...trackMenuItems([t]).slice(1),
+            SEP,
+            {
+              label: "Remove from queue",
+              icon: <Trash2 size={14} />,
+              danger: true,
+              disabled: isCur,
+              onClick: () => api.removeFromQueue([item.uid]),
+            },
+          ]);
+        if (isMobile) {
+          return (
+            <TrackRow
+              track={t}
+              dimmed={isPast}
+              onPlay={() => api.playQueueItem(item.uid)}
+              onMenu={menu}
+              trailing={
+                <span data-drag-handle className="flex h-11 w-7 shrink-0 touch-none items-center justify-center text-faint" onClick={(e) => e.stopPropagation()}>
+                  <GripVertical size={18} />
+                </span>
+              }
+            />
+          );
+        }
         return (
           <div
             className={`group mx-2 flex h-full items-center gap-3 rounded-md px-2 transition-colors duration-150 ${isCur ? "bg-accent/12" : "hover:bg-hover"} ${
               isPast ? "opacity-55" : ""
             }`}
             onDoubleClick={() => api.playQueueItem(item.uid)}
-            onContextMenu={(e) =>
-              openMenu(e, [
-                { label: "Play", onClick: () => api.playQueueItem(item.uid) },
-                ...trackMenuItems([t]).slice(1),
-                SEP,
-                {
-                  label: "Remove from queue",
-                  icon: <Trash2 size={14} />,
-                  danger: true,
-                  disabled: isCur,
-                  onClick: () => api.removeFromQueue([item.uid]),
-                },
-              ])
-            }
+            onContextMenu={menu}
           >
             <GripVertical size={14} className="shrink-0 cursor-grab text-faint opacity-0 group-hover:opacity-100" />
             {!compact && <span className="tabular w-6 shrink-0 text-right text-[12px] text-faint">{index + 1}</span>}
