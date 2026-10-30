@@ -375,12 +375,17 @@ pub fn run() {
             let soulseek = sources::soulseek::Soulseek::new(app.handle().clone(), &app.config().identifier);
             soulseek.sign_in_saved(s.soulseek.clone());
             // A finished download that was found for an imported playlist entry replaces that
-            // entry in every playlist that has it (recorded as the user's choice).
+            // entry in every playlist that has it (recorded as the user's choice). One found to
+            // replace a YouTube download takes that file's place the same way; the file stays.
             {
                 let (lib, handle) = (library.clone(), app.handle().clone());
                 soulseek.set_on_linked_done(Arc::new(move |key, path| {
                     let path = path.to_string_lossy().to_string();
-                    match library::interchange::decide(&mut lib.db.lock(), &key, "accept", Some(&path)) {
+                    let linked = match key.strip_prefix(sources::missing::UPGRADE_KEY) {
+                        Some(old) => library::db::replace_in_playlists(&mut lib.db.lock(), old, &path),
+                        None => library::interchange::decide(&mut lib.db.lock(), &key, "accept", Some(&path)),
+                    };
+                    match linked {
                         Ok(_) => {
                             let _ = handle.emit("playlists:changed", ());
                         }
@@ -488,6 +493,7 @@ pub fn run() {
             commands::quit_app,
             commands::update_playlist,
             commands::set_playlist_pinned,
+            commands::set_playlist_hidden,
             commands::reorder_playlists,
             commands::set_playlist_cover,
             commands::stage_media,
@@ -529,6 +535,7 @@ pub fn run() {
             sources::commands::check_link,
             sources::commands::import_link,
             sources::commands::find_missing,
+            sources::commands::find_better_copies,
             sources::commands::stop_find,
             sources::commands::skip_find,
             sources::commands::find_results,

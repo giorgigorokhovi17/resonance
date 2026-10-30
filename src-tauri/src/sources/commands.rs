@@ -239,6 +239,44 @@ pub async fn find_missing(
     Ok(state.finder.start(state.soulseek.clone(), Some(state.youtube.clone()), playlist_id, refs, mode, on_found))
 }
 
+/// Look on Soulseek for better copies of a playlist's YouTube downloads. Results arrive as
+/// `slsk:find` events, keyed `upgrade:<path>`. Nothing downloads until approved, and YouTube is
+/// never asked again.
+#[tauri::command]
+pub async fn find_better_copies(state: State<'_, AppState>, playlist_id: i64) -> CmdResult<usize> {
+    use super::missing::{upgrade_ref, FindMode, UPGRADE_KEY};
+    use crate::library::{db, interchange::TrackRef};
+    if state.soulseek.status().state != soulseek::ConnState::SignedIn {
+        return Err("Sign in to Soulseek first.".into());
+    }
+    let lib = state.library.clone();
+    let refs = tauri::async_runtime::spawn_blocking(move || -> CmdResult<Vec<(String, TrackRef)>> {
+        let items = db::playlist_items(&lib.db.lock(), playlist_id).map_err(|e| e.to_string())?;
+        let mut items: Vec<(String, Option<String>)> = items.into_iter().filter(|(p, _)| super::youtube::is_download(p)).collect();
+        let mut seen = std::collections::HashSet::new();
+        items.retain(|(p, _)| seen.insert(p.clone()));
+        let paths: Vec<String> = items.iter().map(|(p, _)| p.clone()).collect();
+        let tracks = lib.resolve_paths(&paths);
+        let conn = lib.db.lock();
+        let stored = |key: &Option<String>| {
+            let json = db::match_ref_json(&conn, key.as_deref()?).ok().flatten()?;
+            serde_json::from_str::<TrackRef>(&json).ok()
+        };
+        Ok(tracks
+            .into_iter()
+            .zip(&items)
+            .filter(|((_, missing), _)| !missing)
+            .map(|((t, _), (path, key))| (format!("{UPGRADE_KEY}{path}"), upgrade_ref(&t, stored(key))))
+            .collect())
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    if refs.is_empty() {
+        return Err("No song in this playlist came from YouTube.".into());
+    }
+    Ok(state.finder.start(state.soulseek.clone(), None, playlist_id, refs, FindMode::SoulseekFirst, None))
+}
+
 #[tauri::command]
 pub fn stop_find(state: State<'_, AppState>, playlist_id: i64) {
     state.finder.stop(playlist_id);

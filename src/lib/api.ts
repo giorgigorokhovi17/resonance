@@ -110,6 +110,7 @@ export const api = {
   decideMatch: (key: string, decision: MatchDecision, path: string | null = null) =>
     invoke<number>("decide_match", { key, decision, path }),
   setPlaylistPinned: (id: number, pinned: boolean) => invoke<void>("set_playlist_pinned", { id, pinned }),
+  setPlaylistHidden: (id: number, hidden: boolean) => invoke<void>("set_playlist_hidden", { id, hidden }),
   /** All playlist ids in the order the sidebar should show them. */
   reorderPlaylists: (ids: number[]) => invoke<void>("reorder_playlists", { ids }),
   updatePlaylist: (id: number, name: string, description: string) =>
@@ -194,6 +195,8 @@ export const api = {
   importLink: (url: string) => invoke<LinkImport>("import_link", { url }),
   findMissing: (playlistId: number, keys: string[] | null = null, mode: FindMode = "soulseekFirst") =>
     invoke<number>("find_missing", { playlistId, keys, mode }),
+  /** Soulseek search for better copies of the playlist's YouTube downloads; results as for findMissing. */
+  findBetterCopies: (playlistId: number) => invoke<number>("find_better_copies", { playlistId }),
   stopFind: (playlistId: number) => invoke<void>("stop_find", { playlistId }),
   /** Cancel one song's Soulseek search. */
   skipFind: (key: string) => invoke<void>("skip_find", { key }),

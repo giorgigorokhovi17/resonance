@@ -74,6 +74,9 @@ struct BackupPlaylist {
     motion_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     background: Option<Backdrop>,
+    /// Left out of the sidebar.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    hidden: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -183,6 +186,7 @@ pub fn export(lib: &Library, settings: Settings, eq_presets: Vec<EqPreset>, ui: 
                 source_id: p.source_id,
                 motion_id: p.motion_id,
                 background: p.background,
+                hidden: p.hidden,
             });
         }
         (folders, playlists, db::track_art(&conn).map_err(err)?)
@@ -436,6 +440,7 @@ pub fn restore(lib: &Library, b: Backup, mut add_folder: impl FnMut(&str) -> Res
             let motion = p.motion_id.as_ref().and_then(|m| media_map.get(m));
             db::set_playlist_cover(&conn, id, cover.map(|s| s.as_str()), motion.map(|s| s.as_str())).map_err(err)?;
             db::set_playlist_background(&conn, id, map_backdrop(&p.background).as_ref()).map_err(err)?;
+            db::set_playlist_hidden(&conn, id, p.hidden).map_err(err)?;
             if let (Some(source), Some(source_id)) = (&p.source, &p.source_id) {
                 db::set_playlist_source(&conn, id, source, source_id).map_err(err)?;
             }

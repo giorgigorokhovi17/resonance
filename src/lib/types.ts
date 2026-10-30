@@ -393,6 +393,8 @@ export interface Playlist {
   sourceId: string | null;
   /** Kept at the top of the sidebar. */
   pinned: boolean;
+  /** Left out of the sidebar; still on the Playlists page. */
+  hidden: boolean;
 }
 
 export interface PlaylistEntry {
@@ -400,6 +402,8 @@ export interface PlaylistEntry {
   missing: boolean;
   /** The imported reference this entry came from (for review and Soulseek search). */
   refKey: string | null;
+  /** One of our YouTube downloads, so a better copy can be looked for on Soulseek. */
+  fromYoutube: boolean;
 }
 
 export interface PlaylistDetail {
