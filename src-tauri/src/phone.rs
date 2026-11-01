@@ -4,12 +4,17 @@
 //! the link (the QR code in Settings), and songs are only reachable by playlist and position (the
 //! library's own songs or a playlist's), never by path. Nothing is reachable from the internet
 //! unless the user forwards the port on their router.
+//!
+//! The phone app syncs through here too (docs/phone-file-sync.md): `/api/sync` lists what's on this
+//! PC, and `/song` checks the song is still the one listed. With "Receive songs from my phone" on,
+//! `/upload` adds new songs to a `Phone` folder in the library. That's the only write: it never
+//! replaces, changes or deletes a file.
 
-use std::collections::HashMap;
-use std::fs::File;
+use std::collections::{HashMap, HashSet};
+use std::fs::{File, OpenOptions};
 use std::io::{self, BufWriter, Read, Seek, SeekFrom, Write};
 use std::net::UdpSocket;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::sync::Arc;
@@ -20,11 +25,12 @@ use parking_lot::Mutex;
 use percent_encoding::{percent_decode_str, utf8_percent_encode, NON_ALPHANUMERIC};
 use qrcodegen::{QrCode, QrCodeEcc};
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Manager};
 use tiny_http::{Header, Method, Request, Response, Server, StatusCode};
 
-use crate::library::model::Track;
-use crate::library::{db, Library};
+use crate::library::model::{is_audio_file, Track};
+use crate::library::{db, tags, Library, ScanRequest};
 use crate::settings::PhoneSyncSettings;
 use crate::AppState;
 
@@ -32,6 +38,14 @@ use crate::AppState;
 const PAGE: &str = include_str!("phone.html");
 /// Playlist id for the whole library.
 const ALL_SONGS: i64 = 0;
+/// Goes up when `/api/sync` changes in a way an older phone app can't read.
+const SYNC_VERSION: u32 = 1;
+/// Where songs from the phone land, inside the first library folder.
+const PHONE_FOLDER: &str = "Phone";
+/// Far past any song or album-long file.
+const MAX_UPLOAD: u64 = 2 << 30;
+/// An upload that would leave less than this on the drive is refused.
+const KEEP_FREE: u64 = 1 << 30;
 
 #[derive(Serialize, Clone, Debug, Default, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -48,6 +62,7 @@ pub struct PhoneStatus {
 struct Running {
     port: u16,
     key: String,
+    receive: bool,
     stop: Arc<AtomicBool>,
     server: Arc<Server>,
     thread: JoinHandle<()>,
@@ -55,11 +70,13 @@ struct Running {
 
 static RUNNING: Mutex<Option<Running>> = Mutex::new(None);
 static ERROR: Mutex<Option<String>> = Mutex::new(None);
+/// Checksums of the uploads in progress: the same song sent twice at once would share a `.part`.
+static UPLOADING: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
 /// Starts, stops or restarts the server to match `s`, and says how it went.
 pub fn apply(app: &AppHandle, s: &PhoneSyncSettings) -> PhoneStatus {
     let mut running = RUNNING.lock();
-    let unchanged = running.as_ref().is_some_and(|r| s.enabled && r.port == s.port && r.key == s.key);
+    let unchanged = running.as_ref().is_some_and(|r| s.enabled && r.port == s.port && r.key == s.key && r.receive == s.receive);
     if !unchanged {
         if let Some(r) = running.take() {
             r.stop.store(true, Ordering::Relaxed);
@@ -86,7 +103,7 @@ fn start(app: &AppHandle, s: &PhoneSyncSettings) -> Result<Running, String> {
     let library = app.try_state::<AppState>().ok_or("the app is still starting")?.library.clone();
     let server = Arc::new(Server::http(("0.0.0.0", s.port)).map_err(|e| e.to_string())?);
     let stop = Arc::new(AtomicBool::new(false));
-    let (srv, flag, key) = (server.clone(), stop.clone(), s.key.clone());
+    let (srv, flag, key, receive) = (server.clone(), stop.clone(), s.key.clone(), s.receive);
     let thread = std::thread::Builder::new()
         .name("phone-sync".into())
         .spawn(move || {
@@ -95,7 +112,7 @@ fn start(app: &AppHandle, s: &PhoneSyncSettings) -> Result<Running, String> {
                     Ok(Some(req)) => {
                         let (library, key) = (library.clone(), key.clone());
                         // Songs and .zip files can take minutes: one thread per request.
-                        let _ = std::thread::Builder::new().name("phone-request".into()).spawn(move || handle(&library, &key, req));
+                        let _ = std::thread::Builder::new().name("phone-request".into()).spawn(move || handle(&library, &key, receive, req));
                     }
                     Ok(None) => {}
                     Err(_) => break,
@@ -104,7 +121,7 @@ fn start(app: &AppHandle, s: &PhoneSyncSettings) -> Result<Running, String> {
         })
         .map_err(|e| e.to_string())?;
     log::info!("phone sync on port {}", s.port);
-    Ok(Running { port: s.port, key: s.key.clone(), stop, server, thread })
+    Ok(Running { port: s.port, key: s.key.clone(), receive: s.receive, stop, server, thread })
 }
 
 pub fn status() -> PhoneStatus {
@@ -179,17 +196,20 @@ fn query(q: &str) -> HashMap<String, String> {
         .collect()
 }
 
-fn handle(lib: &Library, key: &str, req: Request) {
+fn handle(lib: &Library, key: &str, receive: bool, req: Request) {
     let url = req.url().to_string();
     let (path, q) = url.split_once('?').unwrap_or((&url, ""));
     let q = query(q);
     if q.get("k").map(String::as_str) != Some(key) {
         return text(req, 403, "Open the link from Undertone (Settings → Phone sync).");
     }
+    let parts: Vec<&str> = path.trim_matches('/').split('/').collect();
+    if *req.method() == Method::Put && parts == ["upload"] {
+        return upload(lib, receive, req, &q);
+    }
     if !matches!(req.method(), Method::Get | Method::Head) {
         return text(req, 405, "Not allowed.");
     }
-    let parts: Vec<&str> = path.trim_matches('/').split('/').collect();
     let num = |s: &str| s.parse::<i64>().ok();
     match parts.as_slice() {
         [""] => {
@@ -204,8 +224,17 @@ fn handle(lib: &Library, key: &str, req: Request) {
             Some((name, tracks)) => json(req, &ListJson { name, songs: tracks.iter().map(SongJson::from).collect() }),
             None => text(req, 404, "No such playlist."),
         },
+        ["api", "sync"] => match sync_lists(lib, receive) {
+            Some(m) => json(req, &m),
+            None => text(req, 500, "Couldn't read the playlists."),
+        },
+        ["api", "sync", "has"] => {
+            let size = q.get("size").and_then(|s| s.parse().ok()).unwrap_or(0);
+            let sha = q.get("sha256").map(|s| s.to_ascii_lowercase()).unwrap_or_default();
+            json(req, &Stored { id: find_copy(lib, size, &sha) })
+        }
         ["song", id, i] => match (num(id), num(i)) {
-            (Some(id), Some(i)) => song(lib, req, id, i, q.contains_key("dl")),
+            (Some(id), Some(i)) => song(lib, req, id, i, q.contains_key("dl"), q.get("v").map(String::as_str)),
             _ => text(req, 404, "No such song."),
         },
         ["cover", id] => match lib.covers.file(id, true).and_then(|p| std::fs::read(p).ok()) {
@@ -345,13 +374,22 @@ fn parse_range(value: &str, len: u64) -> Option<(u64, u64)> {
     (start <= end && start < len).then_some((start, end))
 }
 
-/// One song, with seeking (HTTP ranges) for the phone's player.
-fn song(lib: &Library, req: Request, id: i64, i: i64, download: bool) {
+/// One song, with seeking (HTTP ranges) for the phone's player. With `want` (a sync id from
+/// `/api/sync`), answers 409 unless that's still the song here, so a playlist reordered since the
+/// list was made can't put the wrong song on the phone.
+fn song(lib: &Library, req: Request, id: i64, i: i64, download: bool, want: Option<&str>) {
     let Some(track) = songs(lib, id).and_then(|(_, t)| usize::try_from(i).ok().and_then(|i| t.into_iter().nth(i))) else {
         return text(req, 404, "No such song.");
     };
+    if want.is_some_and(|v| v != sync_id(&track)) {
+        return text(req, 409, "This song changed. Get the list again.");
+    }
     let Ok(mut file) = File::open(&track.path) else { return text(req, 404, "The file isn't there any more.") };
     let len = file.metadata().map(|m| m.len()).unwrap_or(0);
+    // Changed on disk and not scanned yet: its listed size would no longer be right.
+    if want.is_some() && len != track.file_size {
+        return text(req, 409, "This song changed. Get the list again.");
+    }
     let ext = extension(&track.path);
     let mut extra = vec![header("Accept-Ranges", "bytes")];
     if download {
@@ -366,6 +404,232 @@ fn song(lib: &Library, req: Request, id: i64, i: i64, download: bool) {
             respond(req, 206, mime(&ext), Box::new(file.take(n)), usize::try_from(n).ok(), extra);
         }
         _ => respond(req, 200, mime(&ext), Box::new(file), usize::try_from(len).ok(), extra),
+    }
+}
+
+// ---- the list the phone app syncs from ----------------------------------------------------------
+
+/// What's on this PC: each song once, and the playlists as lists of those songs.
+#[derive(Serialize)]
+struct SyncManifest {
+    version: u32,
+    /// Whether `/upload` is turned on.
+    receive: bool,
+    files: Vec<SyncFile>,
+    lists: Vec<SyncList>,
+}
+
+#[derive(Serialize)]
+struct SyncFile {
+    id: String,
+    /// Where to get it: `/song/<list>/<pos>?v=<id>`.
+    list: i64,
+    pos: usize,
+    /// The file's own name, without its folders.
+    name: String,
+    size: u64,
+    #[serde(flatten)]
+    song: SongJson,
+}
+
+#[derive(Serialize)]
+struct SyncList {
+    id: i64,
+    name: String,
+    /// File ids in playlist order.
+    songs: Vec<String>,
+}
+
+/// Names one version of one file without saying where it is. A new id means the phone's copy is
+/// out of date.
+fn sync_id(t: &Track) -> String {
+    let hash = Sha256::digest(format!("{}\0{}\0{}", t.path, t.file_size, t.mtime));
+    hash[..16].iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn manifest(lists: Vec<(i64, String, Vec<Track>)>, receive: bool) -> SyncManifest {
+    let (mut files, mut seen, mut out) = (Vec::new(), HashSet::new(), Vec::new());
+    for (id, name, tracks) in lists {
+        let mut songs = Vec::with_capacity(tracks.len());
+        for (pos, t) in tracks.iter().enumerate() {
+            let file = sync_id(t);
+            if seen.insert(file.clone()) {
+                let name = Path::new(&t.path).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                files.push(SyncFile { id: file.clone(), list: id, pos, name, size: t.file_size, song: SongJson::from(t) });
+            }
+            songs.push(file);
+        }
+        out.push(SyncList { id, name, songs });
+    }
+    SyncManifest { version: SYNC_VERSION, receive, files, lists: out }
+}
+
+fn sync_lists(lib: &Library, receive: bool) -> Option<SyncManifest> {
+    let lists = lists(lib)?.into_iter().filter_map(|l| songs(lib, l.id).map(|(name, tracks)| (l.id, name, tracks)));
+    Some(manifest(lists.collect(), receive))
+}
+
+// ---- songs from the phone -----------------------------------------------------------------------
+
+/// A song's sync id on this PC, once it's here.
+#[derive(Serialize)]
+struct Stored {
+    id: Option<String>,
+}
+
+fn sha256_hex(mut from: impl Read) -> io::Result<String> {
+    let mut hash = Sha256::new();
+    io::copy(&mut from, &mut hash)?;
+    Ok(hash.finalize().iter().map(|b| format!("{b:02x}")).collect())
+}
+
+/// A library song with exactly these bytes. Only songs of the same size get read, so it's quick.
+fn find_copy(lib: &Library, size: u64, sha: &str) -> Option<String> {
+    let tracks = lib.tracks().ok()?;
+    let mut same = tracks.iter().filter(|t| t.file_size == size);
+    same.find(|t| File::open(&t.path).and_then(sha256_hex).is_ok_and(|h| h == sha)).map(sync_id)
+}
+
+/// The name to save a song under: its last part only, safe on Windows, and an audio file.
+fn upload_name(name: &str) -> Option<String> {
+    let clean = safe_name(name.rsplit(['/', '\\']).next()?);
+    let first = clean.split('.').next()?.to_ascii_uppercase();
+    let numbered = first.len() == 4 && (first.starts_with("COM") || first.starts_with("LPT")) && first.ends_with(|c: char| c.is_ascii_digit());
+    let reserved = numbered || matches!(first.as_str(), "CON" | "PRN" | "AUX" | "NUL");
+    (!reserved && clean.chars().count() <= 200 && is_audio_file(Path::new(&clean))).then_some(clean)
+}
+
+fn free_bytes(dir: &Path) -> Option<u64> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows::core::PCWSTR;
+    use windows::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
+
+    let wide: Vec<u16> = dir.as_os_str().encode_wide().chain(Some(0)).collect();
+    let mut free = 0u64;
+    // SAFETY: `wide` is a null-terminated path that outlives the call, and `free` is a local.
+    unsafe { GetDiskFreeSpaceExW(PCWSTR(wide.as_ptr()), Some(&raw mut free), None, None) }.ok()?;
+    Some(free)
+}
+
+/// Writes exactly `len` bytes to `path`, returning their checksum.
+fn write_part(body: &mut dyn Read, path: &Path, len: u64) -> io::Result<String> {
+    let mut out = BufWriter::with_capacity(1 << 16, File::create(path)?);
+    let (mut hash, mut buf, mut got) = (Sha256::new(), vec![0u8; 1 << 16], 0u64);
+    let mut body = body.take(len);
+    loop {
+        let n = body.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        hash.update(&buf[..n]);
+        out.write_all(&buf[..n])?;
+        got += n as u64;
+    }
+    out.flush()?;
+    if got != len {
+        return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "the phone stopped sending"));
+    }
+    Ok(hash.finalize().iter().map(|b| format!("{b:02x}")).collect())
+}
+
+/// Moves a finished upload to `name` in `dir`, or `name (2)` and so on. The empty file reserves the
+/// name first, because a plain rename would replace a song that's already there.
+fn place(part: &Path, dir: &Path, name: &str) -> io::Result<PathBuf> {
+    let (stem, ext) = name.rsplit_once('.').unwrap_or((name, ""));
+    for n in 1..1000 {
+        let dest = dir.join(if n == 1 { name.to_string() } else { format!("{stem} ({n}).{ext}") });
+        match OpenOptions::new().write(true).create_new(true).open(&dest) {
+            Ok(_) => {
+                return std::fs::rename(part, &dest).map(|()| dest.clone()).inspect_err(|_| {
+                    let _ = std::fs::remove_file(&dest);
+                })
+            }
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(e) => return Err(e),
+        }
+    }
+    Err(io::Error::other("too many songs with this name"))
+}
+
+/// Saves a song from the phone into the library's `Phone` folder, read-only like a download, and
+/// returns its sync id. Anything that fails leaves nothing behind.
+fn store(lib: &Library, body: &mut dyn Read, name: &str, sha: &str, len: u64) -> Result<String, (u16, &'static str)> {
+    const NO_SAVE: (u16, &str) = (500, "Couldn't save the song on this PC.");
+    let folders = lib.folders().map_err(|_| NO_SAVE)?;
+    let root = folders.iter().find(|f| Path::new(&f.path).is_dir()).ok_or((409, "Add a music folder in Undertone first."))?;
+    let dir = Path::new(&root.path).join(PHONE_FOLDER);
+    std::fs::create_dir_all(&dir).map_err(|_| NO_SAVE)?;
+    if free_bytes(&dir).is_some_and(|free| free < len.saturating_add(KEEP_FREE)) {
+        return Err((507, "This PC's music drive is nearly full."));
+    }
+
+    let part = dir.join(format!("{sha}.part"));
+    let saved = (|| {
+        match write_part(body, &part, len) {
+            Ok(got) if got == sha => {}
+            Ok(_) => return Err((422, "The song arrived damaged. Try again.")),
+            Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => return Err((400, "The song didn't arrive whole. Try again.")),
+            Err(_) => return Err(NO_SAVE),
+        }
+        match tags::read_track(&part, false) {
+            Ok((t, _)) if t.duration > 0.0 => {}
+            _ => return Err((415, "That isn't a song Undertone can play.")),
+        }
+        place(&part, &dir, name).map_err(|_| NO_SAVE)
+    })();
+    let dest = saved.inspect_err(|_| {
+        let _ = std::fs::remove_file(&part);
+    })?;
+
+    let id = tags::read_track(&dest, false).map(|(t, _)| sync_id(&t)).map_err(|_| NO_SAVE)?;
+    match std::fs::metadata(&dest) {
+        Ok(meta) => {
+            let mut perms = meta.permissions();
+            perms.set_readonly(true);
+            if let Err(e) = std::fs::set_permissions(&dest, perms) {
+                log::warn!("could not mark {} read-only: {e}", dest.display());
+            }
+        }
+        Err(e) => log::warn!("song from the phone missing at {}: {e}", dest.display()),
+    }
+    lib.request_scan(ScanRequest::Folder(root.id));
+    Ok(id)
+}
+
+/// `PUT /upload?name=...&sha256=...` with the song as the body.
+fn upload(lib: &Library, receive: bool, mut req: Request, q: &HashMap<String, String>) {
+    if !receive {
+        return text(req, 403, "Receiving songs is off. Turn it on in Undertone (Settings → Phone sync).");
+    }
+    let Some(name) = q.get("name").and_then(|n| upload_name(n)) else {
+        return text(req, 400, "That isn't an audio file name.");
+    };
+    let sha = q.get("sha256").map(|s| s.to_ascii_lowercase()).unwrap_or_default();
+    if sha.len() != 64 || !sha.chars().all(|c| c.is_ascii_hexdigit()) {
+        return text(req, 400, "The song's checksum is missing.");
+    }
+    let Some(len) = req.body_length().map(|n| n as u64) else {
+        return text(req, 411, "The song's size is missing.");
+    };
+    if len > MAX_UPLOAD {
+        return text(req, 413, "That file is too big.");
+    }
+    if let Some(id) = find_copy(lib, len, &sha) {
+        return json(req, &Stored { id: Some(id) });
+    }
+    {
+        let mut busy = UPLOADING.lock();
+        if busy.contains(&sha) {
+            drop(busy);
+            return text(req, 409, "This song is already on its way.");
+        }
+        busy.push(sha.clone());
+    }
+    let saved = store(lib, req.as_reader(), &name, &sha, len);
+    UPLOADING.lock().retain(|s| *s != sha);
+    match saved {
+        Ok(id) => json(req, &Stored { id: Some(id) }),
+        Err((code, msg)) => text(req, code, msg),
     }
 }
 
@@ -477,6 +741,190 @@ mod tests {
     fn qr_code_is_an_svg() {
         let svg = qr_svg("http://192.168.1.20:8787/?k=0123456789abcdef0123456789abcdef");
         assert!(svg.starts_with("<svg") && svg.contains("<path d=\"M"));
+    }
+
+    #[test]
+    fn sync_lists_each_song_once_without_paths() {
+        let track = |path: &str, mtime| Track { path: path.into(), title: "T".into(), file_size: 10, mtime, ..Default::default() };
+        let (a, b) = (track(r"C:\Secret\Music\a.flac", 1), track(r"C:\Secret\Music\b.mp3", 1));
+        let m = manifest(vec![(ALL_SONGS, "All songs".into(), vec![a.clone(), b.clone()]), (7, "Gym".into(), vec![b.clone(), a.clone(), b.clone()])], false);
+
+        assert_eq!(m.files.len(), 2, "a song in several lists is one file");
+        assert_eq!((m.files[1].list, m.files[1].pos, m.files[1].name.as_str()), (ALL_SONGS, 1, "b.mp3"));
+        assert_eq!(m.lists[1].songs, [sync_id(&b), sync_id(&a), sync_id(&b)], "a playlist keeps its order and its repeats");
+        assert_ne!(sync_id(&a), sync_id(&track(&a.path, 2)), "an edited file is a new version");
+        assert_eq!(sync_id(&a).len(), 32);
+        assert!(!serde_json::to_string(&m).unwrap().contains("Secret"), "folders stay on the PC");
+    }
+
+    /// A real server, a real library, plain HTTP: the status code and body of one request.
+    fn call(server: &Server, lib: &Library, receive: bool, method: &str, path: &str, body: &[u8]) -> (u16, String) {
+        use std::io::Read as _;
+        let port = server.server_addr().to_ip().unwrap().port();
+        let mut conn = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+        write!(conn, "{method} {path} HTTP/1.1\r\nHost: x\r\nConnection: close\r\nContent-Length: {}\r\n\r\n", body.len()).unwrap();
+        conn.write_all(body).unwrap();
+        handle(lib, "key", receive, server.recv().unwrap());
+        let mut reply = Vec::new();
+        conn.read_to_end(&mut reply).unwrap();
+        let reply = String::from_utf8_lossy(&reply).to_string();
+        let code = reply.split(' ').nth(1).unwrap().parse().unwrap();
+        (code, reply.split_once("\r\n\r\n").unwrap().1.to_string())
+    }
+
+    fn get(server: &Server, lib: &Library, path: &str) -> (u16, String) {
+        call(server, lib, false, "GET", path, b"")
+    }
+
+    #[test]
+    fn a_stale_sync_id_never_gets_the_wrong_song() {
+        let dir = std::env::temp_dir().join(format!("phone-sync-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let lib = Library::open(&dir.join("library.db"), dir.join("covers"), dir.join("media"), Arc::new(|_| {})).unwrap();
+        let add = |name: &str, body: &str, conn: &mut rusqlite::Connection, folder| {
+            let path = dir.join(name).to_string_lossy().to_string();
+            std::fs::write(&path, body).unwrap();
+            let t = Track { path: path.clone(), title: name.into(), file_size: body.len() as u64, mtime: 1, ..Default::default() };
+            db::upsert_tracks(conn, folder, &[(t, dir.to_string_lossy().to_string())]).unwrap();
+            path
+        };
+        let (first, second, list) = {
+            let mut conn = lib.db.lock();
+            let folder = db::add_folder(&conn, &dir.to_string_lossy()).unwrap();
+            let first = add("first.flac", "first song", &mut conn, folder);
+            let second = add("second.flac", "second song", &mut conn, folder);
+            let list = db::create_playlist(&conn, "Mix").unwrap();
+            db::set_playlist_items(&mut conn, list, &[(first.clone(), None), (second.clone(), None)]).unwrap();
+            (first, second, list)
+        };
+        let server = Server::http("127.0.0.1:0").unwrap();
+
+        assert_eq!(get(&server, &lib, "/api/sync").0, 403, "no key, no list");
+        let (code, body) = get(&server, &lib, "/api/sync?k=key");
+        assert_eq!(code, 200);
+        let m: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(m["version"], SYNC_VERSION);
+        assert_eq!(m["lists"][1]["name"], "Mix");
+        let first_id = m["lists"][1]["songs"][0].as_str().unwrap().to_string();
+
+        let at = format!("/song/{list}/0?k=key&v={first_id}");
+        assert_eq!(get(&server, &lib, &at), (200, "first song".to_string()));
+
+        // The playlist is reordered after the phone read the list.
+        db::set_playlist_items(&mut lib.db.lock(), list, &[(second, None), (first.clone(), None)]).unwrap();
+        assert_eq!(get(&server, &lib, &at).0, 409, "position 0 is another song now");
+        assert_eq!(get(&server, &lib, &format!("/song/{list}/0?k=key")), (200, "second song".to_string()), "the browser page doesn't check");
+
+        // The file is edited and not scanned yet.
+        std::fs::write(&first, "first song, longer").unwrap();
+        assert_eq!(get(&server, &lib, &format!("/song/{list}/1?k=key&v={first_id}")).0, 409);
+
+        drop(lib);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn upload_names_stay_in_their_folder() {
+        assert_eq!(upload_name("Song.flac").as_deref(), Some("Song.flac"));
+        assert_eq!(upload_name(r"..\..\Windows\evil.flac").as_deref(), Some("evil.flac"));
+        assert_eq!(upload_name("../../evil.MP3").as_deref(), Some("evil.MP3"));
+        assert_eq!(upload_name("what?.flac").as_deref(), Some("what_.flac"));
+        for bad in ["evil.exe", "song.flac.part", "..", "", "noextension", ".flac", "CON.flac", "nul.mp3", "com1.flac", "lpt9.x.flac"] {
+            assert_eq!(upload_name(bad), None, "{bad}");
+        }
+        assert!(upload_name(&format!("{}.flac", "a".repeat(300))).is_none());
+    }
+
+    /// A short silent mono WAV, which the tag reader takes for real audio.
+    fn wav(frames: u32) -> Vec<u8> {
+        let data = frames * 2;
+        let mut w = Vec::new();
+        w.extend_from_slice(b"RIFF");
+        w.extend_from_slice(&(36 + data).to_le_bytes());
+        w.extend_from_slice(b"WAVEfmt ");
+        w.extend_from_slice(&16u32.to_le_bytes());
+        w.extend_from_slice(&1u16.to_le_bytes());
+        w.extend_from_slice(&1u16.to_le_bytes());
+        w.extend_from_slice(&8000u32.to_le_bytes());
+        w.extend_from_slice(&16000u32.to_le_bytes());
+        w.extend_from_slice(&2u16.to_le_bytes());
+        w.extend_from_slice(&16u16.to_le_bytes());
+        w.extend_from_slice(b"data");
+        w.extend_from_slice(&data.to_le_bytes());
+        w.resize(w.len() + data as usize, 0);
+        w
+    }
+
+    #[test]
+    fn songs_from_the_phone_only_ever_add_files() {
+        let dir = std::env::temp_dir().join(format!("phone-upload-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let music = dir.join("music");
+        std::fs::create_dir_all(&music).unwrap();
+        let lib = Library::open(&dir.join("library.db"), dir.join("covers"), dir.join("media"), Arc::new(|_| {})).unwrap();
+        let server = Server::http("127.0.0.1:0").unwrap();
+        let phone = music.join(PHONE_FOLDER);
+        let send = |receive, name: &str, sha: &str, body: &[u8]| call(&server, &lib, receive, "PUT", &format!("/upload?k=key&name={name}&sha256={sha}"), body);
+        let (song, other) = (wav(800), wav(1600));
+        let (sha, other_sha) = (sha256_hex(&song[..]).unwrap(), sha256_hex(&other[..]).unwrap());
+
+        assert_eq!(send(false, "a.wav", &sha, &song).0, 403, "off until turned on");
+        assert_eq!(send(true, "a.wav", &sha, &song).0, 409, "no library folder to put it in");
+        assert!(!phone.exists());
+        db::add_folder(&lib.db.lock(), &music.to_string_lossy()).unwrap();
+
+        assert_eq!(send(true, "a.exe", &sha, &song).0, 400);
+        assert_eq!(send(true, "a.wav", "abc", &song).0, 400);
+        assert_eq!(send(true, "a.wav", &other_sha, &song).0, 422, "the checksum has to match");
+        let junk = b"not a song at all";
+        assert_eq!(send(true, "a.wav", &sha256_hex(&junk[..]).unwrap(), junk).0, 415);
+        assert_eq!(std::fs::read_dir(&phone).unwrap().count(), 0, "refused uploads leave nothing behind");
+
+        let (code, body) = send(true, "a.wav", &sha, &song);
+        assert_eq!(code, 200, "{body}");
+        let first = phone.join("a.wav");
+        assert_eq!(std::fs::read(&first).unwrap(), song);
+        assert!(std::fs::metadata(&first).unwrap().permissions().readonly(), "read-only, like a download");
+        let id: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(id["id"].as_str().unwrap().len(), 32);
+
+        // Same name, different song: both stay.
+        assert_eq!(send(true, "a.wav", &other_sha, &other).0, 200);
+        assert_eq!(std::fs::read(&first).unwrap(), song, "the first file wasn't replaced");
+        assert_eq!(std::fs::read(phone.join("a (2).wav")).unwrap(), other);
+
+        for f in std::fs::read_dir(&phone).unwrap() {
+            let f = f.unwrap().path();
+            let mut perms = std::fs::metadata(&f).unwrap().permissions();
+            #[allow(clippy::permissions_set_readonly_false)]
+            perms.set_readonly(false);
+            std::fs::set_permissions(&f, perms).unwrap();
+        }
+        drop(lib);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_phone_can_ask_before_sending() {
+        let dir = std::env::temp_dir().join(format!("phone-has-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let lib = Library::open(&dir.join("library.db"), dir.join("covers"), dir.join("media"), Arc::new(|_| {})).unwrap();
+        let path = dir.join("a.flac");
+        std::fs::write(&path, "same bytes").unwrap();
+        let t = Track { path: path.to_string_lossy().to_string(), file_size: 10, mtime: 1, ..Default::default() };
+        {
+            let mut conn = lib.db.lock();
+            let folder = db::add_folder(&conn, &dir.to_string_lossy()).unwrap();
+            db::upsert_tracks(&mut conn, folder, &[(t.clone(), dir.to_string_lossy().to_string())]).unwrap();
+        }
+        let sha = sha256_hex(&b"same bytes"[..]).unwrap();
+        assert_eq!(find_copy(&lib, 10, &sha), Some(sync_id(&t)));
+        assert_eq!(find_copy(&lib, 11, &sha), None, "another size");
+        assert_eq!(find_copy(&lib, 10, &sha256_hex(&b"diff bytes"[..]).unwrap()), None, "same size, other bytes");
+        drop(lib);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
