@@ -892,6 +892,13 @@ pub fn prune_media(conn: &Connection, also_keep: &HashSet<String>) -> Result<Has
 
 /// Store references by key (JSON of `interchange::TrackRef`).
 /// Lyrics found online for a song, with where they came from.
+/// The songs with lyrics found online earlier.
+pub fn saved_lyric_paths(conn: &Connection) -> Result<HashSet<String>> {
+    let mut stmt = conn.prepare("SELECT path FROM saved_lyrics")?;
+    let rows = stmt.query_map([], |r| r.get(0))?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
 pub fn saved_lyrics(conn: &Connection, path: &str) -> Result<Option<(String, String)>> {
     Ok(conn
         .query_row("SELECT lrc, source FROM saved_lyrics WHERE path = ?1", params![path], |r| Ok((r.get(0)?, r.get(1)?)))

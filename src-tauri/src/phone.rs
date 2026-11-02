@@ -13,7 +13,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fs::{File, OpenOptions};
 use std::io::{self, BufWriter, Read, Seek, SeekFrom, Write};
-use std::net::UdpSocket;
+use std::net::{SocketAddr, TcpStream, UdpSocket};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
@@ -30,7 +30,7 @@ use tauri::{AppHandle, Manager};
 use tiny_http::{Header, Method, Request, Response, Server, StatusCode};
 
 use crate::library::model::{is_audio_file, Track};
-use crate::library::{db, tags, Library, ScanRequest};
+use crate::library::{covers, db, lyrics, tags, Library, ScanRequest};
 use crate::settings::PhoneSyncSettings;
 use crate::AppState;
 
@@ -62,7 +62,8 @@ pub struct PhoneStatus {
 struct Running {
     port: u16,
     key: String,
-    receive: bool,
+    /// Read for each request, so turning it on or off needs no restart.
+    receive: Arc<AtomicBool>,
     stop: Arc<AtomicBool>,
     server: Arc<Server>,
     thread: JoinHandle<()>,
@@ -76,13 +77,16 @@ static UPLOADING: Mutex<Vec<String>> = Mutex::new(Vec::new());
 /// Starts, stops or restarts the server to match `s`, and says how it went.
 pub fn apply(app: &AppHandle, s: &PhoneSyncSettings) -> PhoneStatus {
     let mut running = RUNNING.lock();
-    let unchanged = running.as_ref().is_some_and(|r| s.enabled && r.port == s.port && r.key == s.key && r.receive == s.receive);
-    if !unchanged {
-        if let Some(r) = running.take() {
-            r.stop.store(true, Ordering::Relaxed);
-            r.server.unblock();
-            // The port is free again once its thread lets go of the server.
-            let _ = r.thread.join();
+    let unchanged = running.as_ref().filter(|r| s.enabled && r.port == s.port && r.key == s.key);
+    if let Some(r) = unchanged {
+        r.receive.store(s.receive, Ordering::Relaxed);
+    } else {
+        if let Some(Running { port, stop, server, thread, .. }) = running.take() {
+            stop.store(true, Ordering::Relaxed);
+            server.unblock();
+            let _ = thread.join();
+            drop(server);
+            free_port(port);
         }
         *ERROR.lock() = None;
         if s.enabled {
@@ -99,18 +103,36 @@ pub fn apply(app: &AppHandle, s: &PhoneSyncSettings) -> PhoneStatus {
     status()
 }
 
+/// Lets go of the port after the server is dropped. tiny_http wakes its listener by connecting to
+/// 0.0.0.0, which Windows refuses, so without this the port stays taken until the app closes.
+fn free_port(port: u16) {
+    let _ = TcpStream::connect_timeout(&SocketAddr::from(([127, 0, 0, 1], port)), Duration::from_secs(1));
+}
+
+/// Binds the port, waiting briefly in case it's still being let go of.
+fn bind(port: u16) -> Result<Server, String> {
+    for _ in 0..20 {
+        if let Ok(server) = Server::http(("0.0.0.0", port)) {
+            return Ok(server);
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    Server::http(("0.0.0.0", port)).map_err(|e| e.to_string())
+}
+
 fn start(app: &AppHandle, s: &PhoneSyncSettings) -> Result<Running, String> {
     let library = app.try_state::<AppState>().ok_or("the app is still starting")?.library.clone();
-    let server = Arc::new(Server::http(("0.0.0.0", s.port)).map_err(|e| e.to_string())?);
+    let server = Arc::new(bind(s.port)?);
     let stop = Arc::new(AtomicBool::new(false));
-    let (srv, flag, key, receive) = (server.clone(), stop.clone(), s.key.clone(), s.receive);
+    let receive = Arc::new(AtomicBool::new(s.receive));
+    let (srv, flag, key, accept) = (server.clone(), stop.clone(), s.key.clone(), receive.clone());
     let thread = std::thread::Builder::new()
         .name("phone-sync".into())
         .spawn(move || {
             while !flag.load(Ordering::Relaxed) {
                 match srv.recv_timeout(Duration::from_millis(500)) {
                     Ok(Some(req)) => {
-                        let (library, key) = (library.clone(), key.clone());
+                        let (library, key, receive) = (library.clone(), key.clone(), accept.load(Ordering::Relaxed));
                         // Songs and .zip files can take minutes: one thread per request.
                         let _ = std::thread::Builder::new().name("phone-request".into()).spawn(move || handle(&library, &key, receive, req));
                     }
@@ -121,7 +143,7 @@ fn start(app: &AppHandle, s: &PhoneSyncSettings) -> Result<Running, String> {
         })
         .map_err(|e| e.to_string())?;
     log::info!("phone sync on port {}", s.port);
-    Ok(Running { port: s.port, key: s.key.clone(), receive: s.receive, stop, server, thread })
+    Ok(Running { port: s.port, key: s.key.clone(), receive, stop, server, thread })
 }
 
 pub fn status() -> PhoneStatus {
@@ -235,6 +257,10 @@ fn handle(lib: &Library, key: &str, receive: bool, req: Request) {
         }
         ["song", id, i] => match (num(id), num(i)) {
             (Some(id), Some(i)) => song(lib, req, id, i, q.contains_key("dl"), q.get("v").map(String::as_str)),
+            _ => text(req, 404, "No such song."),
+        },
+        ["lyrics", id, i] => match (num(id), num(i)) {
+            (Some(id), Some(i)) => song_lyrics(lib, req, id, i, q.get("v").map(String::as_str)),
             _ => text(req, 404, "No such song."),
         },
         ["cover", id] => match lib.covers.file(id, true).and_then(|p| std::fs::read(p).ok()) {
@@ -374,13 +400,30 @@ fn parse_range(value: &str, len: u64) -> Option<(u64, u64)> {
     (start <= end && start < len).then_some((start, end))
 }
 
+fn track_at(lib: &Library, id: i64, i: i64) -> Option<Track> {
+    let (_, tracks) = songs(lib, id)?;
+    tracks.into_iter().nth(usize::try_from(i).ok()?)
+}
+
+/// A song's lyrics from outside its file: the `.lrc` beside it, or what was found online. Lyrics
+/// in the tags travel with the song.
+fn song_lyrics(lib: &Library, req: Request, id: i64, i: i64, want: Option<&str>) {
+    let Some(track) = track_at(lib, id, i) else { return text(req, 404, "No such song.") };
+    if want.is_some_and(|v| v != sync_id(&track)) {
+        return text(req, 409, "This song changed. Get the list again.");
+    }
+    let saved = || db::saved_lyrics(&lib.db.lock(), &track.path).ok().flatten().map(|(lrc, _)| lrc);
+    match lyrics::sidecar(Path::new(&track.path)).or_else(saved) {
+        Some(lrc) => text(req, 200, &lrc),
+        None => text(req, 404, "No lyrics."),
+    }
+}
+
 /// One song, with seeking (HTTP ranges) for the phone's player. With `want` (a sync id from
 /// `/api/sync`), answers 409 unless that's still the song here, so a playlist reordered since the
 /// list was made can't put the wrong song on the phone.
 fn song(lib: &Library, req: Request, id: i64, i: i64, download: bool, want: Option<&str>) {
-    let Some(track) = songs(lib, id).and_then(|(_, t)| usize::try_from(i).ok().and_then(|i| t.into_iter().nth(i))) else {
-        return text(req, 404, "No such song.");
-    };
+    let Some(track) = track_at(lib, id, i) else { return text(req, 404, "No such song.") };
     if want.is_some_and(|v| v != sync_id(&track)) {
         return text(req, 409, "This song changed. Get the list again.");
     }
@@ -428,6 +471,15 @@ struct SyncFile {
     /// The file's own name, without its folders.
     name: String,
     size: u64,
+    /// Its folder from the library folder's own name down, like `Music/Artist/Album`. Nothing above
+    /// the library folder leaves the PC.
+    dir: String,
+    /// The artwork came from outside the file: a picture beside it, or one the user picked.
+    art: bool,
+    /// The user hid this song's artwork.
+    hidden: bool,
+    /// `/lyrics/<list>/<pos>` has lyrics for it.
+    lyrics: bool,
     #[serde(flatten)]
     song: SongJson,
 }
@@ -436,8 +488,43 @@ struct SyncFile {
 struct SyncList {
     id: i64,
     name: String,
+    description: String,
+    /// The playlist's own photo.
+    cover: Option<String>,
     /// File ids in playlist order.
     songs: Vec<String>,
+}
+
+/// A list going into the manifest.
+struct SyncSource {
+    id: i64,
+    name: String,
+    description: String,
+    cover: Option<String>,
+    tracks: Vec<Track>,
+}
+
+/// What's beside the songs in one folder.
+struct Beside {
+    art: bool,
+    /// Names of `.lrc` files, lower case and without the extension.
+    lrc: HashSet<String>,
+}
+
+fn beside(dir: &Path) -> Beside {
+    let entries = std::fs::read_dir(dir).into_iter().flatten().flatten();
+    let is_lrc = |p: &Path| p.extension().is_some_and(|x| x.eq_ignore_ascii_case("lrc"));
+    let lrc = entries.map(|e| e.path()).filter(|p| is_lrc(p)).filter_map(|p| Some(p.file_stem()?.to_string_lossy().to_lowercase())).collect();
+    Beside { art: covers::find_folder_image(dir).is_some(), lrc }
+}
+
+/// `path`'s folder from its library folder's own name down, split by `/`. Empty outside the library.
+fn library_dir(path: &str, roots: &[String]) -> String {
+    let Some(parent) = Path::new(path).parent() else { return String::new() };
+    let inside = roots.iter().find_map(|r| Some((Path::new(r), parent.strip_prefix(r).ok()?)));
+    let Some((root, rest)) = inside else { return String::new() };
+    let name = root.file_name().map_or_else(|| "Music".to_string(), |n| n.to_string_lossy().to_string());
+    std::iter::once(name).chain(rest.iter().map(|c| c.to_string_lossy().to_string())).collect::<Vec<_>>().join("/")
 }
 
 /// Names one version of one file without saying where it is. A new id means the phone's copy is
@@ -447,26 +534,56 @@ fn sync_id(t: &Track) -> String {
     hash[..16].iter().map(|b| format!("{b:02x}")).collect()
 }
 
-fn manifest(lists: Vec<(i64, String, Vec<Track>)>, receive: bool) -> SyncManifest {
+fn manifest(lists: Vec<SyncSource>, roots: &[String], saved_lyrics: &HashSet<String>, receive: bool) -> SyncManifest {
     let (mut files, mut seen, mut out) = (Vec::new(), HashSet::new(), Vec::new());
-    for (id, name, tracks) in lists {
-        let mut songs = Vec::with_capacity(tracks.len());
-        for (pos, t) in tracks.iter().enumerate() {
+    let mut folders: HashMap<PathBuf, Beside> = HashMap::new();
+    for list in lists {
+        let mut songs = Vec::with_capacity(list.tracks.len());
+        for (pos, t) in list.tracks.iter().enumerate() {
             let file = sync_id(t);
             if seen.insert(file.clone()) {
-                let name = Path::new(&t.path).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-                files.push(SyncFile { id: file.clone(), list: id, pos, name, size: t.file_size, song: SongJson::from(t) });
+                let path = Path::new(&t.path);
+                let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                let dir = path.parent().unwrap_or(Path::new(""));
+                let near = folders.entry(dir.to_path_buf()).or_insert_with(|| beside(dir));
+                let stem = path.file_stem().map(|s| s.to_string_lossy().to_lowercase()).unwrap_or_default();
+                files.push(SyncFile {
+                    id: file.clone(),
+                    list: list.id,
+                    pos,
+                    name,
+                    size: t.file_size,
+                    dir: library_dir(&t.path, roots),
+                    art: t.custom_cover || (near.art && t.cover_id.is_some()),
+                    hidden: t.cover_hidden,
+                    lyrics: near.lrc.contains(&stem) || saved_lyrics.contains(&t.path),
+                    song: SongJson::from(t),
+                });
             }
             songs.push(file);
         }
-        out.push(SyncList { id, name, songs });
+        out.push(SyncList { id: list.id, name: list.name, description: list.description, cover: list.cover, songs });
     }
     SyncManifest { version: SYNC_VERSION, receive, files, lists: out }
 }
 
 fn sync_lists(lib: &Library, receive: bool) -> Option<SyncManifest> {
-    let lists = lists(lib)?.into_iter().filter_map(|l| songs(lib, l.id).map(|(name, tracks)| (l.id, name, tracks)));
-    Some(manifest(lists.collect(), receive))
+    let roots: Vec<String> = lib.folders().ok()?.into_iter().map(|f| f.path).collect();
+    let (playlists, saved) = {
+        let conn = lib.db.lock();
+        (db::playlists(&conn).ok()?, db::saved_lyric_paths(&conn).ok()?)
+    };
+    let sources = lists(lib)?.into_iter().filter_map(|l| {
+        let own = playlists.iter().find(|p| p.id == l.id);
+        songs(lib, l.id).map(|(name, tracks)| SyncSource {
+            id: l.id,
+            name,
+            description: own.map(|p| p.description.clone()).unwrap_or_default(),
+            cover: own.and_then(|p| p.cover_id.clone()),
+            tracks,
+        })
+    });
+    Some(manifest(sources.collect(), &roots, &saved, receive))
 }
 
 // ---- songs from the phone -----------------------------------------------------------------------
@@ -747,14 +864,19 @@ mod tests {
     fn sync_lists_each_song_once_without_paths() {
         let track = |path: &str, mtime| Track { path: path.into(), title: "T".into(), file_size: 10, mtime, ..Default::default() };
         let (a, b) = (track(r"C:\Secret\Music\a.flac", 1), track(r"C:\Secret\Music\b.mp3", 1));
-        let m = manifest(vec![(ALL_SONGS, "All songs".into(), vec![a.clone(), b.clone()]), (7, "Gym".into(), vec![b.clone(), a.clone(), b.clone()])], false);
+        let list = |id, name: &str, tracks: Vec<Track>| SyncSource { id, name: name.into(), description: String::new(), cover: None, tracks };
+        let lists = vec![list(ALL_SONGS, "All songs", vec![a.clone(), b.clone()]), list(7, "Gym", vec![b.clone(), a.clone(), b.clone()])];
+        let m = manifest(lists, &[r"C:\Secret\Music".to_string()], &HashSet::new(), false);
 
         assert_eq!(m.files.len(), 2, "a song in several lists is one file");
         assert_eq!((m.files[1].list, m.files[1].pos, m.files[1].name.as_str()), (ALL_SONGS, 1, "b.mp3"));
         assert_eq!(m.lists[1].songs, [sync_id(&b), sync_id(&a), sync_id(&b)], "a playlist keeps its order and its repeats");
         assert_ne!(sync_id(&a), sync_id(&track(&a.path, 2)), "an edited file is a new version");
         assert_eq!(sync_id(&a).len(), 32);
-        assert!(!serde_json::to_string(&m).unwrap().contains("Secret"), "folders stay on the PC");
+        assert_eq!(m.files[0].dir, "Music");
+        assert_eq!(library_dir(r"C:\Secret\Music\Artist\Album\a.flac", &[r"C:\Secret\Music".to_string()]), "Music/Artist/Album");
+        assert_eq!(library_dir(r"E:\Elsewhere\a.flac", &[r"C:\Secret\Music".to_string()]), "", "outside the library");
+        assert!(!serde_json::to_string(&m).unwrap().contains("Secret"), "what's above the library folder stays on the PC");
     }
 
     /// A real server, a real library, plain HTTP: the status code and body of one request.
@@ -822,6 +944,15 @@ mod tests {
 
         drop(lib);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_stopped_server_lets_go_of_its_port() {
+        let first = Server::http(("0.0.0.0", 0)).unwrap();
+        let port = first.server_addr().to_ip().unwrap().port();
+        drop(first);
+        free_port(port);
+        assert!(bind(port).is_ok(), "the port can be used again without closing the app");
     }
 
     #[test]
