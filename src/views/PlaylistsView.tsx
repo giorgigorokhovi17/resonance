@@ -1,4 +1,4 @@
-import { FileInput, Link2, Play, Plus } from "lucide-react";
+import { EyeOff, FileInput, Link2, Play, Plus } from "lucide-react";
 import { openMenu } from "../components/ContextMenu";
 import { SecondaryButton } from "../components/EmptyState";
 import { PlaylistCover } from "../components/PlaylistCover";
@@ -65,7 +65,14 @@ function PlaylistCard({ p }: { p: Playlist }) {
           <Play size={18} fill="currentColor" strokeWidth={0} className="translate-x-px" />
         </button>
       </div>
-      <div className="mt-2.5 truncate text-[13.5px] font-medium">{p.name}</div>
+      <div className="mt-2.5 flex items-center gap-1.5 text-[13.5px] font-medium">
+        <span className="min-w-0 truncate">{p.name}</span>
+        {p.hidden && (
+          <span title="Hidden from the sidebar" className="shrink-0 text-faint">
+            <EyeOff size={13} aria-label="Hidden from the sidebar" />
+          </span>
+        )}
+      </div>
       <div className="truncate text-[12.5px] text-muted">
         {p.description || `${p.trackCount} song${p.trackCount === 1 ? "" : "s"}`}
       </div>

@@ -98,14 +98,17 @@ object Soulseek {
    * Never overwrites an existing finished file.
    */
   fun publishDownload(context: Context, srcPath: String, subfolder: String?, name: String): String {
+    val cleanSub = subfolder?.trim('/')?.takeIf { it.isNotEmpty() }
+    val relDir = if (cleanSub != null) "Music/Undertone/Soulseek/$cleanSub" else "Music/Undertone/Soulseek"
+    return publishAudio(context, srcPath, relDir, name)
+  }
+
+  /** Moves `srcPath` to `relDir/name` on shared storage through MediaStore. Never overwrites. */
+  fun publishAudio(context: Context, srcPath: String, relDir: String, name: String): String {
     return runCatching {
       val src = File(srcPath)
       if (!src.isFile) error("Downloaded file is missing.")
-      val cleanSub = subfolder?.trim('/')?.takeIf { it.isNotEmpty() }
-      val relDir = if (cleanSub != null) "Music/Undertone/Soulseek/$cleanSub" else "Music/Undertone/Soulseek"
-      val musicRoot = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC)
-      val finalDir = if (cleanSub != null) File(musicRoot, "Undertone/Soulseek/$cleanSub") else File(musicRoot, "Undertone/Soulseek")
-      val finalFile = File(finalDir, name)
+      val finalFile = File(File(Environment.getExternalStorageDirectory(), relDir), name)
       if (finalFile.exists()) {
         src.delete()
         error("A file with this name is already in the download folder.")

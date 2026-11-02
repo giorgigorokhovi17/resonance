@@ -6,6 +6,9 @@ pub mod hotkeys;
 pub mod phone;
 #[cfg_attr(mobile, path = "mobile/island.rs")]
 pub mod island;
+/// File sync with the PC runs on the phone; on the desktop it's a stand-in.
+#[cfg_attr(target_os = "android", path = "mobile/pc_sync.rs")]
+pub mod pc_sync;
 #[cfg_attr(mobile, path = "mobile/smtc.rs")]
 pub mod smtc;
 /// The folder picker and rescans on Android.
@@ -424,12 +427,17 @@ pub fn run() {
             android_soulseek::start(soulseek.clone(), library.clone());
             soulseek.sign_in_saved(s.soulseek.clone());
             // A finished download that was found for an imported playlist entry replaces that
-            // entry in every playlist that has it (recorded as the user's choice).
+            // entry in every playlist that has it (recorded as the user's choice). One found to
+            // replace a YouTube download takes that file's place the same way; the file stays.
             {
                 let (lib, handle) = (library.clone(), app.handle().clone());
                 soulseek.set_on_linked_done(Arc::new(move |key, path| {
                     let path = path.to_string_lossy().to_string();
-                    match library::interchange::decide(&mut lib.db.lock(), &key, "accept", Some(&path)) {
+                    let linked = match key.strip_prefix(sources::missing::UPGRADE_KEY) {
+                        Some(old) => library::db::replace_in_playlists(&mut lib.db.lock(), old, &path),
+                        None => library::interchange::decide(&mut lib.db.lock(), &key, "accept", Some(&path)),
+                    };
+                    match linked {
                         Ok(_) => {
                             let _ = handle.emit("playlists:changed", ());
                         }
@@ -535,12 +543,17 @@ pub fn run() {
             commands::pause_hotkeys,
             commands::get_phone_sync,
             commands::new_phone_link,
+            commands::pc_sync_offer,
+            commands::pc_sync_start,
+            commands::pc_sync_cancel,
+            commands::pc_sync_status,
             commands::set_effects,
             commands::island_set_panel,
             commands::app_ready,
             commands::quit_app,
             commands::update_playlist,
             commands::set_playlist_pinned,
+            commands::set_playlist_hidden,
             commands::reorder_playlists,
             commands::set_playlist_cover,
             commands::stage_media,
@@ -582,6 +595,7 @@ pub fn run() {
             sources::commands::check_link,
             sources::commands::import_link,
             sources::commands::find_missing,
+            sources::commands::find_better_copies,
             sources::commands::stop_find,
             sources::commands::skip_find,
             sources::commands::find_results,

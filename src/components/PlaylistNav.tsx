@@ -1,4 +1,5 @@
 import { Pin } from "lucide-react";
+import { useMemo } from "react";
 import { movePlaylist, usePlaylists } from "../store/playlists";
 import { useUi } from "../store/ui";
 import { playlistItemMenu } from "../views/PlaylistView";
@@ -6,21 +7,29 @@ import { openMenu } from "./ContextMenu";
 import { PlaylistCover } from "./PlaylistCover";
 import { ReorderList } from "./ReorderList";
 
-/** The user's playlists, with thumbnails, in the sidebar. Drag one to move it; pinned ones stay on top. */
+/**
+ * The user's playlists, with thumbnails, in the sidebar. Drag one to move it; pinned ones stay on
+ * top. Hidden ones are only on the Playlists page.
+ */
 export function PlaylistNav() {
-  const playlists = usePlaylists((s) => s.playlists);
+  const all = usePlaylists((s) => s.playlists);
   const view = useUi((s) => s.view);
   const nowPlaying = useUi((s) => s.nowPlaying);
   const setView = useUi((s) => s.setView);
+  const playlists = useMemo(() => all.filter((p) => !p.hidden), [all]);
   if (!playlists.length) {
-    return <p className="px-5 py-2 text-[12px] leading-relaxed text-faint">Your playlists show up here.</p>;
+    return (
+      <p className="px-5 py-2 text-[12px] leading-relaxed text-faint">
+        {all.length ? "Your hidden playlists are on the Playlists page." : "Your playlists show up here."}
+      </p>
+    );
   }
   return (
     <ReorderList
       items={playlists}
       getKey={(p) => p.id}
       rowHeight={54}
-      onMove={movePlaylist}
+      onMove={(from, to) => movePlaylist(all.indexOf(playlists[from]), all.indexOf(playlists[to]))}
       className="px-2"
       renderRow={(p) => {
         const active = !nowPlaying && view.kind === "playlist" && view.id === p.id;

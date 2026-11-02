@@ -83,6 +83,28 @@ object NativeBridge {
     main.post { SoulseekJobService.onQueueChanged(ctx, activeCount, wifiOnly) }
   }
 
+  /** Called by Rust: private storage for songs still downloading from the PC. */
+  @JvmStatic
+  fun pcSyncStagingDir(): String? =
+    appContext?.let { runCatching { PcSyncJobService.stagingDir(it) }.getOrNull() }
+
+  /** Called by Rust: moves a finished song into Music/Undertone/Synced via MediaStore. */
+  @JvmStatic
+  fun publishSynced(srcPath: String, name: String): String? =
+    appContext?.let { PcSyncJobService.publish(it, srcPath, name) }
+
+  /** Called by Rust: deletes a synced song this app no longer needs. */
+  @JvmStatic
+  fun removeSynced(path: String): Boolean =
+    appContext?.let { PcSyncJobService.remove(it, path) } ?: false
+
+  /** Called by Rust when a sync with the PC starts or ends. */
+  @JvmStatic
+  fun onPcSync(running: Boolean) {
+    val ctx = appContext ?: return
+    main.post { PcSyncJobService.onRunning(ctx, running) }
+  }
+
   /** Called by Rust: asks for the audio permission if needed, then opens the folder picker. */
   @JvmStatic
   fun pickMusicFolder() = onScreen { it.pickMusicFolder() }

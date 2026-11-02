@@ -9,6 +9,7 @@ import { MinLengthSelect } from "../components/MinLengthSelect";
 import { BackupSection } from "./settings/Backup";
 import { HotkeysSection } from "./settings/Hotkeys";
 import { IslandSection } from "./settings/Island";
+import { PcSyncSection } from "./settings/PcSync";
 import { PhoneSyncSection } from "./settings/PhoneSync";
 import { LibraryFoldersSection } from "./settings/LibraryFolders";
 import { RecentlyDeletedSection } from "./settings/RecentlyDeleted";
@@ -221,6 +222,8 @@ export function SettingsView() {
               </label>
             </div>
           </Section>
+
+          {isMobile && <PcSyncSection settings={settings} />}
 
           {!isMobile && (
             <>

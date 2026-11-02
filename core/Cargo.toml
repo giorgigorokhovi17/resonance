@@ -50,9 +50,9 @@ base64 = "0.22"
 soulseek-rs-lib = "=19.1.0"
 
 # paste-a-link playlist import and lyrics search (both already in the build through tauri)
-reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "stream"] }
 # The async runtime the app shares with Tauri (rt.rs).
-tokio = { version = "1", features = ["rt-multi-thread", "time"] }
+tokio = { version = "1", features = ["rt-multi-thread", "time", "fs"] }
 
 # Output backends: WASAPI shared (cpal) and exclusive (wasapi) on Windows; Recycle Bin for
 # "Delete from disk" (library/recycle.rs).

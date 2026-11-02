@@ -35,6 +35,21 @@ pub struct Settings {
     pub soulseek: SoulseekSettings,
     pub youtube: YouTubeSettings,
     pub phone_sync: PhoneSyncSettings,
+    pub pc_sync: PcSyncSettings,
+}
+
+/// File sync with the PC (pc_sync.rs), set on the phone app.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PcSyncSettings {
+    /// The link from the PC's Settings → Phone sync, key included.
+    pub link: String,
+    /// The PC's playlists to keep on this phone.
+    pub lists: Vec<i64>,
+    /// The PC's music folders to keep on this phone, like `Music/Artist`.
+    pub folders: Vec<String>,
+    /// Send songs only this phone has to the PC.
+    pub send: bool,
 }
 
 /// Phone sync (phone.rs): playlists on the home network for a phone's browser. Off until turned on.
@@ -45,13 +60,15 @@ pub struct PhoneSyncSettings {
     pub port: u16,
     /// Secret part of the link; without it the server answers nothing. Made when first needed.
     pub key: String,
+    /// Lets the phone app add songs to the library. Off until turned on.
+    pub receive: bool,
 }
 
 pub const DEFAULT_PHONE_PORT: u16 = 8787;
 
 impl Default for PhoneSyncSettings {
     fn default() -> Self {
-        Self { enabled: false, port: DEFAULT_PHONE_PORT, key: String::new() }
+        Self { enabled: false, port: DEFAULT_PHONE_PORT, key: String::new(), receive: false }
     }
 }
 
@@ -387,6 +404,7 @@ impl Default for Settings {
             soulseek: SoulseekSettings::default(),
             youtube: YouTubeSettings::default(),
             phone_sync: PhoneSyncSettings::default(),
+            pc_sync: PcSyncSettings::default(),
         }
     }
 }
@@ -594,9 +612,10 @@ mod tests {
     fn phone_sync_settings() {
         let s: Settings = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
         assert!(!s.phone_sync.enabled, "off until turned on");
+        assert!(!s.phone_sync.receive, "receiving songs too");
         assert_eq!(s.phone_sync.port, DEFAULT_PHONE_PORT);
 
-        let p = PhoneSyncSettings { enabled: true, port: 80, key: "short".into() }.normalized();
+        let p = PhoneSyncSettings { enabled: true, port: 80, key: "short".into(), receive: false }.normalized();
         assert_eq!(p.port, DEFAULT_PHONE_PORT, "no privileged ports");
         assert_eq!(p.key.len(), 32);
         assert!(p.key.chars().all(|c| c.is_ascii_hexdigit()));

@@ -140,6 +140,7 @@ export interface Settings {
   hotkeys: HotkeySettings;
   effects: EffectSettings;
   phoneSync: PhoneSyncSettings;
+  pcSync: PcSyncSettings;
   eq: EqSettings;
   appearance: Appearance;
   soulseek: SoulseekSettings;
@@ -164,6 +165,42 @@ export interface PhoneSyncSettings {
   port: number;
   /** Secret part of the link (changed with New link). */
   key: string;
+  /** Lets the phone app add songs to the library. */
+  receive: boolean;
+}
+
+/** File sync with the PC, set on the phone app. */
+export interface PcSyncSettings {
+  /** The link from the PC's Settings → Phone sync. */
+  link: string;
+  /** The PC's playlists to keep on this phone. */
+  lists: number[];
+  /** The PC's music folders to keep on this phone, like "Music/Artist". */
+  folders: string[];
+  /** Send songs only this phone has to the PC. */
+  send: boolean;
+}
+
+export interface PcSyncOffer {
+  receive: boolean;
+  lists: { id: number; name: string; count: number }[];
+  folders: { path: string; count: number }[];
+}
+
+export interface PcSyncSummary {
+  fetched: number;
+  sent: number;
+  removed: number;
+  skipped: number;
+}
+
+export interface PcSyncStatus {
+  running: boolean;
+  step: string;
+  done: number;
+  total: number;
+  summary: PcSyncSummary | null;
+  error: string | null;
 }
 
 export interface PhoneStatus {
@@ -393,6 +430,8 @@ export interface Playlist {
   sourceId: string | null;
   /** Kept at the top of the sidebar. */
   pinned: boolean;
+  /** Left out of the sidebar; still on the Playlists page. */
+  hidden: boolean;
 }
 
 export interface PlaylistEntry {
@@ -400,6 +439,8 @@ export interface PlaylistEntry {
   missing: boolean;
   /** The imported reference this entry came from (for review and Soulseek search). */
   refKey: string | null;
+  /** One of our YouTube downloads, so a better copy can be looked for on Soulseek. */
+  fromYoutube: boolean;
 }
 
 export interface PlaylistDetail {

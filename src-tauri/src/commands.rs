@@ -411,6 +411,7 @@ pub struct SettingsPatch {
     pub island_options: Option<crate::settings::IslandOptions>,
     pub hotkeys: Option<crate::settings::HotkeySettings>,
     pub phone_sync: Option<crate::settings::PhoneSyncSettings>,
+    pub pc_sync: Option<crate::settings::PcSyncSettings>,
     pub replay_gain: Option<ReplayGainMode>,
     pub replay_gain_preamp: Option<f64>,
     pub crossfade: Option<f64>,
@@ -450,6 +451,9 @@ pub fn update_settings(app: AppHandle, state: State<'_, AppState>, patch: Settin
         if let Some(v) = patch.phone_sync.clone() {
             // The key isn't changed from the page (only by New link).
             s.phone_sync = crate::settings::PhoneSyncSettings { key: s.phone_sync.key.clone(), ..v }.normalized();
+        }
+        if let Some(v) = patch.pc_sync.clone() {
+            s.pc_sync = v;
         }
         if let Some(v) = patch.replay_gain {
             s.replay_gain = v;
@@ -504,6 +508,8 @@ pub struct PlaylistEntry {
     pub missing: bool,
     /// The imported reference this entry came from, if any (for review and Soulseek search).
     pub ref_key: Option<String>,
+    /// One of our YouTube downloads, so a better copy can be looked for on Soulseek.
+    pub from_youtube: bool,
 }
 
 #[derive(serde::Serialize)]
@@ -589,7 +595,8 @@ pub async fn get_playlist(state: State<'_, AppState>, id: i64) -> CmdResult<Play
                         track.duration = r.duration_ms.map(|ms| ms as f64 / 1000.0).unwrap_or(0.0);
                     }
                 }
-                PlaylistEntry { track, missing, ref_key }
+                let from_youtube = !missing && crate::sources::youtube::is_download(&track.path);
+                PlaylistEntry { track, missing, ref_key, from_youtube }
             })
             .collect();
         Ok(PlaylistDetail { playlist, entries })
@@ -912,6 +919,29 @@ pub fn new_phone_link(app: AppHandle, state: State<'_, AppState>) -> Settings {
     s
 }
 
+/// What the PC behind this link offers, for picking playlists.
+#[tauri::command]
+pub async fn pc_sync_offer(link: String) -> CmdResult<undertone_core::pc_sync::Offer> {
+    let link = undertone_core::pc_sync::Link::parse(&link)?;
+    tauri::async_runtime::spawn_blocking(move || undertone_core::pc_sync::offer(link)).await.map_err(err)?
+}
+
+/// Syncs with the PC in the background; progress arrives as `pcsync:status`.
+#[tauri::command]
+pub fn pc_sync_start(app: AppHandle) -> CmdResult<()> {
+    crate::pc_sync::start(&app)
+}
+
+#[tauri::command]
+pub fn pc_sync_cancel() {
+    crate::pc_sync::cancel();
+}
+
+#[tauri::command]
+pub fn pc_sync_status() -> undertone_core::pc_sync::Status {
+    crate::pc_sync::status()
+}
+
 /// Speed and reverb. Applied at once and kept for next time.
 #[tauri::command]
 pub fn set_effects(app: AppHandle, state: State<'_, AppState>, effects: crate::settings::EffectSettings) -> Settings {
@@ -978,6 +1008,14 @@ pub fn update_playlist(app: AppHandle, state: State<'_, AppState>, id: i64, name
 #[tauri::command]
 pub fn set_playlist_pinned(app: AppHandle, state: State<'_, AppState>, id: i64, pinned: bool) -> CmdResult<()> {
     db::set_playlist_pinned(&state.library.db.lock(), id, pinned).map_err(err)?;
+    emit_playlists(&app);
+    Ok(())
+}
+
+/// Hide a playlist from the sidebar, or show it again. It stays on the Playlists page.
+#[tauri::command]
+pub fn set_playlist_hidden(app: AppHandle, state: State<'_, AppState>, id: i64, hidden: bool) -> CmdResult<()> {
+    db::set_playlist_hidden(&state.library.db.lock(), id, hidden).map_err(err)?;
     emit_playlists(&app);
     Ok(())
 }

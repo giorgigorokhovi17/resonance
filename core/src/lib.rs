@@ -6,6 +6,7 @@ pub mod audio;
 pub mod backup;
 pub mod events;
 pub mod library;
+pub mod pc_sync;
 pub mod persist;
 pub mod queue;
 pub mod rt;

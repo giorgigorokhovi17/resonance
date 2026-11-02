@@ -86,6 +86,13 @@ pub fn video_id_of(url: &str) -> Option<&str> {
     valid_video_id(id).then_some(id)
 }
 
+/// Whether a local file is one of our YouTube downloads: they all go into a "YouTube" folder as .m4a.
+pub fn is_download(path: &str) -> bool {
+    let p = Path::new(path);
+    p.extension().is_some_and(|e| e.eq_ignore_ascii_case("m4a"))
+        && p.parent().and_then(|d| d.file_name()).is_some_and(|d| d.eq_ignore_ascii_case(SOURCE))
+}
+
 /// "Artist - Title.m4a", safe as a Windows file name.
 pub fn file_name(artist: &str, title: &str) -> String {
     let base = if artist.trim().is_empty() { title.trim().to_string() } else { format!("{} - {}", artist.trim(), title.trim()) };
@@ -638,6 +645,10 @@ mod tests {
         assert_eq!(file_name("", " "), "YouTube audio.m4a");
         assert_eq!(tags_from_name("Steve Lacy - Dark Red.m4a"), ("Dark Red".into(), "Steve Lacy".into()));
         assert_eq!(tags_from_name("Untitled.m4a"), ("Untitled".into(), String::new()));
+        assert!(is_download(r"C:\Music\Soulseek\YouTube\Steve Lacy - Dark Red.m4a"));
+        assert!(is_download(r"C:\Music\Soulseek\youtube\Steve Lacy - Dark Red.M4A"));
+        assert!(!is_download(r"C:\Music\Soulseek\YouTube\Steve Lacy - Dark Red.flac"));
+        assert!(!is_download(r"C:\Music\Albums\Steve Lacy - Dark Red.m4a"), "an .m4a from elsewhere");
     }
 
     #[test]
