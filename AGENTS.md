@@ -74,7 +74,8 @@ hand, to run everything. Don't merge a pull request whose checks fail.
 - **Phone app sync (owner's decision, 2026-11-01):** the phone app syncs both ways through the same
   server (`docs/phone-file-sync.md`). Phone to PC is the server's only write, behind its own setting
   (off by default): `/upload` only adds a new, checked audio file to the `Phone` folder in the
-  library, marked read-only. Never replace, change or delete a file through this server.
+  library, marked read-only. Never replace, change or delete a file through this server. Song
+  folders are shared only from the library folder's own name down, in the list, never in a URL.
 - **Deleting songs (owner's decision, 2026-10-25):** the user may delete a song's file with
   **Delete from disk…** (`src-tauri/src/library/recycle.rs`). It always goes to the Windows Recycle
   Bin, never a hard delete: drives without a Recycle Bin, a bin that's turned off, and files bigger
