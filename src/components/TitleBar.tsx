@@ -1,7 +1,10 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Minus, Square, X, Copy } from "lucide-react";
+import { Minus, Moon, Square, Sun, X, Copy } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
+import { flushSync } from "react-dom";
 import logo from "../assets/logo.png";
+import { useIsDark } from "../hooks/useAppearance";
+import { saveAppearance } from "../views/settings/Visual";
 
 /**
  * Custom frameless title bar. Everything that isn't a control carries `data-tauri-drag-region`,
@@ -32,6 +35,7 @@ export function TitleBar({ children }: { children?: ReactNode }) {
         </div>
       </div>
       <div className="flex h-full">
+        <ThemeSwitch />
         <WinButton label="Minimize" onClick={() => win.minimize()}>
           <Minus size={15} strokeWidth={1.5} />
         </WinButton>
@@ -53,7 +57,7 @@ function WinButton({
   danger,
 }: {
   children: ReactNode;
-  onClick: () => void;
+  onClick: (e: React.MouseEvent<HTMLButtonElement>) => void;
   label: string;
   danger?: boolean;
 }) {
@@ -68,5 +72,39 @@ function WinButton({
     >
       {children}
     </button>
+  );
+}
+
+/**
+ * Switches between dark and light. The new look grows out of the button as a circle (a view
+ * transition); without motion it just switches.
+ */
+function ThemeSwitch() {
+  const dark = useIsDark();
+  const label = dark ? "Light mode" : "Dark mode";
+  const flip = (e: React.MouseEvent<HTMLButtonElement>) => {
+    const apply = () => flushSync(() => void saveAppearance({ theme: dark ? "light" : "dark" }));
+    const doc = document as Document & { startViewTransition?: (cb: () => void) => { ready: Promise<void> } };
+    if (!doc.startViewTransition || matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      apply();
+      return;
+    }
+    const r = e.currentTarget.getBoundingClientRect();
+    const x = r.left + r.width / 2;
+    const y = r.top + r.height / 2;
+    const radius = Math.hypot(Math.max(x, innerWidth - x), Math.max(y, innerHeight - y));
+    doc.startViewTransition(apply).ready.then(() => {
+      document.documentElement.animate(
+        { clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${radius}px at ${x}px ${y}px)`] },
+        { duration: 550, easing: "cubic-bezier(0.65, 0, 0.35, 1)", pseudoElement: "::view-transition-new(root)" },
+      );
+    });
+  };
+  return (
+    <WinButton label={label} onClick={flip}>
+      <span key={dark ? "d" : "l"} className="animate-in">
+        {dark ? <Sun size={15} strokeWidth={1.6} /> : <Moon size={15} strokeWidth={1.6} />}
+      </span>
+    </WinButton>
   );
 }
