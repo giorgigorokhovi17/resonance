@@ -198,3 +198,64 @@ input[type="range"].slider:hover::-webkit-slider-runnable-track {
 .animate-in {
   animation: fade-in 0.18s ease-out;
 }
+
+/* Stats page: bars and charts grow in once, staggered with an inline animation-delay. */
+@keyframes grow-y {
+  from {
+    transform: scaleY(0);
+  }
+}
+@keyframes grow-x {
+  from {
+    transform: scaleX(0);
+  }
+}
+@keyframes reveal-x {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+@keyframes ray-out {
+  from {
+    stroke-dashoffset: 1;
+    opacity: 0;
+  }
+  to {
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+}
+.grow-y {
+  transform-origin: bottom;
+  animation: grow-y 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.grow-x {
+  transform-origin: left;
+  animation: grow-x 0.8s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.reveal-x {
+  animation: reveal-x 1.1s cubic-bezier(0.65, 0, 0.35, 1) both;
+}
+.ray-out {
+  stroke-dasharray: 1;
+  animation: ray-out 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* The theme switch in the title bar: the new theme grows as a circle from the button (theme.ts). */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .grow-y,
+  .grow-x,
+  .reveal-x,
+  .ray-out {
+    animation: none;
+  }
+}

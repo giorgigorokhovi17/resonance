@@ -316,6 +316,12 @@ export interface Stats {
   /** [unix seconds at local midnight, seconds listened] */
   topDay: [number, number] | null;
   longestStreak: number;
+  /** Days in a row with a play up to today (or yesterday), over the whole history. */
+  currentStreak: number;
+  /** [unix seconds at local midnight, seconds listened] for each day with a play, oldest first. */
+  byDay: [number, number][];
+  /** [genre, seconds listened], most first. */
+  genres: [string, number][];
   firstPlay: number | null;
 }
 

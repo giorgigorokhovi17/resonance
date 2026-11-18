@@ -27,7 +27,7 @@ import { Section, Segmented, Toggle } from "../SettingsView";
 // Settings writes are applied locally first so sliders track the pointer; only the reply to the
 // latest write is taken back from the backend.
 let writeSeq = 0;
-async function save(patch: Partial<Pick<Settings, "theme" | "appearance">>) {
+export async function saveAppearance(patch: Partial<Pick<Settings, "theme" | "appearance">>) {
   const st = usePlayer.getState();
   if (!st.settings) return;
   st.setSettings({ ...st.settings, ...patch });
@@ -42,7 +42,7 @@ async function save(patch: Partial<Pick<Settings, "theme" | "appearance">>) {
 
 function setAppearance(p: Partial<Appearance>) {
   const cur = usePlayer.getState().settings?.appearance ?? DEFAULT_APPEARANCE;
-  save({ appearance: { ...cur, ...p } });
+  saveAppearance({ appearance: { ...cur, ...p } });
 }
 
 export function VisualSettings({ settings }: { settings: Settings }) {
@@ -55,7 +55,7 @@ export function VisualSettings({ settings }: { settings: Settings }) {
 
   const reset = async () => {
     if (!(await confirmDialog("Reset visual settings?", "Theme, colours and layout go back to the defaults.", "Reset"))) return;
-    save({ theme: "dark", appearance: DEFAULT_APPEARANCE });
+    saveAppearance({ theme: "dark", appearance: DEFAULT_APPEARANCE });
   };
 
   return (
@@ -65,7 +65,7 @@ export function VisualSettings({ settings }: { settings: Settings }) {
           <Row label="Mode">
             <Segmented
               value={settings.theme}
-              onChange={(v) => save({ theme: v })}
+              onChange={(v) => saveAppearance({ theme: v })}
               options={[
                 { value: "dark", label: "Dark" },
                 { value: "light", label: "Light" },

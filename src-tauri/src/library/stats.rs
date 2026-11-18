@@ -2,7 +2,7 @@
 //! heard for 30 seconds, or for half of it when it's shorter than a minute. Everything stays in
 //! the local database.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -184,6 +184,14 @@ pub struct Stats {
     pub top_day: Option<(i64, f64)>,
     /// Most days in a row with at least one play.
     pub longest_streak: u32,
+    /// Days in a row with a play, up to today (or yesterday, before today's first play). Counted
+    /// over the whole history, not just this period.
+    pub current_streak: u32,
+    /// Seconds listened on each day with a play: (unix seconds at its local midnight, seconds),
+    /// oldest first.
+    pub by_day: Vec<(i64, f64)>,
+    /// Seconds listened per genre, most first, for songs still in the library that have one.
+    pub genres: Vec<(String, f64)>,
     /// Unix seconds of the first play ever recorded (any period).
     pub first_play: Option<i64>,
 }
@@ -222,6 +230,12 @@ pub fn stats(conn: &Connection, from: i64, to: i64, tz_offset_min: i64, limit: u
     for song in &mut s.top_songs {
         song.track = db::track_by_path(conn, &song.path)?;
     }
+    s.genres = genres(conn, &plays)?;
+    let offset = tz_offset_min * 60;
+    let mut stmt = conn.prepare("SELECT DISTINCT (played_at + ?1) / 86400 FROM plays WHERE played_at + ?1 >= 0")?;
+    let all_days: HashSet<i64> = stmt.query_map(params![offset], |r| r.get(0))?.collect::<Result<_, _>>()?;
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0);
+    s.current_streak = current_streak(&all_days, (now + offset).div_euclid(86_400));
     // An album's artwork: the first of its played songs still in the library.
     let mut album_paths: HashMap<(String, String), Vec<&str>> = HashMap::new();
     for p in &plays {
@@ -241,6 +255,39 @@ pub fn stats(conn: &Connection, from: i64, to: i64, tz_offset_min: i64, limit: u
         }
     }
     Ok(s)
+}
+
+/// Seconds listened per genre, most first. The genre comes from the song in the library now; a
+/// tag listing several ("Pop; Rock") counts as its first.
+fn genres(conn: &Connection, plays: &[Play]) -> Result<Vec<(String, f64)>> {
+    let mut by_path: HashMap<&str, f64> = HashMap::new();
+    for p in plays {
+        *by_path.entry(p.path.as_str()).or_default() += p.listened;
+    }
+    // Keyed case-insensitively; the first spelling seen is shown.
+    let mut totals: HashMap<String, (String, f64)> = HashMap::new();
+    for (path, secs) in by_path {
+        let Some(t) = db::track_by_path(conn, path)? else { continue };
+        let name = t.genre.split([';', '/', ',']).next().unwrap_or("").trim();
+        if name.is_empty() {
+            continue;
+        }
+        totals.entry(name.to_lowercase()).or_insert_with(|| (name.to_string(), 0.0)).1 += secs;
+    }
+    let mut out: Vec<(String, f64)> = totals.into_values().collect();
+    out.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
+    Ok(out)
+}
+
+/// Days in a row in `days` ending today, or ending yesterday when there's no play today yet.
+fn current_streak(days: &HashSet<i64>, today: i64) -> u32 {
+    let mut d = if days.contains(&today) { today } else { today - 1 };
+    let mut n = 0;
+    while days.contains(&d) {
+        n += 1;
+        d -= 1;
+    }
+    n
 }
 
 /// The numbers behind the stats page, from plays sorted by time.
@@ -317,6 +364,7 @@ fn summarize(plays: &[Play], tz_offset_min: i64, limit: usize) -> Stats {
         .map(|(d, secs)| (d * 86_400 - offset, *secs));
     let mut sorted: Vec<i64> = days.keys().copied().collect();
     sorted.sort_unstable();
+    s.by_day = sorted.iter().map(|d| (d * 86_400 - offset, days[d])).collect();
     let (mut best, mut run) = (0u32, 0u32);
     for (i, d) in sorted.iter().enumerate() {
         run = if i > 0 && sorted[i - 1] == d - 1 { run + 1 } else { 1 };
@@ -406,10 +454,24 @@ mod tests {
         assert_eq!(s.by_weekday[0], 200.0, "Monday");
         assert_eq!(s.by_weekday[1], 300.0, "Tuesday");
         assert_eq!(s.longest_streak, 2);
+        assert_eq!(s.by_day.len(), 3);
+        assert_eq!(s.by_day[0].1, 200.0);
+        assert!(s.by_day.iter().all(|(d, _)| (d + 240 * 60) % 86_400 == 0), "local midnights");
+        assert!(s.by_day.windows(2).all(|w| w[0].0 < w[1].0), "oldest first");
         let (day, secs) = s.top_day.unwrap();
         assert_eq!(secs, 300.0);
         assert_eq!((day + 240 * 60) % 86_400, 0, "local midnight");
         assert_eq!(summarize(&[], 0, 10), Stats { by_hour: vec![0.0; 24], by_weekday: vec![0.0; 7], ..Default::default() });
+    }
+
+    #[test]
+    fn current_streak_runs_back_from_today_or_yesterday() {
+        let days: HashSet<i64> = [10, 11, 12, 14].into_iter().collect();
+        assert_eq!(current_streak(&days, 14), 1);
+        assert_eq!(current_streak(&days, 15), 1, "nothing yet today");
+        assert_eq!(current_streak(&days, 13), 3, "yesterday's run still counts");
+        assert_eq!(current_streak(&days, 16), 0);
+        assert_eq!(current_streak(&HashSet::new(), 5), 0);
     }
 
     #[test]
