@@ -36,6 +36,7 @@ import type {
   DeleteOutcome,
   Settings,
   SleepStatus,
+  SmartMix,
   SlskDownloadRequest,
   Stats,
   SlskJob,
@@ -146,10 +147,11 @@ export const api = {
   searchLyrics: (path: string) => invoke<LyricsSearch>("search_lyrics", { path }),
   removeFoundLyrics: (path: string) => invoke<void>("remove_found_lyrics", { path }),
 
-  // listening stats
+  // listening stats & smart mixes
   /** Plays started in from..to (unix seconds). */
   getStats: (from: number, to: number) =>
     invoke<Stats>("get_stats", { from, to, tzOffsetMin: -new Date().getTimezoneOffset() }),
+  smartMixes: () => invoke<SmartMix[]>("smart_mixes", { tzOffsetMin: -new Date().getTimezoneOffset() }),
   clearPlayHistory: () => invoke<void>("clear_play_history"),
 
   // sleep timer

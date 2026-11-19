@@ -504,6 +504,7 @@ pub fn run() {
             commands::search_lyrics,
             commands::remove_found_lyrics,
             commands::get_stats,
+            commands::smart_mixes,
             commands::clear_play_history,
             commands::get_sleep_timer,
             commands::set_sleep_timer,

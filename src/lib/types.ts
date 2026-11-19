@@ -327,6 +327,14 @@ export interface Stats {
   firstPlay: number | null;
 }
 
+/** An automatic mix built from local play history and the library. */
+export interface SmartMix {
+  id: string;
+  title: string;
+  description: string;
+  tracks: Track[];
+}
+
 export type AnimatedArt = "everywhere" | "nowPlaying" | "off";
 
 export type MediaKind = "image" | "gif" | "webp-animated" | "video";
