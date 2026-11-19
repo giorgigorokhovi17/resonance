@@ -24,6 +24,7 @@ import { PlaylistEditorHost } from "./components/PlaylistEditor";
 import { LyricsDialog } from "./components/LyricsPanel";
 import { Ambient } from "./components/Ambient";
 import { Backdrop } from "./components/Backdrop";
+import { HomeView } from "./views/HomeView";
 import { SettingsView, showSettingsTab } from "./views/SettingsView";
 import { SongsView } from "./views/SongsView";
 import { TracksView } from "./views/TracksView";
@@ -96,6 +97,8 @@ function useBackgrounds() {
 function MainView() {
   const view = useUi((s) => s.view);
   switch (view.kind) {
+    case "home":
+      return <HomeView />;
     case "songs":
       return <SongsView />;
     case "tracks":
