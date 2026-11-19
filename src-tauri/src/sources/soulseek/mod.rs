@@ -400,7 +400,12 @@ impl Soulseek {
     pub fn search_collect(&self, query: &str, window: Duration, cancel: Option<Arc<AtomicBool>>) -> Result<Vec<RawResponse>, String> {
         let client = self.client()?;
         client.search_with_cancel(query, window, cancel).map_err(|e| format!("Soulseek search failed: {e}"))?;
-        Ok(client.get_search_results(query).into_iter().map(raw_response).collect())
+        Ok(client
+            .get_search_results(query)
+            .into_iter()
+            .map(raw_response)
+            .filter(|r| !model::is_spam_user(&r.username))
+            .collect())
     }
 
     /// What to do when a download linked to a playlist entry finishes.

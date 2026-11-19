@@ -142,12 +142,27 @@ pub struct RawFile {
     pub attrs: HashMap<u32, u32>,
 }
 
+/// Spam bots on Soulseek use a URL or domain as their username (e.g. `https://rawzik.com`) and
+/// spoof huge upload speeds to jump to the top of search results while failing downloads or
+/// serving fake promo audio.
+pub fn is_spam_user(username: &str) -> bool {
+    let u = username.trim().to_ascii_lowercase();
+    if u.contains("://") || u.starts_with("www.") {
+        return true;
+    }
+    const TLDS: &[&str] = &[".com", ".net", ".org", ".io", ".xyz", ".shop", ".store", ".site", ".club", ".top", ".vip"];
+    !u.contains(' ') && TLDS.iter().any(|t| u.ends_with(t) && u.len() > t.len())
+}
+
 /// Groups search responses by user, then folder. Keeps only audio files we can play and whose
-/// names are safe to save; drops users left with nothing. Users with a free slot come first,
-/// then faster ones. A user who answered twice is merged.
+/// names are safe to save; drops spam-bot accounts and users left with nothing. Users with a free
+/// slot come first, then faster ones. A user who answered twice is merged.
 pub fn group_results(responses: Vec<RawResponse>) -> Vec<ResultUser> {
     let mut users: Vec<ResultUser> = Vec::new();
     for r in responses {
+        if is_spam_user(&r.username) {
+            continue;
+        }
         let idx = match users.iter().position(|u| u.username == r.username) {
             Some(i) => i,
             None => {
@@ -357,5 +372,21 @@ mod tests {
         assert!(!Done.can_retry() && !Downloading.can_retry());
         assert!(Queued.can_cancel() && Downloading.can_cancel());
         assert!(!Done.can_cancel());
+    }
+
+    #[test]
+    fn spam_url_users_are_dropped() {
+        for spam in ["https://rawzik.com", "http://spam.net", "www.djpool.org", "rawzik.com"] {
+            assert!(is_spam_user(spam), "{spam} should be flagged as spam");
+        }
+        for ok in ["Doubledown", "tsmc", "iGoX", "denali84", "user.name"] {
+            assert!(!is_spam_user(ok), "{ok} should not be flagged");
+        }
+        let users = group_results(vec![
+            RawResponse { username: "https://rawzik.com".into(), free_slots: true, speed: 245_000_000, files: vec![file(r"promo\song.flac", 1)] },
+            RawResponse { username: "Doubledown".into(), free_slots: true, speed: 15_000_000, files: vec![file(r"album\song.flac", 1)] },
+        ]);
+        assert_eq!(users.len(), 1);
+        assert_eq!(users[0].username, "Doubledown");
     }
 }
