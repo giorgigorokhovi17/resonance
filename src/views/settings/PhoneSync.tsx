@@ -73,7 +73,7 @@ export function PhoneSyncSection({ settings }: { settings: Settings }) {
               />
             )}
             <div className="min-w-0 flex-1 space-y-3">
-              <div className="text-[12.5px] text-muted">Scan with your phone's camera, or open this link in its browser:</div>
+              <div className="text-[12.5px] text-muted">Scan with your phone's camera to open Undertone and sync, or open this link in a browser:</div>
               <div className="break-all rounded-md bg-panel px-3 py-2 font-mono text-[11.5px] ring-1 ring-line">{status.url}</div>
               <div className="flex flex-wrap gap-2">
                 <button onClick={copy} className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12px] text-muted ring-1 ring-line hover:bg-hover hover:text-fg">
@@ -88,6 +88,18 @@ export function PhoneSyncSection({ settings }: { settings: Settings }) {
                 </button>
               </div>
             </div>
+          </div>
+        )}
+
+        {p.enabled && (
+          <div className="flex items-center justify-between gap-4">
+            <span className="min-w-0">
+              <span className="block text-[13px]">Receive songs from my phone</span>
+              <span className="block text-[11.5px] text-faint">
+                The Undertone phone app can add songs to a Phone folder in your library. It can't change or delete anything.
+              </span>
+            </span>
+            <Toggle label="Receive songs from my phone" checked={p.receive} onChange={(v) => save({ ...p, receive: v })} />
           </div>
         )}
 

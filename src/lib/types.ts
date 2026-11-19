@@ -166,6 +166,8 @@ export interface PhoneSyncSettings {
   port: number;
   /** Secret part of the link (changed with New link). */
   key: string;
+  /** Lets the phone app add songs to the library. */
+  receive: boolean;
 }
 
 export interface PhoneStatus {

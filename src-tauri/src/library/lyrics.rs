@@ -139,7 +139,7 @@ pub fn from_text(text: &str, source: &str) -> Option<Lyrics> {
 }
 
 /// A `.lrc` file with the same name as the song, in the same folder (any case of the extension).
-fn sidecar(path: &Path) -> Option<String> {
+pub fn sidecar(path: &Path) -> Option<String> {
     let dir = path.parent()?;
     let stem = path.file_stem()?.to_string_lossy().to_lowercase();
     let entry = std::fs::read_dir(dir).ok()?.flatten().find(|e| {
