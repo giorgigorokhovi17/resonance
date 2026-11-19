@@ -119,6 +119,7 @@ export function Sidebar() {
       <div className="flex flex-col gap-0.5 px-2 pt-3">
         <NavItem icon={<LayoutGrid size={18} />} label="Songs" view={{ kind: "songs" }} match={["songs"]} />
         <NavItem icon={<Music2 size={18} />} label="Tracks" view={{ kind: "tracks" }} match={["tracks", "search"]} />
+        <NavItem icon={<Heart size={18} />} label="Loved" view={{ kind: "loved" }} match={["loved"]} />
         <NavItem
           icon={<ListMusic size={18} />}
           label="Playlists"

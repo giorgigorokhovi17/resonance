@@ -311,6 +311,7 @@ const SHORTCUTS: [string, string][] = [
   ["S / R", "Shuffle / repeat"],
   ["F", "Now playing"],
   ["Q", "Queue panel"],
+  ["Ctrl + L", "Love / unlove song"],
   ["Ctrl + F", "Search"],
   ["Alt + ← / →", "Back / forward"],
 ];

@@ -4,13 +4,16 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode }
 import { fmtTime, isHiRes } from "../lib/format";
 import type { Track } from "../lib/types";
 import { compareText } from "../store/library";
+import { useIsLoved } from "../store/loved";
 import { usePlayer } from "../store/player";
 import { openMenu, type MenuItem } from "./ContextMenu";
+import { HeartButton } from "./HeartButton";
 import { trackMenuItems } from "./trackMenu";
 
 export type Column = "index" | "title" | "artist" | "album" | "year" | "genre" | "quality" | "duration" | "added";
+type GridCol = Column | "loved";
 
-const COL_DEF: Record<Column, { label: string; width: string; align?: "right" }> = {
+const COL_DEF: Record<GridCol, { label: string; width: string; align?: "right" }> = {
   index: { label: "#", width: "48px", align: "right" },
   title: { label: "Title", width: "minmax(180px,2.2fr)" },
   artist: { label: "Artist", width: "minmax(120px,1.4fr)" },
@@ -18,6 +21,7 @@ const COL_DEF: Record<Column, { label: string; width: string; align?: "right" }>
   year: { label: "Year", width: "60px" },
   genre: { label: "Genre", width: "minmax(80px,0.8fr)" },
   quality: { label: "Quality", width: "112px" },
+  loved: { label: "", width: "28px" },
   duration: { label: "Time", width: "64px", align: "right" },
   added: { label: "Added", width: "96px" },
 };
@@ -114,7 +118,14 @@ export function TrackTable({
   const playing = usePlayer((s) => s.status?.state === "playing");
 
   const sorted = useMemo(() => (sort ? sortTracks(tracks, sort.key, sort.dir) : tracks), [tracks, sort]);
-  const template = columns.map((c) => COL_DEF[c].width).join(" ");
+  const gridCols: GridCol[] = useMemo(() => {
+    const out: GridCol[] = [...columns];
+    const dur = out.indexOf("duration");
+    if (dur >= 0) out.splice(dur, 0, "loved");
+    else out.push("loved");
+    return out;
+  }, [columns]);
+  const template = gridCols.map((c) => COL_DEF[c].width).join(" ");
 
   useEffect(() => {
     setSelected(new Set());
@@ -140,8 +151,8 @@ export function TrackTable({
     scrollMargin: margin,
   });
 
-  const toggleSort = (c: Column) => {
-    if (!sortable || c === "index") return;
+  const toggleSort = (c: GridCol) => {
+    if (!sortable || c === "index" || c === "loved") return;
     const key = c as SortKey;
     setSort((s) => (s?.key === key ? (s.dir === 1 ? { key, dir: -1 } : null) : { key, dir: 1 }));
   };
@@ -207,18 +218,22 @@ export function TrackTable({
           className="grid items-center gap-3 border-b border-line/70 py-2.5 text-[11.5px] font-medium uppercase tracking-wider text-muted"
           style={{ gridTemplateColumns: template }}
         >
-          {columns.map((c) => (
-            <button
-              key={c}
-              onClick={() => toggleSort(c)}
-              className={`flex items-center gap-1 truncate ${COL_DEF[c].align === "right" ? "justify-end" : ""} ${
-                sortable && c !== "index" ? "hover:text-fg" : "cursor-default"
-              } ${sort?.key === c ? "text-fg" : ""}`}
-            >
-              {COL_DEF[c].label}
-              {sort?.key === c && (sort.dir === 1 ? <ArrowUp size={12} /> : <ArrowDown size={12} />)}
-            </button>
-          ))}
+          {gridCols.map((c) =>
+            c === "loved" ? (
+              <span key={c} />
+            ) : (
+              <button
+                key={c}
+                onClick={() => toggleSort(c)}
+                className={`flex items-center gap-1 truncate ${COL_DEF[c].align === "right" ? "justify-end" : ""} ${
+                  sortable && c !== "index" ? "hover:text-fg" : "cursor-default"
+                } ${sort?.key === c ? "text-fg" : ""}`}
+              >
+                {COL_DEF[c].label}
+                {sort?.key === c && (sort.dir === 1 ? <ArrowUp size={12} /> : <ArrowDown size={12} />)}
+              </button>
+            ),
+          )}
         </div>
       </div>
       {sorted.length === 0 ? (
@@ -240,7 +255,7 @@ export function TrackTable({
                 onDoubleClick={() => onPlay(sorted, vi.index)}
                 onContextMenu={(e) => onContext(e, vi.index)}
               >
-                {columns.map((c) => (
+                {gridCols.map((c) => (
                   <Cell
                     key={c}
                     c={c}
@@ -262,6 +277,15 @@ export function TrackTable({
   );
 }
 
+function RowHeart({ path }: { path: string }) {
+  const loved = useIsLoved(path);
+  return (
+    <span className={`flex justify-center transition-opacity duration-150 ${loved ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus-within:opacity-100"}`}>
+      <HeartButton path={path} size={14} />
+    </span>
+  );
+}
+
 function Cell({
   c,
   t,
@@ -271,7 +295,7 @@ function Cell({
   playing,
   onPlay,
 }: {
-  c: Column;
+  c: GridCol;
   t: Track;
   index: number;
   numbering: "row" | "track";
@@ -307,6 +331,8 @@ function Cell({
       return <span className="truncate text-muted">{t.genre}</span>;
     case "quality":
       return <Quality t={t} />;
+    case "loved":
+      return <RowHeart path={t.path} />;
     case "duration":
       return <span className="tabular text-right text-muted">{fmtTime(t.duration)}</span>;
     case "added":

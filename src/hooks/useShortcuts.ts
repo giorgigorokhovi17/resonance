@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { api } from "../lib/api";
+import { useLoved } from "../store/loved";
 import { livePosition, usePlayer } from "../store/player";
 import { useUi } from "../store/ui";
 
@@ -15,6 +16,13 @@ export function useShortcuts(focusSearch: () => void) {
       if (e.ctrlKey && e.key.toLowerCase() === "f") {
         e.preventDefault();
         focusSearch();
+        return;
+      }
+      if (e.ctrlKey && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "l") {
+        e.preventDefault();
+        const st = usePlayer.getState();
+        const track = st.status?.track ?? st.queue.items.find((i) => i.uid === st.queue.currentUid)?.track ?? null;
+        if (track) useLoved.getState().toggle(track.path);
         return;
       }
       if (e.altKey && e.key === "ArrowLeft") {

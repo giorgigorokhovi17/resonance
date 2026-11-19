@@ -9,6 +9,7 @@ import { useUi } from "../store/ui";
 import { useLiveCover, useLiveMotion } from "../store/library";
 import { Cover } from "./Cover";
 import { FormatBadge } from "./FormatBadge";
+import { HeartButton } from "./HeartButton";
 import { Seekbar } from "./Seekbar";
 import { openMenu, SEP, type MenuItem } from "./ContextMenu";
 import { setSleepTimer, sleepRemaining, useSleep } from "../store/sleep";
@@ -325,7 +326,10 @@ export function PlayerBar() {
         <div className="min-w-0 flex-1">
           {track ? (
             <>
-              <div className="truncate text-[13.5px] font-semibold">{track.title}</div>
+              <div className="flex min-w-0 items-center gap-1">
+                <div className="truncate text-[13.5px] font-semibold">{track.title}</div>
+                <HeartButton path={track.path} size={15} shortcut />
+              </div>
               <button
                 className="block max-w-full truncate text-left text-[12.5px] text-muted hover:text-fg hover:underline"
                 onClick={() => setView({ kind: "search", q: displayArtist(track) })}
