@@ -223,6 +223,6 @@ export const api = {
   getPhoneSync: () => invoke<PhoneStatus>("get_phone_sync"),
   newPhoneLink: () => invoke<Settings>("new_phone_link"),
   setEffects: (effects: EffectSettings) => invoke<Settings>("set_effects", { effects }),
-  updateSettings: (patch: Partial<Pick<Settings, "theme" | "closeToTray" | "watchFolders" | "island" | "islandOptions" | "hotkeys" | "phoneSync" | "replayGain" | "replayGainPreamp" | "crossfade" | "appearance">>) =>
+  updateSettings: (patch: Partial<Pick<Settings, "theme" | "closeToTray" | "watchFolders" | "island" | "islandOptions" | "hotkeys" | "phoneSync" | "replayGain" | "replayGainPreamp" | "crossfade" | "listeningGoalMin" | "appearance">>) =>
     invoke<Settings>("update_settings", { patch }),
 };

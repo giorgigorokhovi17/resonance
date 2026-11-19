@@ -131,6 +131,8 @@ export interface Settings {
   replayGainPreamp: number;
   /** Seconds of crossfade between songs; 0 = off (gapless). */
   crossfade: number;
+  /** Daily listening goal in minutes; 0 = off. */
+  listeningGoalMin: number;
   theme: "dark" | "light" | "system";
   closeToTray: boolean;
   watchFolders: boolean;

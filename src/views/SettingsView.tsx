@@ -259,6 +259,20 @@ export function SettingsView() {
               <Row label="Watch library folders for changes">
                 <Toggle label="Watch folders" checked={settings.watchFolders} onChange={(v) => patch({ watchFolders: v })} />
               </Row>
+              <Row label="Daily listening goal">
+                <Segmented
+                  value={String(settings.listeningGoalMin)}
+                  onChange={(v) => patch({ listeningGoalMin: Number(v) })}
+                  options={[
+                    { value: "0", label: "Off" },
+                    { value: "15", label: "15m", hint: "15 minutes" },
+                    { value: "30", label: "30m", hint: "30 minutes" },
+                    { value: "45", label: "45m", hint: "45 minutes" },
+                    { value: "60", label: "60m", hint: "60 minutes" },
+                    { value: "90", label: "90m", hint: "90 minutes" },
+                  ]}
+                />
+              </Row>
             </div>
           </Section>
 
@@ -277,7 +291,7 @@ export function SettingsView() {
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="flex items-center justify-between gap-4">
+    <div className="flex flex-wrap items-center justify-between gap-4">
       <span className="text-[13px]">{label}</span>
       {children}
     </div>
