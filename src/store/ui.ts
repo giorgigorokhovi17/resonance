@@ -1,11 +1,13 @@
 import { create } from "zustand";
 
 export type View =
+  | { kind: "home" }
   | { kind: "songs" }
   | { kind: "tracks" }
   | { kind: "loved" }
   | { kind: "playlists" }
   | { kind: "playlist"; id: number }
+  | { kind: "mix"; id: string }
   | { kind: "review"; id: number }
   | { kind: "folders"; path?: string }
   | { kind: "search"; q: string }
@@ -24,6 +26,7 @@ interface UiStore {
   downloadsOpen: boolean;
   /** The lyrics window over the app. */
   lyricsOpen: boolean;
+  commandPaletteOpen: boolean;
   setView: (v: View, replace?: boolean) => void;
   goBack: () => void;
   goForward: () => void;
@@ -32,18 +35,21 @@ interface UiStore {
   toggleQueue: () => void;
   toggleDownloads: () => void;
   setLyricsOpen: (v: boolean) => void;
+  setCommandPaletteOpen: (v: boolean) => void;
+  toggleCommandPalette: () => void;
 }
 
 const same = (a: View, b: View) => JSON.stringify(a) === JSON.stringify(b);
 
 export const useUi = create<UiStore>((set, get) => ({
-  view: { kind: "songs" },
+  view: { kind: "home" },
   back: [],
   forward: [],
   nowPlaying: false,
   queueOpen: false,
   downloadsOpen: false,
   lyricsOpen: false,
+  commandPaletteOpen: false,
   setView: (v, replace) => {
     const cur = get().view;
     if (same(cur, v)) {
@@ -68,4 +74,6 @@ export const useUi = create<UiStore>((set, get) => ({
   toggleQueue: () => set((s) => ({ queueOpen: !s.queueOpen, downloadsOpen: false })),
   toggleDownloads: () => set((s) => ({ downloadsOpen: !s.downloadsOpen, queueOpen: false })),
   setLyricsOpen: (v) => set({ lyricsOpen: v }),
+  setCommandPaletteOpen: (v) => set({ commandPaletteOpen: v }),
+  toggleCommandPalette: () => set((s) => ({ commandPaletteOpen: !s.commandPaletteOpen })),
 }));

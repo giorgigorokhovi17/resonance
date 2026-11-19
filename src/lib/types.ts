@@ -131,6 +131,8 @@ export interface Settings {
   replayGainPreamp: number;
   /** Seconds of crossfade between songs; 0 = off (gapless). */
   crossfade: number;
+  /** Daily listening goal in minutes; 0 = off. */
+  listeningGoalMin: number;
   theme: "dark" | "light" | "system";
   closeToTray: boolean;
   watchFolders: boolean;
@@ -323,6 +325,14 @@ export interface Stats {
   /** [genre, seconds listened], most first. */
   genres: [string, number][];
   firstPlay: number | null;
+}
+
+/** An automatic mix built from local play history and the library. */
+export interface SmartMix {
+  id: string;
+  title: string;
+  description: string;
+  tracks: Track[];
 }
 
 export type AnimatedArt = "everywhere" | "nowPlaying" | "off";

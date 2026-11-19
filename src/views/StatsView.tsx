@@ -1,4 +1,4 @@
-import { BarChart3, Clock, Disc3, Flame, Headphones, Heart, Mic2, Play, Timer, Trash2, Zap } from "lucide-react";
+import { BarChart3, Clock, Disc3, Flame, Headphones, Heart, Mic2, Play, Sparkles, Timer, Trash2, Zap } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { api } from "../lib/api";
 import { playTracks } from "../lib/actions";
@@ -6,8 +6,11 @@ import type { Stats, Track } from "../lib/types";
 import { useLiveCover } from "../store/library";
 import { useLoved } from "../store/loved";
 import { usePlayer } from "../store/player";
+import { localMidnight, refreshGoal, useGoal } from "../store/goal";
 import { Cover } from "../components/Cover";
+import { GoalRing } from "../components/GoalRing";
 import { confirmDialog } from "../components/Dialog";
+import { RecapOverlay } from "../components/RecapOverlay";
 import { Segmented } from "./SettingsView";
 import { buckets, GenreMix, HourClock, OverTime, TONES, Tile, hm } from "../components/StatsCharts";
 
@@ -47,6 +50,20 @@ function heading(p: Period) {
   }
 }
 
+function periodSlug(p: Period) {
+  const now = new Date();
+  switch (p) {
+    case "month":
+      return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    case "days30":
+      return "30-days";
+    case "year":
+      return String(now.getFullYear());
+    case "all":
+      return "all-time";
+  }
+}
+
 function hours(secs: number) {
   const h = secs / 3600;
   return h >= 10 ? `${Math.round(h)} h` : h >= 1 ? `${h.toFixed(1)} h` : `${Math.round(secs / 60)} min`;
@@ -62,6 +79,10 @@ export function StatsView() {
   const weekAgo = Math.floor(Date.now() / 1000) - 7 * 86_400;
   const lovedCount = lovedEntries.length;
   const lovedThisWeek = lovedEntries.filter((e) => e.lovedAt >= weekAgo).length;
+  const goalMin = usePlayer((s) => s.settings?.listeningGoalMin ?? 0);
+  const todaySeconds = useGoal((s) => s.seconds);
+  const goalJustMet = useGoal((s) => s.justMet);
+  const [recapOpen, setRecapOpen] = useState(false);
 
   useEffect(() => {
     lastPeriod = period;
@@ -81,6 +102,7 @@ export function StatsView() {
     try {
       await api.clearPlayHistory();
       setReload((n) => n + 1);
+      void refreshGoal();
     } catch (e) {
       usePlayer.getState().pushToast("error", String(e));
     }
@@ -103,16 +125,26 @@ export function StatsView() {
               A song counts once you've heard 30 seconds of it. Your history stays on this PC.
             </div>
           </div>
-          <Segmented
-            value={period}
-            onChange={setPeriod}
-            options={[
-              { value: "month", label: "This month" },
-              { value: "days30", label: "30 days" },
-              { value: "year", label: "This year" },
-              { value: "all", label: "All time" },
-            ]}
-          />
+          <div className="flex flex-wrap items-center gap-2.5">
+            <button
+              type="button"
+              disabled={!stats || stats.plays === 0}
+              onClick={() => setRecapOpen(true)}
+              className="accent-gradient inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[12.5px] font-semibold text-on-accent shadow-sm transition-opacity disabled:cursor-default disabled:opacity-40"
+            >
+              <Sparkles size={14} /> Play your recap
+            </button>
+            <Segmented
+              value={period}
+              onChange={setPeriod}
+              options={[
+                { value: "month", label: "This month" },
+                { value: "days30", label: "30 days" },
+                { value: "year", label: "This year" },
+                { value: "all", label: "All time" },
+              ]}
+            />
+          </div>
         </div>
 
         {error ? (
@@ -234,6 +266,19 @@ export function StatsView() {
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {goalMin > 0 && (
+                <div className="flex items-center gap-4 rounded-xl bg-panel p-4 ring-1 ring-line sm:col-span-2">
+                  <GoalRing minutes={todaySeconds / 60} goalMin={goalMin} size={52} pulseKey={goalJustMet} />
+                  <div className="min-w-0">
+                    <div className="tabular truncate text-[14px] font-semibold">
+                      {Math.floor(todaySeconds / 60)} of {goalMin} minutes today
+                    </div>
+                    <div className="truncate text-[12px] text-muted">
+                      Goal met {goalDaysLast7(stats.byDay, goalMin)} of the last 7 days
+                    </div>
+                  </div>
+                </div>
+              )}
               <Fact icon={<Zap size={18} />} value={`${stats.currentStreak} ${stats.currentStreak === 1 ? "day" : "days"}`} label="current streak" />
               <Fact icon={<Flame size={18} />} value={`${stats.longestStreak} ${stats.longestStreak === 1 ? "day" : "days"}`} label="longest listening streak" />
               {stats.topDay && (
@@ -259,8 +304,23 @@ export function StatsView() {
           </>
         )}
       </div>
+      {recapOpen && stats && stats.plays > 0 && (
+        <RecapOverlay stats={stats} title={heading(period)} periodSlug={periodSlug(period)} onClose={() => setRecapOpen(false)} />
+      )}
     </div>
   );
+}
+
+function goalDaysLast7(byDay: [number, number][], goalMin: number): number {
+  if (goalMin <= 0) return 0;
+  const need = goalMin * 60;
+  // Half a day of slack keeps DST shifts from dropping the 7th day.
+  const minTs = localMidnight() - 6 * 86_400 - 43_200;
+  let met = 0;
+  for (const [dayTs, secs] of byDay) {
+    if (dayTs >= minTs && secs >= need) met++;
+  }
+  return met;
 }
 
 function peakHour(byHour: number[]) {

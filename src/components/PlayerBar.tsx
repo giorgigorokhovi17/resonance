@@ -13,6 +13,8 @@ import { HeartButton } from "./HeartButton";
 import { Seekbar } from "./Seekbar";
 import { openMenu, SEP, type MenuItem } from "./ContextMenu";
 import { setSleepTimer, sleepRemaining, useSleep } from "../store/sleep";
+import { useGoal } from "../store/goal";
+import { GoalRing } from "./GoalRing";
 
 export function IconButton({
   children,
@@ -288,6 +290,23 @@ function SleepButton() {
   );
 }
 
+/** Tiny progress ring for the daily listening goal; hidden when the goal is off. */
+function GoalButton() {
+  const goalMin = usePlayer((s) => s.settings?.listeningGoalMin ?? 0);
+  const seconds = useGoal((s) => s.seconds);
+  const justMet = useGoal((s) => s.justMet);
+  const view = useUi((s) => s.view);
+  const setView = useUi((s) => s.setView);
+  if (goalMin <= 0) return null;
+  const mins = Math.floor(seconds / 60);
+  const tip = `${mins} of ${goalMin} minutes today`;
+  return (
+    <IconButton label={tip} active={view.kind === "stats"} onClick={() => setView({ kind: "stats" })}>
+      <GoalRing minutes={seconds / 60} goalMin={goalMin} size={16} pulseKey={justMet} />
+    </IconButton>
+  );
+}
+
 export function PlayerBar() {
   // When stopped (e.g. right after launch) show the restored queue's current track.
   const track = usePlayer(
@@ -352,6 +371,7 @@ export function PlayerBar() {
       </div>
 
       <div className="flex items-center justify-end gap-1">
+        <GoalButton />
         <IconButton label="Now playing (F)" active={nowPlaying} onClick={toggleNowPlaying}>
           <Maximize2 size={16} />
         </IconButton>

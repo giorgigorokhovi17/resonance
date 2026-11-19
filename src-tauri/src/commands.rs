@@ -348,6 +348,7 @@ pub struct SettingsPatch {
     pub replay_gain: Option<ReplayGainMode>,
     pub replay_gain_preamp: Option<f64>,
     pub crossfade: Option<f64>,
+    pub listening_goal_min: Option<u32>,
     pub appearance: Option<crate::settings::Appearance>,
 }
 
@@ -393,6 +394,9 @@ pub fn update_settings(app: AppHandle, state: State<'_, AppState>, patch: Settin
         }
         if let Some(v) = patch.crossfade.filter(|v| v.is_finite()) {
             s.crossfade = v.clamp(0.0, MAX_CROSSFADE);
+        }
+        if let Some(v) = patch.listening_goal_min {
+            s.listening_goal_min = v.min(24 * 60);
         }
         if let Some(v) = appearance {
             s.appearance = v;
@@ -1143,6 +1147,18 @@ pub async fn get_stats(state: State<'_, AppState>, from: i64, to: i64, tz_offset
     let library = state.library.clone();
     tauri::async_runtime::spawn_blocking(move || {
         crate::library::stats::stats(&library.db.lock(), from, to, tz_offset_min.clamp(-14 * 60, 14 * 60), 10)
+    })
+    .await
+    .map_err(err)?
+    .map_err(err)
+}
+
+/// Automatic mixes built from the local play history and library.
+#[tauri::command]
+pub async fn smart_mixes(state: State<'_, AppState>, tz_offset_min: i64) -> CmdResult<Vec<crate::library::mixes::SmartMix>> {
+    let library = state.library.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::library::mixes::smart_mixes(&library.db.lock(), tz_offset_min.clamp(-14 * 60, 14 * 60))
     })
     .await
     .map_err(err)?

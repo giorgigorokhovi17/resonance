@@ -1,4 +1,4 @@
-import { ArrowDownToLine, BarChart3, Download, FolderTree, Heart, LayoutGrid, ListMusic, ListOrdered, Music2, Plus, Settings2, SlidersHorizontal } from "lucide-react";
+import { ArrowDownToLine, BarChart3, Download, FolderTree, Heart, House, LayoutGrid, ListMusic, ListOrdered, Music2, Plus, Settings2, SlidersHorizontal } from "lucide-react";
 import type { ReactNode } from "react";
 import { api } from "../lib/api";
 import { usePlayer } from "../store/player";
@@ -117,6 +117,7 @@ export function Sidebar() {
   return (
     <nav className="skin-glass np-hide flex w-[236px] shrink-0 flex-col overflow-hidden rounded-xl bg-elev" aria-label="Main">
       <div className="flex flex-col gap-0.5 px-2 pt-3">
+        <NavItem icon={<House size={18} />} label="Home" view={{ kind: "home" }} match={["home"]} />
         <NavItem icon={<LayoutGrid size={18} />} label="Songs" view={{ kind: "songs" }} match={["songs"]} />
         <NavItem icon={<Music2 size={18} />} label="Tracks" view={{ kind: "tracks" }} match={["tracks", "search"]} />
         <NavItem icon={<Heart size={18} />} label="Loved" view={{ kind: "loved" }} match={["loved"]} />
@@ -124,7 +125,7 @@ export function Sidebar() {
           icon={<ListMusic size={18} />}
           label="Playlists"
           view={{ kind: "playlists" }}
-          match={["playlists"]}
+          match={["playlists", "mix"]}
           trailing={
             <button
               aria-label="Create playlist"
