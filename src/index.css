@@ -244,6 +244,47 @@ input[type="range"].slider:hover::-webkit-slider-runnable-track {
   animation: ray-out 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
+/* Recap story slides: entrance motion, turned off under prefers-reduced-motion. */
+@keyframes recap-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes recap-fly {
+  from {
+    opacity: 0;
+    transform: translateX(-24px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes recap-scale {
+  from {
+    opacity: 0;
+    transform: scale(0.86);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.recap-rise {
+  animation: recap-rise 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.recap-fly {
+  animation: recap-fly 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.recap-scale {
+  animation: recap-scale 0.65s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
 /* The theme switch in the title bar: the new theme grows as a circle from the button (theme.ts). */
 ::view-transition-old(root),
 ::view-transition-new(root) {
@@ -252,10 +293,14 @@ input[type="range"].slider:hover::-webkit-slider-runnable-track {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .animate-in,
   .grow-y,
   .grow-x,
   .reveal-x,
-  .ray-out {
+  .ray-out,
+  .recap-rise,
+  .recap-fly,
+  .recap-scale {
     animation: none;
   }
 }

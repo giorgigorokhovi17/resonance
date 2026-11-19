@@ -1,4 +1,4 @@
-import { BarChart3, Clock, Disc3, Flame, Headphones, Mic2, Play, Timer, Trash2, Zap } from "lucide-react";
+import { BarChart3, Clock, Disc3, Flame, Headphones, Mic2, Play, Sparkles, Timer, Trash2, Zap } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { api } from "../lib/api";
 import { playTracks } from "../lib/actions";
@@ -7,6 +7,7 @@ import { useLiveCover } from "../store/library";
 import { usePlayer } from "../store/player";
 import { Cover } from "../components/Cover";
 import { confirmDialog } from "../components/Dialog";
+import { RecapOverlay } from "../components/RecapOverlay";
 import { Segmented } from "./SettingsView";
 import { buckets, GenreMix, HourClock, OverTime, TONES, Tile, hm } from "../components/StatsCharts";
 
@@ -46,6 +47,20 @@ function heading(p: Period) {
   }
 }
 
+function periodSlug(p: Period) {
+  const now = new Date();
+  switch (p) {
+    case "month":
+      return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    case "days30":
+      return "30-days";
+    case "year":
+      return String(now.getFullYear());
+    case "all":
+      return "all-time";
+  }
+}
+
 function hours(secs: number) {
   const h = secs / 3600;
   return h >= 10 ? `${Math.round(h)} h` : h >= 1 ? `${h.toFixed(1)} h` : `${Math.round(secs / 60)} min`;
@@ -57,6 +72,7 @@ export function StatsView() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
+  const [recapOpen, setRecapOpen] = useState(false);
 
   useEffect(() => {
     lastPeriod = period;
@@ -98,16 +114,26 @@ export function StatsView() {
               A song counts once you've heard 30 seconds of it. Your history stays on this PC.
             </div>
           </div>
-          <Segmented
-            value={period}
-            onChange={setPeriod}
-            options={[
-              { value: "month", label: "This month" },
-              { value: "days30", label: "30 days" },
-              { value: "year", label: "This year" },
-              { value: "all", label: "All time" },
-            ]}
-          />
+          <div className="flex flex-wrap items-center gap-2.5">
+            <button
+              type="button"
+              disabled={!stats || stats.plays === 0}
+              onClick={() => setRecapOpen(true)}
+              className="accent-gradient inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[12.5px] font-semibold text-on-accent shadow-sm transition-opacity disabled:cursor-default disabled:opacity-40"
+            >
+              <Sparkles size={14} /> Play your recap
+            </button>
+            <Segmented
+              value={period}
+              onChange={setPeriod}
+              options={[
+                { value: "month", label: "This month" },
+                { value: "days30", label: "30 days" },
+                { value: "year", label: "This year" },
+                { value: "all", label: "All time" },
+              ]}
+            />
+          </div>
         </div>
 
         {error ? (
@@ -249,6 +275,9 @@ export function StatsView() {
           </>
         )}
       </div>
+      {recapOpen && stats && stats.plays > 0 && (
+        <RecapOverlay stats={stats} title={heading(period)} periodSlug={periodSlug(period)} onClose={() => setRecapOpen(false)} />
+      )}
     </div>
   );
 }
