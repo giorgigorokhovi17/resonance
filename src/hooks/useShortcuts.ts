@@ -12,6 +12,26 @@ function isTyping(e: KeyboardEvent) {
 export function useShortcuts(focusSearch: () => void) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey && e.key.toLowerCase() === "k") {
+        const ui = useUi.getState();
+        if (ui.commandPaletteOpen) {
+          e.preventDefault();
+          ui.setCommandPaletteOpen(false);
+          return;
+        }
+        if (!isTyping(e)) {
+          e.preventDefault();
+          ui.setCommandPaletteOpen(true);
+          return;
+        }
+      }
+      if (useUi.getState().commandPaletteOpen) {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          useUi.getState().setCommandPaletteOpen(false);
+        }
+        return;
+      }
       if (e.ctrlKey && e.key.toLowerCase() === "f") {
         e.preventDefault();
         focusSearch();

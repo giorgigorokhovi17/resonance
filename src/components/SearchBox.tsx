@@ -61,15 +61,25 @@ export const NavSearch = forwardRef<HTMLInputElement>(function NavSearch(_, ref)
           }}
           placeholder="Search library (Ctrl+F)"
           spellCheck={false}
-          className="h-7 w-full rounded-md bg-panel pl-8 pr-7 text-[12.5px] text-fg outline-none ring-1 ring-line placeholder:text-faint focus:ring-accent"
+          className="h-7 w-full rounded-md bg-panel pl-8 pr-14 text-[12.5px] text-fg outline-none ring-1 ring-line placeholder:text-faint focus:ring-accent"
         />
-        {q && (
+        {q ? (
           <button
             aria-label="Clear search"
             onClick={() => setQ("")}
             className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-faint hover:text-fg"
           >
             <X size={13} />
+          </button>
+        ) : (
+          <button
+            type="button"
+            aria-label="Open command palette (Ctrl+K)"
+            title="Command palette (Ctrl+K)"
+            onClick={() => useUi.getState().setCommandPaletteOpen(true)}
+            className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded bg-bg px-1.5 py-0.5 text-[10.5px] font-medium text-faint ring-1 ring-line transition-colors hover:bg-hover hover:text-fg"
+          >
+            Ctrl K
           </button>
         )}
       </div>

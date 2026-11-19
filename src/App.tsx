@@ -18,6 +18,7 @@ import { Toasts } from "./components/Toasts";
 import { ContextMenuHost } from "./components/ContextMenu";
 import { NavSearch } from "./components/SearchBox";
 import { DialogHost } from "./components/Dialog";
+import { CommandPalette } from "./components/CommandPalette";
 import { DownloadsPanel } from "./components/DownloadsPanel";
 import { LinkImportHost } from "./components/LinkImportDialog";
 import { PlaylistEditorHost } from "./components/PlaylistEditor";
@@ -201,6 +202,7 @@ export default function App() {
       <Toasts />
       <ContextMenuHost />
       <DialogHost />
+      <CommandPalette />
       <LinkImportHost />
       <PlaylistEditorHost />
       <LyricsDialog />
