@@ -73,7 +73,7 @@ export function PhoneSyncSection({ settings }: { settings: Settings }) {
               />
             )}
             <div className="min-w-0 flex-1 space-y-3">
-              <div className="text-[12.5px] text-muted">Scan with your phone's camera, or open this link in its browser:</div>
+              <div className="text-[12.5px] text-muted">Scan with your phone's camera to open Undertone and sync, or open this link in a browser:</div>
               <div className="break-all rounded-md bg-panel px-3 py-2 font-mono text-[11.5px] ring-1 ring-line">{status.url}</div>
               <div className="flex flex-wrap gap-2">
                 <button onClick={copy} className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12px] text-muted ring-1 ring-line hover:bg-hover hover:text-fg">

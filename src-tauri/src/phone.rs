@@ -151,7 +151,8 @@ pub fn status() -> PhoneStatus {
         Some(r) => {
             let host = lan_ip().unwrap_or_else(|| "localhost".into());
             let url = format!("http://{host}:{}/?k={}", r.port, r.key);
-            PhoneStatus { running: true, qr: Some(qr_svg(&url)), url: Some(url), error: None }
+            let app_link = format!("undertone://sync?h={host}&p={}&k={}", r.port, r.key);
+            PhoneStatus { running: true, qr: Some(qr_svg(&app_link)), url: Some(url), error: None }
         }
         None => PhoneStatus { error: ERROR.lock().clone(), ..PhoneStatus::default() },
     }
