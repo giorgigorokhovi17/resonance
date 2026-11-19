@@ -11,6 +11,7 @@ import { useUi } from "./store/ui";
 import { initUpdater } from "./store/updater";
 import { initSoulseek } from "./store/soulseek";
 import { initSleep } from "./store/sleep";
+import { initGoal } from "./store/goal";
 import { TitleBar } from "./components/TitleBar";
 import { Sidebar } from "./components/Sidebar";
 import { PlayerBar } from "./components/PlayerBar";
@@ -159,6 +160,7 @@ export default function App() {
     initUpdater();
     initSoulseek().catch((e) => console.error(e));
     initSleep().catch((e) => console.error(e));
+    initGoal().catch((e) => console.error(e));
     // Files dropped from Explorer start playing.
     const un = getCurrentWebview().onDragDropEvent((e) => {
       if (e.payload.type === "drop" && e.payload.paths.length) {

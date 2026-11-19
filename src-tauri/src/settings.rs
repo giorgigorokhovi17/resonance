@@ -19,6 +19,8 @@ pub struct Settings {
     pub replay_gain_preamp: f64,
     /// Crossfade between songs, in seconds (0 = off: songs follow each other gaplessly).
     pub crossfade: f64,
+    /// Daily listening goal in minutes (0 = off).
+    pub listening_goal_min: u32,
     /// "dark" | "light" | "system"
     pub theme: String,
     pub close_to_tray: bool,
@@ -373,6 +375,7 @@ impl Default for Settings {
             replay_gain: ReplayGainMode::Off,
             replay_gain_preamp: 0.0,
             crossfade: 0.0,
+            listening_goal_min: 30,
             theme: "dark".into(),
             close_to_tray: false,
             watch_folders: true,
@@ -406,6 +409,7 @@ impl SettingsStore {
                 s.hotkeys = s.hotkeys.clone().normalized();
                 s.effects = s.effects.normalized();
                 s.phone_sync = s.phone_sync.clone().normalized();
+                s.listening_goal_min = s.listening_goal_min.min(24 * 60);
                 s
             })
             .unwrap_or_default();
@@ -593,6 +597,18 @@ mod tests {
         let again = p.clone().normalized();
         assert_eq!(again.key, p.key, "a good key is kept");
         assert_ne!(new_key(), new_key());
+    }
+
+    #[test]
+    fn listening_goal_defaults_and_loads() {
+        let old: Settings = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
+        assert_eq!(old.listening_goal_min, 30);
+
+        let off: Settings = serde_json::from_str(r#"{"listeningGoalMin":0}"#).unwrap();
+        assert_eq!(off.listening_goal_min, 0);
+
+        let custom: Settings = serde_json::from_str(r#"{"listeningGoalMin":60}"#).unwrap();
+        assert_eq!(custom.listening_goal_min, 60);
     }
 
     #[test]

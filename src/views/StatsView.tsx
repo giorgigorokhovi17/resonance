@@ -5,7 +5,9 @@ import { playTracks } from "../lib/actions";
 import type { Stats, Track } from "../lib/types";
 import { useLiveCover } from "../store/library";
 import { usePlayer } from "../store/player";
+import { localMidnight, refreshGoal, useGoal } from "../store/goal";
 import { Cover } from "../components/Cover";
+import { GoalRing } from "../components/GoalRing";
 import { confirmDialog } from "../components/Dialog";
 import { RecapOverlay } from "../components/RecapOverlay";
 import { Segmented } from "./SettingsView";
@@ -72,6 +74,9 @@ export function StatsView() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
+  const goalMin = usePlayer((s) => s.settings?.listeningGoalMin ?? 0);
+  const todaySeconds = useGoal((s) => s.seconds);
+  const goalJustMet = useGoal((s) => s.justMet);
   const [recapOpen, setRecapOpen] = useState(false);
 
   useEffect(() => {
@@ -92,6 +97,7 @@ export function StatsView() {
     try {
       await api.clearPlayHistory();
       setReload((n) => n + 1);
+      void refreshGoal();
     } catch (e) {
       usePlayer.getState().pushToast("error", String(e));
     }
@@ -254,7 +260,20 @@ export function StatsView() {
               </Card>
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className={`grid gap-4 sm:grid-cols-2 ${goalMin > 0 ? "lg:grid-cols-3" : "lg:grid-cols-4"}`}>
+              {goalMin > 0 && (
+                <div className="flex items-center gap-4 rounded-xl bg-panel p-4 ring-1 ring-line sm:col-span-2">
+                  <GoalRing minutes={todaySeconds / 60} goalMin={goalMin} size={52} pulseKey={goalJustMet} />
+                  <div className="min-w-0">
+                    <div className="tabular truncate text-[14px] font-semibold">
+                      {Math.floor(todaySeconds / 60)} of {goalMin} minutes today
+                    </div>
+                    <div className="truncate text-[12px] text-muted">
+                      Goal met {goalDaysLast7(stats.byDay, goalMin)} of the last 7 days
+                    </div>
+                  </div>
+                </div>
+              )}
               <Fact icon={<Zap size={18} />} value={`${stats.currentStreak} ${stats.currentStreak === 1 ? "day" : "days"}`} label="current streak" />
               <Fact icon={<Flame size={18} />} value={`${stats.longestStreak} ${stats.longestStreak === 1 ? "day" : "days"}`} label="longest listening streak" />
               {stats.topDay && (
@@ -280,6 +299,18 @@ export function StatsView() {
       )}
     </div>
   );
+}
+
+function goalDaysLast7(byDay: [number, number][], goalMin: number): number {
+  if (goalMin <= 0) return 0;
+  const need = goalMin * 60;
+  // Half a day of slack keeps DST shifts from dropping the 7th day.
+  const minTs = localMidnight() - 6 * 86_400 - 43_200;
+  let met = 0;
+  for (const [dayTs, secs] of byDay) {
+    if (dayTs >= minTs && secs >= need) met++;
+  }
+  return met;
 }
 
 function peakHour(byHour: number[]) {

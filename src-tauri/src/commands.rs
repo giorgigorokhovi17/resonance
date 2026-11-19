@@ -348,6 +348,7 @@ pub struct SettingsPatch {
     pub replay_gain: Option<ReplayGainMode>,
     pub replay_gain_preamp: Option<f64>,
     pub crossfade: Option<f64>,
+    pub listening_goal_min: Option<u32>,
     pub appearance: Option<crate::settings::Appearance>,
 }
 
@@ -393,6 +394,9 @@ pub fn update_settings(app: AppHandle, state: State<'_, AppState>, patch: Settin
         }
         if let Some(v) = patch.crossfade.filter(|v| v.is_finite()) {
             s.crossfade = v.clamp(0.0, MAX_CROSSFADE);
+        }
+        if let Some(v) = patch.listening_goal_min {
+            s.listening_goal_min = v.min(24 * 60);
         }
         if let Some(v) = appearance {
             s.appearance = v;
