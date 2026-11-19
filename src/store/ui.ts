@@ -1,6 +1,7 @@
 import { create } from "zustand";
 
 export type View =
+  | { kind: "home" }
   | { kind: "songs" }
   | { kind: "tracks" }
   | { kind: "playlists" }
@@ -36,7 +37,7 @@ interface UiStore {
 const same = (a: View, b: View) => JSON.stringify(a) === JSON.stringify(b);
 
 export const useUi = create<UiStore>((set, get) => ({
-  view: { kind: "songs" },
+  view: { kind: "home" },
   back: [],
   forward: [],
   nowPlaying: false,
