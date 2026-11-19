@@ -6,6 +6,7 @@ export type View =
   | { kind: "tracks" }
   | { kind: "playlists" }
   | { kind: "playlist"; id: number }
+  | { kind: "mix"; id: string }
   | { kind: "review"; id: number }
   | { kind: "folders"; path?: string }
   | { kind: "search"; q: string }
