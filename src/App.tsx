@@ -25,6 +25,7 @@ import { PlaylistEditorHost } from "./components/PlaylistEditor";
 import { LyricsDialog } from "./components/LyricsPanel";
 import { Ambient } from "./components/Ambient";
 import { Backdrop } from "./components/Backdrop";
+import { HomeView } from "./views/HomeView";
 import { SettingsView, showSettingsTab } from "./views/SettingsView";
 import { SongsView } from "./views/SongsView";
 import { TracksView } from "./views/TracksView";
@@ -33,6 +34,7 @@ import { SearchView } from "./views/SearchView";
 import { QueuePanel, QueueView } from "./views/QueueView";
 import { PlaylistsView } from "./views/PlaylistsView";
 import { PlaylistView } from "./views/PlaylistView";
+import { MixView } from "./views/MixView";
 import { ReviewView } from "./views/ReviewView";
 import { EqView } from "./views/EqView";
 import { SourcesView } from "./views/SourcesView";
@@ -97,6 +99,8 @@ function useBackgrounds() {
 function MainView() {
   const view = useUi((s) => s.view);
   switch (view.kind) {
+    case "home":
+      return <HomeView />;
     case "songs":
       return <SongsView />;
     case "tracks":
@@ -111,6 +115,8 @@ function MainView() {
       return <PlaylistsView />;
     case "playlist":
       return <PlaylistView id={view.id} />;
+    case "mix":
+      return <MixView id={view.id} />;
     case "review":
       return <ReviewView id={view.id} />;
     case "eq":

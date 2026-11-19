@@ -3,6 +3,7 @@ import {
   Download,
   FileText,
   FolderTree,
+  House,
   LayoutGrid,
   ListMusic,
   ListOrdered,
@@ -42,7 +43,7 @@ import { Cover } from "./Cover";
 const RECENT_KEY = "palette.recent";
 const MAX_RECENT = 5;
 
-type PageId = "songs" | "tracks" | "playlists" | "folders" | "sources" | "stats" | "queue" | "eq" | "settings";
+type PageId = "home" | "songs" | "tracks" | "playlists" | "folders" | "sources" | "stats" | "queue" | "eq" | "settings";
 type ActionId =
   | "play-pause"
   | "next"
@@ -89,6 +90,7 @@ interface PageDef {
 }
 
 const PAGES: PageDef[] = [
+  { id: "home", label: "Home", keywords: "dashboard overview", view: { kind: "home" }, icon: <House size={16} /> },
   { id: "songs", label: "Songs", keywords: "library grid albums", view: { kind: "songs" }, icon: <LayoutGrid size={16} /> },
   { id: "tracks", label: "Tracks", keywords: "all songs list", view: { kind: "tracks" }, icon: <Music2 size={16} /> },
   { id: "playlists", label: "Playlists", keywords: "collections", view: { kind: "playlists" }, icon: <ListMusic size={16} /> },
