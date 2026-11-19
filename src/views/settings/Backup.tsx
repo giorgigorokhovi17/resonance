@@ -51,11 +51,12 @@ export function BackupSection() {
     setBusy("export");
     try {
       const s = await api.exportBackup(path, uiPrefs());
+      const loved = s.loved ? `, ${plural(s.loved, "loved song")}` : "";
       const media = s.media ? `, ${plural(s.media, "custom media file")}` : "";
       const left = s.mediaSkipped ? ` ${plural(s.mediaSkipped, "large media file was", "large media files were")} left out.` : "";
       toast(
         "info",
-        `Backup saved: ${plural(s.playlists, "playlist")}, ${plural(s.presets, "EQ preset")}, ${plural(s.artwork, "artwork image")}${media} (${(s.bytes / 1048576).toFixed(1)} MB).${left}`,
+        `Backup saved: ${plural(s.playlists, "playlist")}, ${plural(s.presets, "EQ preset")}, ${plural(s.artwork, "artwork image")}${loved}${media} (${(s.bytes / 1048576).toFixed(1)} MB).${left}`,
       );
     } catch (e) {
       toast("error", String(e));
@@ -106,8 +107,8 @@ export function BackupSection() {
       {result && (
         <div className="mt-4 space-y-2 rounded-lg bg-bg p-4 text-[12.5px] leading-relaxed ring-1 ring-line">
           <div className="font-medium">
-            Restored {plural(result.playlists, "playlist")}, {plural(result.presets, "EQ preset")} and{" "}
-            {plural(result.artwork, "artwork image")}.
+            Restored {plural(result.playlists, "playlist")}, {plural(result.presets, "EQ preset")}
+            {result.loved > 0 ? `, ${plural(result.loved, "loved song")}` : ""} and {plural(result.artwork, "artwork image")}.
           </div>
           {result.foldersAdded.length > 0 && (
             <div className="text-muted">

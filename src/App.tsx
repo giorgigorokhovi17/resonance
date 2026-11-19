@@ -5,6 +5,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { api } from "./lib/api";
 import { initPlayer, usePlayer } from "./store/player";
 import { initLibrary, useLiveCover } from "./store/library";
+import { initLoved } from "./store/loved";
 import { initPlaylists, usePlaylists } from "./store/playlists";
 import { initMedia, useMedia } from "./store/media";
 import { useUi } from "./store/ui";
@@ -30,6 +31,7 @@ import { HomeView } from "./views/HomeView";
 import { SettingsView, showSettingsTab } from "./views/SettingsView";
 import { SongsView } from "./views/SongsView";
 import { TracksView } from "./views/TracksView";
+import { LovedView } from "./views/LovedView";
 import { FoldersView } from "./views/FoldersView";
 import { SearchView } from "./views/SearchView";
 import { QueuePanel, QueueView } from "./views/QueueView";
@@ -106,6 +108,8 @@ function MainView() {
       return <SongsView />;
     case "tracks":
       return <TracksView />;
+    case "loved":
+      return <LovedView />;
     case "folders":
       return <FoldersView path={view.path} />;
     case "search":
@@ -155,6 +159,7 @@ export default function App() {
   useEffect(() => {
     initPlayer().catch((e) => console.error(e));
     initLibrary().catch((e) => usePlayer.getState().pushToast("error", `Library failed to load: ${e}`));
+    initLoved().catch((e) => console.error(e));
     initPlaylists().catch((e) => console.error(e));
     initMedia().catch((e) => console.error(e));
     initUpdater();

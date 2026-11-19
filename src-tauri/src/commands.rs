@@ -1296,6 +1296,7 @@ pub async fn import_backup(app: AppHandle, state: State<'_, AppState>, path: Str
     let _ = app.emit("settings:changed", &s);
     let _ = app.emit("library:changed", crate::library::scan::ScanSummary::default());
     emit_playlists(&app);
+    let _ = app.emit("loved:changed", ());
     summary.settings = s;
     Ok(summary)
 }
@@ -1497,4 +1498,25 @@ pub fn forget_deleted_tracks(app: AppHandle, state: State<'_, AppState>, ids: Ve
     db::remove_deleted(&state.library.db.lock(), &ids).map_err(err)?;
     let _ = app.emit("deleted:changed", ());
     Ok(())
+}
+
+// ---- loved songs ------------------------------------------------------------------------------
+
+#[tauri::command]
+pub fn set_loved(app: AppHandle, state: State<'_, AppState>, path: String, loved: bool) -> CmdResult<()> {
+    db::set_loved(&state.library.db.lock(), &path, loved).map_err(err)?;
+    let _ = app.emit("loved:changed", ());
+    Ok(())
+}
+
+/// Paths of loved songs, newest first.
+#[tauri::command]
+pub fn loved_paths(state: State<'_, AppState>) -> CmdResult<Vec<String>> {
+    db::loved_paths(&state.library.db.lock()).map_err(err)
+}
+
+/// Loved songs with timestamps, newest first.
+#[tauri::command]
+pub fn loved_entries(state: State<'_, AppState>) -> CmdResult<Vec<db::LovedEntry>> {
+    db::loved_entries(&state.library.db.lock()).map_err(err)
 }

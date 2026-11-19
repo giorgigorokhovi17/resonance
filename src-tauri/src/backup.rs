@@ -15,7 +15,7 @@ use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 
 use crate::commands::EqPreset;
-use crate::library::db::{self, Media, TrackArt};
+use crate::library::db::{self, LovedEntry, Media, TrackArt};
 use crate::library::media::{self, Backdrop, MediaKind};
 use crate::library::Library;
 use crate::settings::Settings;
@@ -42,6 +42,8 @@ pub struct Backup {
     playlists: Vec<BackupPlaylist>,
     #[serde(default)]
     track_art: Vec<TrackArt>,
+    #[serde(default)]
+    loved: Vec<LovedEntry>,
     /// Artwork images (full-size JPEG, base64) by cover id.
     #[serde(default)]
     artwork: BTreeMap<String, String>,
@@ -144,6 +146,7 @@ pub struct ExportSummary {
     pub playlists: usize,
     pub presets: usize,
     pub artwork: usize,
+    pub loved: usize,
     /// Custom GIFs, videos and photos included, and left out for size.
     pub media: usize,
     pub media_skipped: usize,
@@ -156,6 +159,7 @@ pub struct RestoreSummary {
     pub playlists: usize,
     pub presets: usize,
     pub artwork: usize,
+    pub loved: usize,
     pub media: usize,
     /// Custom media that wasn't in the backup (too large) or couldn't be restored.
     pub skipped_media: Vec<String>,
@@ -171,7 +175,7 @@ pub struct RestoreSummary {
 }
 
 pub fn export(lib: &Library, settings: Settings, eq_presets: Vec<EqPreset>, ui: serde_json::Value, file: &Path) -> Result<ExportSummary, String> {
-    let (library_folders, playlists, track_art) = {
+    let (library_folders, playlists, track_art, loved) = {
         let conn = lib.db.lock();
         let folders = db::folders(&conn).map_err(err)?.into_iter().map(|f| f.path).collect::<Vec<_>>();
         let mut playlists = Vec::new();
@@ -189,7 +193,7 @@ pub fn export(lib: &Library, settings: Settings, eq_presets: Vec<EqPreset>, ui: 
                 hidden: p.hidden,
             });
         }
-        (folders, playlists, db::track_art(&conn).map_err(err)?)
+        (folders, playlists, db::track_art(&conn).map_err(err)?, db::loved_entries(&conn).map_err(err)?)
     };
 
     // Custom media and what uses it, for the summary of anything left out.
@@ -287,12 +291,13 @@ pub fn export(lib: &Library, settings: Settings, eq_presets: Vec<EqPreset>, ui: 
         library_folders,
         playlists,
         track_art,
+        loved,
         artwork,
         media: media_out,
         skipped_media,
         ui,
     };
-    let summary = (backup.playlists.len(), backup.eq_presets.len(), backup.artwork.len());
+    let summary = (backup.playlists.len(), backup.eq_presets.len(), backup.artwork.len(), backup.loved.len());
     let (media_count, media_skipped) = (backup.media.len(), backup.skipped_media.len());
     let bytes = serde_json::to_vec(&backup).map_err(err)?;
     let tmp = file.with_extension("tmp");
@@ -302,6 +307,7 @@ pub fn export(lib: &Library, settings: Settings, eq_presets: Vec<EqPreset>, ui: 
         playlists: summary.0,
         presets: summary.1,
         artwork: summary.2,
+        loved: summary.3,
         media: media_count,
         media_skipped,
         bytes: bytes.len() as u64,
@@ -408,6 +414,17 @@ pub fn restore(lib: &Library, b: Backup, mut add_folder: impl FnMut(&str) -> Res
         .collect();
     db::put_track_art(&mut lib.db.lock(), &art).map_err(err)?;
 
+    // 3b. Loved songs.
+    let loved: Vec<LovedEntry> = b
+        .loved
+        .iter()
+        .map(|e| LovedEntry {
+            path: mapper.map(&e.path).unwrap_or_else(|| e.path.clone()),
+            loved_at: e.loved_at,
+        })
+        .collect();
+    db::put_loved(&mut lib.db.lock(), &loved).map_err(err)?;
+
     // 4. Playlists: replace ones with the same name, create the rest.
     let (mut relocated, mut unresolved) = (0, 0);
     {
@@ -455,6 +472,7 @@ pub fn restore(lib: &Library, b: Backup, mut add_folder: impl FnMut(&str) -> Res
             playlists: b.playlists.len(),
             presets: b.eq_presets.len(),
             artwork: cover_map.len(),
+            loved: b.loved.len(),
             media: media_map.len(),
             skipped_media,
             folders_added,
@@ -670,16 +688,17 @@ mod tests {
             &[TrackArt { path: song.clone(), cover_id: Some(song_poster), motion_id: Some(song_loop.clone()), hidden: false }],
         )
         .unwrap();
+        db::set_loved(&old.db.lock(), &song, true).unwrap();
         let mut settings = Settings::default();
         settings.appearance.background = Some(Backdrop { media_id: skin.clone(), ..Backdrop::default() });
 
         let file = base.join("test.resonance-backup");
         let summary = export(&old, settings, Vec::new(), serde_json::Value::Null, &file).unwrap();
-        assert_eq!((summary.media, summary.media_skipped), (3, 1));
+        assert_eq!((summary.media, summary.media_skipped, summary.loved), (3, 1, 1));
 
         let new = temp_library(&base.join("new"));
         let restored = restore(&new, read(&file).unwrap(), |_| Ok(())).unwrap().summary;
-        assert_eq!(restored.media, 3);
+        assert_eq!((restored.media, restored.loved), (3, 1));
         assert_eq!(restored.skipped_media.len(), 1);
         assert!(restored.skipped_media[0].starts_with("App background"), "{:?}", restored.skipped_media);
         assert!(restored.skipped_media[0].contains("25 MB"));
@@ -698,6 +717,7 @@ mod tests {
         assert!(bg_row.poster_id.is_some_and(|c| new.covers.file(&c, false).is_some()), "background poster restored");
         let art = db::track_art(&conn).unwrap();
         assert_eq!(art[0].motion_id.as_deref(), Some(song_loop.as_str()), "same bytes, same id");
+        assert_eq!(db::loved_paths(&conn).unwrap(), vec![song]);
         drop(conn);
         let _ = std::fs::remove_dir_all(&base);
     }

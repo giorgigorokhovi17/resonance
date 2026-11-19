@@ -531,6 +531,7 @@ export interface ExportSummary {
   playlists: number;
   presets: number;
   artwork: number;
+  loved: number;
   media: number;
   /** Custom GIFs, videos or photos left out because they're too large. */
   mediaSkipped: number;
@@ -541,6 +542,7 @@ export interface RestoreSummary {
   playlists: number;
   presets: number;
   artwork: number;
+  loved: number;
   media: number;
   /** Custom media that wasn't in the backup (too large) or couldn't be restored, one line each. */
   skippedMedia: string[];
@@ -550,6 +552,13 @@ export interface RestoreSummary {
   unresolved: number;
   ui: Record<string, string> | null;
   settings: Settings;
+}
+
+/** A song marked as loved, keyed by file path. */
+export interface LovedEntry {
+  path: string;
+  /** Unix seconds. */
+  lovedAt: number;
 }
 
 /** A song deleted from disk by the app (it went to the Recycle Bin). */

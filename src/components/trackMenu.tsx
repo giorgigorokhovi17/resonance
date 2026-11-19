@@ -1,9 +1,10 @@
-import { FolderOpen, Image, ImageMinus, ImageOff, ImagePlus, ListEnd, ListPlus, ListStart, Play, Trash2 } from "lucide-react";
+import { FolderOpen, Heart, Image, ImageMinus, ImageOff, ImagePlus, ListEnd, ListPlus, ListStart, Play, Trash2 } from "lucide-react";
 import { addToQueue, playNext, playTracks } from "../lib/actions";
 import { api } from "../lib/api";
 import { importCover, importError, pickMedia } from "../lib/mediaImport";
 import type { Track } from "../lib/types";
 import { folderOf, useLibrary } from "../store/library";
+import { useLoved } from "../store/loved";
 import { usePlayer } from "../store/player";
 import { useUi } from "../store/ui";
 import { SEP, type MenuItem } from "./ContextMenu";
@@ -58,11 +59,21 @@ async function resetArtwork(tracks: Track[]) {
 /** Context-menu items for one or more tracks. */
 export function trackMenuItems(tracks: Track[], opts: { playAll?: () => void; extra?: MenuItem[] } = {}): MenuItem[] {
   const one = tracks.length === 1 ? tracks[0] : null;
+  const lovedSet = useLoved.getState().set;
+  const allLoved = tracks.length > 0 && tracks.every((t) => lovedSet.has(t.path.toLowerCase()));
   const items: MenuItem[] = [
     { label: "Play", icon: <Play size={14} />, onClick: opts.playAll ?? (() => playTracks(tracks, 0)) },
     { label: "Play next", icon: <ListStart size={14} />, onClick: () => playNext(tracks) },
     { label: "Add to queue", icon: <ListEnd size={14} />, onClick: () => addToQueue(tracks) },
     { label: "Add to playlist", icon: <ListPlus size={14} />, submenu: playlistSubmenu(tracks) },
+    {
+      label: allLoved ? "Unlove" : "Love",
+      icon: <Heart size={14} fill={allLoved ? "currentColor" : "none"} className={allLoved ? "text-accent" : undefined} />,
+      onClick: () => {
+        const store = useLoved.getState();
+        for (const t of tracks) store.setLoved(t.path, !allLoved);
+      },
+    },
   ];
   if (one) {
     const roots = useLibrary.getState().roots;

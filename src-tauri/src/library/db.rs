@@ -210,6 +210,13 @@ fn migrate(conn: &Connection) -> Result<()> {
     add_column(conn, "playlists", "sort_order", "INTEGER")?;
     // v11: playlists the user hid from the sidebar. They stay on the Playlists page.
     add_column(conn, "playlists", "hidden", "INTEGER NOT NULL DEFAULT 0")?;
+    // v12: loved songs, keyed by path so they survive rescans and removed files.
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS loved(
+            path TEXT PRIMARY KEY,
+            loved_at INTEGER NOT NULL
+         );",
+    )?;
     Ok(())
 }
 
@@ -912,6 +919,60 @@ pub fn delete_saved_lyrics(conn: &Connection, path: &str) -> Result<()> {
     Ok(())
 }
 
+// ---- loved songs ------------------------------------------------------------------------------
+
+#[derive(Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct LovedEntry {
+    pub path: String,
+    pub loved_at: i64,
+}
+
+pub fn set_loved(conn: &Connection, path: &str, loved: bool) -> Result<()> {
+    if loved {
+        conn.execute(
+            "INSERT INTO loved(path, loved_at) VALUES(?1, ?2)
+             ON CONFLICT(path) DO UPDATE SET loved_at = excluded.loved_at",
+            params![path, now()],
+        )?;
+    } else {
+        conn.execute("DELETE FROM loved WHERE path = ?1 OR lower(path) = lower(?1)", params![path])?;
+    }
+    Ok(())
+}
+
+/// Loved songs, newest first.
+pub fn loved_entries(conn: &Connection) -> Result<Vec<LovedEntry>> {
+    let mut stmt = conn.prepare("SELECT path, loved_at FROM loved ORDER BY loved_at DESC, path")?;
+    let rows = stmt
+        .query_map([], |r| Ok(LovedEntry { path: r.get(0)?, loved_at: r.get(1)? }))?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+
+/// Paths of loved songs, newest first.
+pub fn loved_paths(conn: &Connection) -> Result<Vec<String>> {
+    let mut stmt = conn.prepare("SELECT path FROM loved ORDER BY loved_at DESC, path")?;
+    let rows = stmt.query_map([], |r| r.get(0))?.collect::<Result<Vec<String>, _>>()?;
+    Ok(rows)
+}
+
+/// Insert loved songs (used by backup restore), keeping existing timestamps when already loved.
+pub fn put_loved(conn: &mut Connection, entries: &[LovedEntry]) -> Result<()> {
+    let tx = conn.transaction()?;
+    {
+        let mut stmt = tx.prepare_cached(
+            "INSERT INTO loved(path, loved_at) VALUES(?1, ?2)
+             ON CONFLICT(path) DO NOTHING",
+        )?;
+        for e in entries {
+            stmt.execute(params![e.path, e.loved_at])?;
+        }
+    }
+    tx.commit()?;
+    Ok(())
+}
+
 pub fn put_match_refs(conn: &mut Connection, refs: &[(String, String)]) -> Result<()> {
     let tx = conn.transaction()?;
     {
@@ -1116,6 +1177,36 @@ mod tests {
         assert_eq!((old[0].name.as_str(), old[0].hidden), ("Old", false), "older playlists stay in the sidebar");
         set_playlist_hidden(&conn, old[0].id, true).unwrap();
         assert!(playlists(&conn).unwrap()[0].hidden, "still listed, marked hidden");
+        drop(conn);
+        remove_db(file);
+    }
+
+    #[test]
+    fn loved_table_migrates() {
+        let (mut conn, file) = reopen_after("v12-loved", "DROP TABLE loved;");
+        assert_eq!(playlists(&conn).unwrap()[0].name, "Old", "older data is kept");
+        assert!(loved_paths(&conn).unwrap().is_empty());
+        conn.execute("INSERT INTO loved(path, loved_at) VALUES(?1, ?2)", params![r"C:\Music\a.flac", 100]).unwrap();
+        conn.execute("INSERT INTO loved(path, loved_at) VALUES(?1, ?2)", params![r"C:\Music\b.flac", 200]).unwrap();
+        assert_eq!(loved_paths(&conn).unwrap(), vec![r"C:\Music\b.flac", r"C:\Music\a.flac"], "newest first");
+        set_loved(&conn, r"C:\Music\a.flac", false).unwrap();
+        assert_eq!(loved_paths(&conn).unwrap(), vec![r"C:\Music\b.flac"]);
+        set_loved(&conn, r"C:\Music\c.flac", true).unwrap();
+        assert_eq!(loved_entries(&conn).unwrap().len(), 2);
+        put_loved(
+            &mut conn,
+            &[
+                LovedEntry { path: r"C:\Music\b.flac".into(), loved_at: 999 },
+                LovedEntry { path: r"C:\Music\d.flac".into(), loved_at: 50 },
+            ],
+        )
+        .unwrap();
+        let entries = loved_entries(&conn).unwrap();
+        assert_eq!(entries.len(), 3);
+        assert_eq!(entries.iter().find(|e| e.path == r"C:\Music\b.flac").unwrap().loved_at, 200, "existing timestamp kept");
+        drop(conn);
+        let conn = open(&file).unwrap();
+        assert_eq!(loved_entries(&conn).unwrap().len(), 3, "kept across reopen");
         drop(conn);
         remove_db(file);
     }

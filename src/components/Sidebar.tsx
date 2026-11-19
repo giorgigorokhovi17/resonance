@@ -120,6 +120,7 @@ export function Sidebar() {
         <NavItem icon={<House size={18} />} label="Home" view={{ kind: "home" }} match={["home"]} />
         <NavItem icon={<LayoutGrid size={18} />} label="Songs" view={{ kind: "songs" }} match={["songs"]} />
         <NavItem icon={<Music2 size={18} />} label="Tracks" view={{ kind: "tracks" }} match={["tracks", "search"]} />
+        <NavItem icon={<Heart size={18} />} label="Loved" view={{ kind: "loved" }} match={["loved"]} />
         <NavItem
           icon={<ListMusic size={18} />}
           label="Playlists"

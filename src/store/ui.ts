@@ -4,6 +4,7 @@ export type View =
   | { kind: "home" }
   | { kind: "songs" }
   | { kind: "tracks" }
+  | { kind: "loved" }
   | { kind: "playlists" }
   | { kind: "playlist"; id: number }
   | { kind: "mix"; id: string }

@@ -14,6 +14,7 @@ import type {
   ImportResult,
   PhoneStatus,
   LibraryFolder,
+  LovedEntry,
   Backdrop,
   Lyrics,
   LyricsSearch,
@@ -132,6 +133,11 @@ export const api = {
   restoreDeletedTracks: (ids: number[]) => invoke<number>("restore_deleted_tracks", { ids }),
   /** Takes them off the list; the files stay in the Recycle Bin. */
   forgetDeletedTracks: (ids: number[]) => invoke<void>("forget_deleted_tracks", { ids }),
+
+  // loved songs
+  setLoved: (path: string, loved: boolean) => invoke<void>("set_loved", { path, loved }),
+  lovedPaths: () => invoke<string[]>("loved_paths"),
+  lovedEntries: () => invoke<LovedEntry[]>("loved_entries"),
 
   // custom photos, GIFs and videos (see lib/mediaImport.ts)
   /** Checks a file and copies it into the app. Refusals reject with a plain message. */

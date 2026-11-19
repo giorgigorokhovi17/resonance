@@ -1,9 +1,10 @@
-import { BarChart3, Clock, Disc3, Flame, Headphones, Mic2, Play, Sparkles, Timer, Trash2, Zap } from "lucide-react";
+import { BarChart3, Clock, Disc3, Flame, Headphones, Heart, Mic2, Play, Sparkles, Timer, Trash2, Zap } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { api } from "../lib/api";
 import { playTracks } from "../lib/actions";
 import type { Stats, Track } from "../lib/types";
 import { useLiveCover } from "../store/library";
+import { useLoved } from "../store/loved";
 import { usePlayer } from "../store/player";
 import { localMidnight, refreshGoal, useGoal } from "../store/goal";
 import { Cover } from "../components/Cover";
@@ -74,6 +75,10 @@ export function StatsView() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
+  const lovedEntries = useLoved((s) => s.entries);
+  const weekAgo = Math.floor(Date.now() / 1000) - 7 * 86_400;
+  const lovedCount = lovedEntries.length;
+  const lovedThisWeek = lovedEntries.filter((e) => e.lovedAt >= weekAgo).length;
   const goalMin = usePlayer((s) => s.settings?.listeningGoalMin ?? 0);
   const todaySeconds = useGoal((s) => s.seconds);
   const goalJustMet = useGoal((s) => s.justMet);
@@ -260,7 +265,7 @@ export function StatsView() {
               </Card>
             </div>
 
-            <div className={`grid gap-4 sm:grid-cols-2 ${goalMin > 0 ? "lg:grid-cols-3" : "lg:grid-cols-4"}`}>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {goalMin > 0 && (
                 <div className="flex items-center gap-4 rounded-xl bg-panel p-4 ring-1 ring-line sm:col-span-2">
                   <GoalRing minutes={todaySeconds / 60} goalMin={goalMin} size={52} pulseKey={goalJustMet} />
@@ -284,6 +289,11 @@ export function StatsView() {
                 />
               )}
               <Fact icon={<Clock size={18} />} value={peakHour(stats.byHour)} label="your favourite time to listen" />
+              <Fact
+                icon={<Heart size={18} />}
+                value={`${lovedCount.toLocaleString()} (+${lovedThisWeek.toLocaleString()} this week)`}
+                label="loved songs"
+              />
             </div>
 
             <div className="flex justify-center pt-2">
@@ -347,7 +357,7 @@ function Fact({ icon, value, label }: { icon: ReactNode; value: string; label: s
     <div className="flex items-center gap-3 rounded-xl bg-panel p-4 ring-1 ring-line">
       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent/15 text-accent">{icon}</span>
       <div className="min-w-0">
-        <div className="truncate text-[14px] font-semibold">{value}</div>
+        <div className="tabular truncate text-[14px] font-semibold">{value}</div>
         <div className="truncate text-[12px] text-muted">{label}</div>
       </div>
     </div>
