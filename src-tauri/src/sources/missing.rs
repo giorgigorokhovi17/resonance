@@ -62,12 +62,24 @@ pub struct Found {
     pub why: String,
 }
 
+/// Whether `from_title` ("Artist - Title") is the better reading for search queries: always when
+/// there is no separate artist, for YouTube entries (whose `artists` is the channel name, e.g.
+/// "Lady Gaga" or "7clouds"), or when the title's artist already matches the tagged artist.
+pub(super) fn prefer_title_reading(r: &TrackRef, rs: &[Reading]) -> Option<usize> {
+    let idx = rs.iter().position(|x| x.from_title)?;
+    let is_yt = r.service_ids.contains_key("youtube");
+    let overlaps = rs[idx].artists.iter().any(|a| rs[0].artists.contains(a));
+    (r.artists.is_empty() || is_yt || overlaps).then_some(idx)
+}
+
 /// Search words: (artist + title + version, title + version), deduplicated, short ones kept.
 pub fn queries(r: &TrackRef) -> Vec<String> {
     let rs = readings(&r.title, &r.artists);
-    // The title-side reading: "Artist - Title" titles without a separate artist use reading 2.
-    let (title_words, version_words, artist_words) = match rs.iter().find(|x| x.from_title).filter(|_| r.artists.is_empty()) {
-        Some(b) => {
+    // The title-side reading: "Artist - Title" titles without a separate artist, or YouTube video
+    // titles ("Artist - Title (Official Audio)") where `r.artists` is the channel name.
+    let (title_words, version_words, artist_words) = match prefer_title_reading(r, &rs) {
+        Some(i) => {
+            let b = &rs[i];
             let left = parse_title(&r.title).main.split(" - ").next().unwrap_or("").to_string();
             (b.title_tokens.clone(), b.versions.iter().flat_map(|v| tokens(v)).collect::<Vec<_>>(), tokens(&left))
         }
@@ -100,13 +112,16 @@ pub fn queries(r: &TrackRef) -> Vec<String> {
     out
 }
 
-/// "01 - Song", "1. Song", "A2 Song", "101-Song" → "Song".
+/// "01 - Song", "1. Song", "A2 Song", "101-Song", "1-11 Song", "CD1-05 Song" → "Song".
 fn strip_track_number(stem: &str) -> &str {
     let s = stem.trim_start();
     let bytes = s.as_bytes();
     let mut i = 0;
-    if bytes.first().is_some_and(|b| b.is_ascii_alphabetic()) && bytes.get(1).is_some_and(|b| b.is_ascii_digit()) {
-        i = 1; // vinyl sides: A1, B2
+    // Optional disc prefix: "CD1-05", "D1-05", "1-11", "01.11".
+    if bytes.len() >= 2 && bytes[0].eq_ignore_ascii_case(&b'c') && bytes[1].eq_ignore_ascii_case(&b'd') {
+        i = 2;
+    } else if bytes.first().is_some_and(|b| b.is_ascii_alphabetic()) && bytes.get(1).is_some_and(|b| b.is_ascii_digit()) {
+        i = 1; // vinyl sides (A1, B2) or disc prefix (D1)
     }
     let digits_start = i;
     while i < bytes.len() && bytes[i].is_ascii_digit() && i - digits_start < 3 {
@@ -115,6 +130,21 @@ fn strip_track_number(stem: &str) -> &str {
     if i == digits_start || i >= bytes.len() {
         return s;
     }
+    // Multi-disc "1-11 Song" / "01.11 - Song": consume the second number when followed by a separator.
+    if i - digits_start <= 2 && matches!(bytes[i], b'-' | b'.' | b'_') {
+        let mut j = i + 1;
+        let t_start = j;
+        while j < bytes.len() && bytes[j].is_ascii_digit() && j - t_start < 3 {
+            j += 1;
+        }
+        if j > t_start && j < bytes.len() {
+            let rest2 = &s[j..];
+            let trimmed2 = rest2.trim_start_matches([' ', '.', '-', '_', ')']);
+            if trimmed2.len() < rest2.len() && !trimmed2.is_empty() {
+                return trimmed2;
+            }
+        }
+    }
     let rest = &s[i..];
     let trimmed = rest.trim_start_matches([' ', '.', '-', '_', ')']);
     if trimmed.len() < rest.len() && !trimmed.is_empty() {
@@ -122,6 +152,58 @@ fn strip_track_number(stem: &str) -> &str {
     } else {
         s
     }
+}
+
+/// Drops Soulseek format/rip tags in brackets: "[FLAC]", "(24bit-44.1kHz)", "[320kbps]".
+fn strip_format_brackets(stem: &str) -> String {
+    const FORMAT_CORE: &[&str] = &["flac", "mp3", "wav", "alac", "lossless", "kbps", "khz", "bit", "hires", "web", "cdrip"];
+    const FORMAT_EXTRA: &[&str] = &["hi", "res", "cd", "vinyl", "rip", "hz", "16", "24", "44", "48", "96", "192", "320", "441", "44100", "48000", "1", "0"];
+    let is_core = |t: &str| {
+        FORMAT_CORE.contains(&t)
+            || ["bit", "khz", "hz", "kbps"]
+                .iter()
+                .any(|u| t.strip_suffix(u).is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit())))
+    };
+    let mut out = String::with_capacity(stem.len());
+    let mut depth = 0usize;
+    let mut open = '(';
+    let mut seg = String::new();
+    for c in stem.chars() {
+        match c {
+            '(' | '[' => {
+                if depth == 0 {
+                    open = c;
+                } else {
+                    seg.push(c);
+                }
+                depth += 1;
+            }
+            ')' | ']' if depth > 0 => {
+                depth -= 1;
+                if depth == 0 {
+                    let s = std::mem::take(&mut seg);
+                    let toks = tokens(&s);
+                    let is_format = !toks.is_empty()
+                        && toks.iter().any(|t| is_core(t))
+                        && toks.iter().all(|t| is_core(t) || FORMAT_EXTRA.contains(&t.as_str()));
+                    if !is_format {
+                        out.push(open);
+                        out.push_str(&s);
+                        out.push(c);
+                    }
+                } else {
+                    seg.push(c);
+                }
+            }
+            _ if depth > 0 => seg.push(c),
+            _ => out.push(c),
+        }
+    }
+    if depth > 0 {
+        out.push(open);
+        out.push_str(&seg);
+    }
+    out
 }
 
 /// Quality tier: 2 FLAC, 1 MP3 ≥ 320 kbps, else unacceptable.
@@ -141,17 +223,52 @@ pub fn title_matches(file: &[Reading], wanted: &[Reading]) -> bool {
 }
 
 /// Readings of a remote file: its name with and without a leading track number (a song can be
-/// called "22"), each also under an "Artist - Album" folder.
+/// called "22"), underscores expanded, format brackets dropped, and the last " - " segment for
+/// "Artist - Album - 11 - Title" names, each also under an "Artist - Album" folder.
 pub(super) fn file_readings(path: &str) -> Vec<Reading> {
     let (folder, name) = split_remote(path);
     let raw_stem = name.rsplit_once('.').map(|(s, _)| s).unwrap_or(name);
     let (_, last_folder) = split_remote(folder);
     let folder_artist = last_folder.split(" - ").next().unwrap_or("").to_string();
+    let cleaned = strip_format_brackets(raw_stem);
+    let mut stems: Vec<String> = vec![raw_stem.to_string()];
+    if cleaned != raw_stem {
+        stems.push(cleaned);
+    }
+    if raw_stem.contains('_') {
+        let spaced = raw_stem.replace('_', " ");
+        let spaced_clean = strip_format_brackets(&spaced);
+        stems.push(spaced);
+        if !stems.contains(&spaced_clean) {
+            stems.push(spaced_clean);
+        }
+    }
     let mut file = Vec::new();
-    for stem in [raw_stem, strip_track_number(raw_stem)] {
-        file.extend(readings(stem, &[]));
-        if !folder_artist.is_empty() {
-            file.extend(readings(stem, &[folder_artist.clone()]));
+    for base in &stems {
+        let stripped = strip_track_number(base);
+        for stem in [base.as_str(), stripped] {
+            file.extend(readings(stem, &[]));
+            if !folder_artist.is_empty() {
+                file.extend(readings(stem, &[folder_artist.clone()]));
+            }
+            // "Artist - Album - 11 - Title" or "Artist - 11 Title": `parse_title` has already
+            // stripped trailing version qualifiers into `p.versions`, so the last " - " segment
+            // is the bare title with versions intact.
+            let p = parse_title(stem);
+            if let Some((_, tail)) = p.main.rsplit_once(" - ") {
+                let tail = strip_track_number(tail);
+                let tk = key(tail);
+                if !tk.is_empty() && !file.iter().any(|r| r.title_key == tk && r.versions == p.versions) {
+                    file.push(Reading {
+                        artists: Vec::new(),
+                        title_key: tk,
+                        title_tokens: tokens(tail),
+                        versions: p.versions,
+                        drift: p.drift,
+                        from_title: true,
+                    });
+                }
+            }
         }
     }
     file
@@ -171,29 +288,45 @@ pub fn judge(r: &TrackRef, wanted: &[Reading], user: &RawResponse, path: &str, s
     let (folder, name) = split_remote(path);
     let format = format_of(name);
     let q = quality(&format, attrs, size)?;
-    if !title_matches(&file_readings(path), wanted) {
-        return None;
-    }
-    // The main artist must appear in the path (folder or file name).
+    let fr = file_readings(path);
+    // Title + version must match a wanted reading, AND that reading's main artist must appear in
+    // the path (so a YouTube upload on "7clouds" titled "Lady Gaga - Song" checks "ladygaga", not
+    // "7clouds").
     let path_key = key(path);
-    let main_artist = wanted.iter().find_map(|w| w.artists.first().cloned());
-    if let Some(a) = &main_artist {
-        if !path_key.contains(a.as_str()) {
-            return None;
-        }
+    let matched = wanted.iter().any(|w| {
+        !w.title_key.is_empty()
+            && fr.iter().any(|f| f.title_key == w.title_key && f.versions == w.versions)
+            && w.artists.first().is_none_or(|a| path_key.contains(a.as_str()))
+    });
+    if !matched {
+        return None;
     }
     let delta = match (r.duration_ms, attrs.length) {
         (Some(ms), Some(len)) => Some((ms as f64 / 1000.0 - len as f64).abs()),
         _ => None,
     };
-    if delta.is_some_and(|d| d > LENGTH_TOLERANCE_S) {
-        return None;
+    let is_yt = r.service_ids.contains_key("youtube");
+    if let (Some(ms), Some(len)) = (r.duration_ms, attrs.length) {
+        let ref_s = ms as f64 / 1000.0;
+        let file_s = len as f64;
+        if is_yt {
+            // YouTube videos (especially official music videos) often have intros, outros or
+            // credits, so a shorter studio FLAC is expected; still reject snippets and much-longer
+            // untagged extended mixes.
+            if file_s > ref_s + 20.0 || (file_s < 60.0 && file_s < ref_s - 10.0) {
+                return None;
+            }
+        } else if (ref_s - file_s).abs() > LENGTH_TOLERANCE_S {
+            return None;
+        }
     }
+    let length_ok = delta.is_some_and(|d| d <= LENGTH_TOLERANCE_S);
     let speed_bonus = (user.speed as f64 / 2_000_000.0).min(1.0) * 5.0;
-    let score = q as f64 * 100.0 + if delta.is_some() { 20.0 } else { 0.0 } + if user.free_slots { 10.0 } else { 0.0 } + speed_bonus;
+    let score = q as f64 * 100.0 + if length_ok { 20.0 } else { 0.0 } + if user.free_slots { 10.0 } else { 0.0 } + speed_bonus;
     let mut why = vec![quality_text(&format, attrs)];
     why.push(match delta {
-        Some(d) => format!("length matches (Δ {d:.0} s)"),
+        Some(d) if d <= LENGTH_TOLERANCE_S => format!("length matches (Δ {d:.0} s)"),
+        Some(d) => format!("length differs by {d:.0} s"),
         None => "length unknown".into(),
     });
     why.push(if user.free_slots { "free slot".into() } else { "in the user's queue".into() });
@@ -586,5 +719,67 @@ mod tests {
         let found = rank(&want, &answers);
         assert_eq!(found.len(), 1, "wrong length and OGG rejected; MP3 bitrate estimated from size: {found:#?}");
         assert!(found[0].path.ends_with(".mp3"));
+    }
+
+    fn yt(title: &str, channel: &str, ms: Option<u64>) -> TrackRef {
+        let mut t = r(title, &[channel], ms);
+        t.service_ids.insert("youtube".into(), "dQw4w9WgXcQ".into());
+        t
+    }
+
+    #[test]
+    fn youtube_artist_title_queries_and_channel_matching() {
+        let official = yt("Lady Gaga - Heavy Metal Lover (Official Audio)", "Lady Gaga", Some(252_000));
+        assert_eq!(queries(&official), vec!["lady gaga heavy metal lover".to_string(), "heavy metal lover".to_string()]);
+
+        // Upload on a lyric/label channel: query and artist check use "Lady Gaga", not "7clouds".
+        let lyric = yt("Lady Gaga - Heavy Metal Lover (Lyrics)", "7clouds", Some(252_000));
+        assert_eq!(queries(&lyric), vec!["lady gaga heavy metal lover".to_string(), "heavy metal lover".to_string()]);
+        let answers = vec![user("u", true, 2_000_000, vec![
+            file(r"Music\Lady Gaga\Born This Way\11 - Heavy Metal Lover.flac", 30_000_000, &[(1, 252)]),
+            file(r"Music\Other Artist\11 - Heavy Metal Lover.flac", 30_000_000, &[(1, 252)]),
+        ])];
+        let found = rank(&lyric, &answers);
+        assert_eq!(found.len(), 1);
+        assert!(found[0].path.contains("Lady Gaga"));
+    }
+
+    #[test]
+    fn youtube_video_length_allows_music_video_intros_but_rejects_junk() {
+        // Official Music Video is 5:08 (308 s); studio FLAC is 4:54 (294 s).
+        let mv = yt("Lady Gaga - Bad Romance (Official Music Video)", "Lady Gaga", Some(308_000));
+        let answers = vec![user("u", true, 2_000_000, vec![
+            file(r"Lady Gaga\The Fame Monster\01 - Bad Romance.flac", 32_000_000, &[(1, 294)]),
+            file(r"Lady Gaga\The Fame Monster\01 - Bad Romance (snippet).flac", 2_000_000, &[(1, 15)]),
+            file(r"Lady Gaga\The Fame Monster\01 - Bad Romance.mp3", 12_000_000, &[(0, 320), (1, 500)]),
+        ])];
+        let found = rank(&mv, &answers);
+        assert_eq!(found.len(), 1, "studio FLAC accepted; 15 s snippet and 500 s file rejected: {found:#?}");
+        assert!(found[0].path.ends_with(".flac"));
+    }
+
+    #[test]
+    fn soulseek_multidisc_album_underscore_and_format_filenames() {
+        let want = yt("Lady Gaga - Heavy Metal Lover (Official Audio)", "Lady Gaga", Some(252_000));
+        for path in [
+            r"Lady Gaga\Born This Way (Special Edition)\1-11 Heavy Metal Lover.flac",
+            r"Lady Gaga\Born This Way\01.11 - Heavy Metal Lover.flac",
+            r"Lady Gaga\Born This Way\CD1-11 Heavy Metal Lover.flac",
+            r"Lady Gaga\Born This Way\Lady Gaga - Born This Way - 11 - Heavy Metal Lover.flac",
+            r"Lady Gaga\Born This Way\Lady_Gaga_-_Heavy_Metal_Lover.flac",
+            r"Lady Gaga\Born This Way\11 - Heavy Metal Lover [FLAC].flac",
+            r"Lady Gaga\Born This Way\11 - Heavy Metal Lover (24bit-44.1kHz).flac",
+        ] {
+            let answers = vec![user("u", true, 1_000_000, vec![file(path, 30_000_000, &[(1, 252)])])];
+            assert_eq!(rank(&want, &answers).len(), 1, "should accept {path}");
+        }
+        // Version qualifiers are still rejected even in multi-dash filenames.
+        for bad in [
+            r"Lady Gaga\Born This Way\Lady Gaga - Born This Way - 11 - Heavy Metal Lover (Slowed).flac",
+            r"Lady Gaga\Born This Way\Lady Gaga - Heavy Metal Lover - Remix.flac",
+        ] {
+            let answers = vec![user("u", true, 1_000_000, vec![file(bad, 30_000_000, &[(1, 252)])])];
+            assert!(rank(&want, &answers).is_empty(), "should reject {bad}");
+        }
     }
 }
