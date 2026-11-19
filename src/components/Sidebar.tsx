@@ -79,7 +79,7 @@ function IconItem({
   );
 }
 
-/** Downloads, Queue, Equalizer, Settings and Donate as one row of icons. */
+/** Donate button on top, with Downloads, Queue, Equalizer and Settings underneath. */
 function BottomBar() {
   const view = useUi((s) => s.view);
   const nowPlaying = useUi((s) => s.nowPlaying);
@@ -89,26 +89,29 @@ function BottomBar() {
   const badge = useDownloadsBadge();
   const on = (kind: View["kind"]) => !nowPlaying && view.kind === kind;
   return (
-    <div className="flex items-center gap-1 border-t border-line/60 px-2 py-2">
-      <IconItem
-        icon={<ArrowDownToLine size={18} />}
-        label={badge > 0 ? `Downloads (${badge} active)` : "Downloads"}
-        active={downloadsOpen}
-        onClick={toggleDownloads}
-        badge={badge}
-        target
-      />
-      <IconItem icon={<ListOrdered size={18} />} label="Queue" active={on("queue")} onClick={() => setView({ kind: "queue" })} />
-      <IconItem icon={<SlidersHorizontal size={18} />} label="Equalizer" active={on("eq")} onClick={() => setView({ kind: "eq" })} />
-      <IconItem icon={<Settings2 size={18} />} label="Settings" active={on("settings")} onClick={() => setView({ kind: "settings" })} />
+    <div className="flex flex-col gap-1.5 border-t border-line/60 px-2 py-2">
       <button
         onClick={() => api.openUrl(DONATE_URL).catch((e) => usePlayer.getState().pushToast("error", String(e)))}
-        aria-label="Donate"
+        aria-label="Donate me"
         title={`Support Undertone (${DONATE_URL.replace("https://", "")})`}
-        className="group flex h-9 flex-1 items-center justify-center rounded-lg ring-1 ring-line/70 transition-colors duration-200 hover:bg-hover"
+        className="group flex h-8 w-full items-center justify-center gap-2 rounded-lg text-[12.5px] font-medium text-fg ring-1 ring-line/70 transition-colors duration-200 hover:bg-hover"
       >
-        <Heart size={18} className="text-[#ef5b8a] transition-transform duration-200 group-hover:scale-110" />
+        <Heart size={15} className="text-[#ef5b8a] transition-transform duration-200 group-hover:scale-110" />
+        Donate me
       </button>
+      <div className="flex items-center gap-1">
+        <IconItem
+          icon={<ArrowDownToLine size={18} />}
+          label={badge > 0 ? `Downloads (${badge} active)` : "Downloads"}
+          active={downloadsOpen}
+          onClick={toggleDownloads}
+          badge={badge}
+          target
+        />
+        <IconItem icon={<ListOrdered size={18} />} label="Queue" active={on("queue")} onClick={() => setView({ kind: "queue" })} />
+        <IconItem icon={<SlidersHorizontal size={18} />} label="Equalizer" active={on("eq")} onClick={() => setView({ kind: "eq" })} />
+        <IconItem icon={<Settings2 size={18} />} label="Settings" active={on("settings")} onClick={() => setView({ kind: "settings" })} />
+      </div>
     </div>
   );
 }

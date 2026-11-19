@@ -26,7 +26,8 @@ const COL_DEF: Record<GridCol, { label: string; width: string; align?: "right" }
   added: { label: "Added", width: "96px" },
 };
 
-type SortKey = Exclude<Column, "index" | "quality"> | "quality";
+export type SortKey = Exclude<Column, "index" | "quality"> | "quality";
+export type SortState = { key: SortKey; dir: 1 | -1 };
 
 function sortValue(t: Track, k: SortKey): string | number {
   switch (k) {
@@ -55,6 +56,10 @@ export function sortTracks(tracks: Track[], key: SortKey, dir: 1 | -1): Track[] 
     const va = sortValue(a, key);
     const vb = sortValue(b, key);
     let c = typeof va === "number" ? (va as number) - (vb as number) : compareText(va as string, vb as string);
+    if (c === 0 && key === "added") {
+      // Break ties on initial-scan tracks by file modified time, then insertion order.
+      c = a.mtime - b.mtime || a.id - b.id;
+    }
     if (c === 0) {
       // Stable, album-aware secondary ordering.
       c =
@@ -90,6 +95,8 @@ export function TrackTable({
   columns = ["index", "title", "artist", "album", "year", "quality", "duration"],
   sortable = true,
   defaultSort,
+  sort: controlledSort,
+  onSortChange,
   numbering = "row",
   header,
   onPlay,
@@ -99,7 +106,9 @@ export function TrackTable({
   tracks: Track[];
   columns?: Column[];
   sortable?: boolean;
-  defaultSort?: { key: SortKey; dir: 1 | -1 };
+  defaultSort?: SortState;
+  sort?: SortState | null;
+  onSortChange?: (next: SortState | null) => void;
   numbering?: "row" | "track";
   header?: ReactNode;
   onPlay: (sorted: Track[], index: number) => void;
@@ -108,7 +117,12 @@ export function TrackTable({
 }) {
   const parentRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 } | null>(defaultSort ?? null);
+  const [innerSort, setInnerSort] = useState<SortState | null>(defaultSort ?? null);
+  const sort = controlledSort !== undefined ? controlledSort : innerSort;
+  const setSort = (next: SortState | null) => {
+    if (onSortChange) onSortChange(next);
+    if (controlledSort === undefined) setInnerSort(next);
+  };
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [anchor, setAnchor] = useState<number | null>(null);
   const [margin, setMargin] = useState(0);
@@ -154,7 +168,7 @@ export function TrackTable({
   const toggleSort = (c: GridCol) => {
     if (!sortable || c === "index" || c === "loved") return;
     const key = c as SortKey;
-    setSort((s) => (s?.key === key ? (s.dir === 1 ? { key, dir: -1 } : null) : { key, dir: 1 }));
+    setSort(sort?.key === key ? (sort.dir === 1 ? { key, dir: -1 } : null) : { key, dir: 1 });
   };
 
   const onRowClick = (e: React.MouseEvent, i: number) => {

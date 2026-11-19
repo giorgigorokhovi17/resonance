@@ -17,12 +17,12 @@ use std::time::Duration;
 use parking_lot::Mutex;
 use serde::Serialize;
 
-use super::missing::{file_readings, prefer_title_reading, quality, quality_text, Found};
+use super::missing::{file_readings, prefer_title_reading, quality, quality_text, search_tokens, Found};
 use super::soulseek::model::{format_of, split_remote, FileAttrs, RawResponse};
 use super::soulseek::{ConnState, Soulseek};
 use super::youtube::{self, Details, YouTube};
 use crate::library::interchange::TrackRef;
-use crate::library::matcher::normalize::{key, parse_title, readings, tokens, Reading};
+use crate::library::matcher::normalize::{key, parse_title, readings, Reading};
 
 const SEARCH_WINDOW: Duration = Duration::from_secs(10);
 const BETWEEN_SEARCHES: Duration = Duration::from_millis(1500);
@@ -106,9 +106,14 @@ pub fn label(versions: &BTreeSet<String>) -> String {
 /// Search words without the version: (artist + title, title alone).
 pub fn queries(r: &TrackRef) -> Vec<String> {
     let rs = readings(&r.title, &r.artists);
+    let p = parse_title(&r.title);
     let (title, artist) = match prefer_title_reading(r, &rs) {
-        Some(i) => (rs[i].title_tokens.clone(), tokens(parse_title(&r.title).main.split(" - ").next().unwrap_or(""))),
-        None => (rs[0].title_tokens.clone(), r.artists.first().map(|x| tokens(x.split([',', '&']).next().unwrap_or(x))).unwrap_or_default()),
+        Some(_) => {
+            let (left, right) = p.main.split_once(" - ").unwrap_or(("", &p.main));
+            let inner = parse_title(right);
+            (search_tokens(&inner.main), search_tokens(left))
+        }
+        None => (search_tokens(&p.main), r.artists.first().map(|x| search_tokens(x.split([',', '&']).next().unwrap_or(x))).unwrap_or_default()),
     };
     let join = |parts: &[&Vec<String>]| {
         let mut seen: Vec<String> = Vec::new();

@@ -1,5 +1,5 @@
 import { listen } from "@tauri-apps/api/event";
-import { RotateCcw, X } from "lucide-react";
+import { RotateCcw, Trash2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Cover } from "../../components/Cover";
 import { api } from "../../lib/api";
@@ -88,13 +88,29 @@ export function RecentlyDeletedSection() {
           </div>
         ))}
       </div>
-      {gone.length > 1 && (
-        <button
-          onClick={() => forget(gone.map((d) => d.id))}
-          className="mt-3 rounded-full px-4 py-1.5 text-[12.5px] font-medium text-muted ring-1 ring-line hover:bg-hover"
-        >
-          Clear {gone.length} no longer in the Recycle Bin
-        </button>
+      {rows && rows.length > 0 && (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <button
+            onClick={async () => {
+              const count = rows.length;
+              await forget(rows.map((d) => d.id));
+              toast("info", `Cleared ${count} ${count === 1 ? "song" : "songs"} from Recently deleted.`);
+            }}
+            disabled={busy !== null}
+            title="Remove all from this list (files stay in the Windows Recycle Bin)"
+            className="flex items-center gap-1.5 rounded-full px-4 py-1.5 text-[12.5px] font-medium text-muted ring-1 ring-line hover:bg-hover hover:text-fg disabled:opacity-50"
+          >
+            <Trash2 size={13} /> Delete all
+          </button>
+          {gone.length > 1 && gone.length < rows.length && (
+            <button
+              onClick={() => forget(gone.map((d) => d.id))}
+              className="rounded-full px-4 py-1.5 text-[12.5px] font-medium text-muted ring-1 ring-line hover:bg-hover"
+            >
+              Clear {gone.length} no longer in the Recycle Bin
+            </button>
+          )}
+        </div>
       )}
     </Section>
   );

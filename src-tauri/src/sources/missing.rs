@@ -29,7 +29,7 @@ use super::soulseek::model::{format_of, split_remote, FileAttrs, RawResponse};
 use super::soulseek::{ConnState, Soulseek};
 use super::youtube::YouTube;
 use crate::library::interchange::{track_ref_from_track, TrackRef};
-use crate::library::matcher::normalize::{key, parse_title, readings, tokens, Reading};
+use crate::library::matcher::normalize::{fold, key, parse_title, readings, tokens, Reading};
 use crate::library::model::Track;
 
 /// How long each search collects answers.
@@ -62,6 +62,18 @@ pub struct Found {
     pub why: String,
 }
 
+/// Word tokens for Soulseek search queries. Unlike `normalize::tokens`, keeps internal
+/// apostrophes ("can't" stays "can't", not "cant", because Soulseek indexes "Can't" as
+/// "can" + "t") and splits on `&` and `.` instead of turning `&` into "and" or joining dots.
+pub(super) fn search_tokens(s: &str) -> Vec<String> {
+    fold(s)
+        .split(|c: char| !c.is_alphanumeric() && c != '\'')
+        .map(|w| w.trim_matches('\''))
+        .filter(|w| !w.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
 /// Whether `from_title` ("Artist - Title") is the better reading for search queries: always when
 /// there is no separate artist, for YouTube entries (whose `artists` is the channel name, e.g.
 /// "Lady Gaga" or "7clouds"), or when the title's artist already matches the tagged artist.
@@ -75,18 +87,18 @@ pub(super) fn prefer_title_reading(r: &TrackRef, rs: &[Reading]) -> Option<usize
 /// Search words: (artist + title + version, title + version), deduplicated, short ones kept.
 pub fn queries(r: &TrackRef) -> Vec<String> {
     let rs = readings(&r.title, &r.artists);
+    let p = parse_title(&r.title);
     // The title-side reading: "Artist - Title" titles without a separate artist, or YouTube video
     // titles ("Artist - Title (Official Audio)") where `r.artists` is the channel name.
     let (title_words, version_words, artist_words) = match prefer_title_reading(r, &rs) {
         Some(i) => {
-            let b = &rs[i];
-            let left = parse_title(&r.title).main.split(" - ").next().unwrap_or("").to_string();
-            (b.title_tokens.clone(), b.versions.iter().flat_map(|v| tokens(v)).collect::<Vec<_>>(), tokens(&left))
+            let (left, right) = p.main.split_once(" - ").unwrap_or(("", &p.main));
+            let inner = parse_title(right);
+            (search_tokens(&inner.main), rs[i].versions.iter().flat_map(|v| search_tokens(v)).collect::<Vec<_>>(), search_tokens(left))
         }
         None => {
-            let a = &rs[0];
-            let primary = r.artists.first().map(|x| tokens(x.split([',', '&']).next().unwrap_or(x))).unwrap_or_default();
-            (a.title_tokens.clone(), a.versions.iter().flat_map(|v| tokens(v)).collect(), primary)
+            let primary = r.artists.first().map(|x| search_tokens(x.split([',', '&']).next().unwrap_or(x))).unwrap_or_default();
+            (search_tokens(&p.main), rs[0].versions.iter().flat_map(|v| search_tokens(v)).collect(), primary)
         }
     };
     let join = |parts: &[&Vec<String>]| {
@@ -550,27 +562,46 @@ impl Finder {
                 *me.current.lock() = Some((k.clone(), song_cancel.clone()));
                 me.set(playlist_id, result.clone(), i, total, true);
                 let use_slsk = mode == FindMode::SoulseekFirst && slsk.status().state == ConnState::SignedIn;
-                for q in qs.iter().filter(|_| use_slsk) {
-                    result.query = q.clone();
+                let mut all_answers: Vec<RawResponse> = Vec::new();
+                let try_query = |q: &str, result: &mut FindResult, all_answers: &mut Vec<RawResponse>| -> bool {
+                    result.query = q.to_string();
                     if song_cancel.load(Ordering::Relaxed) {
-                        break;
+                        return false;
                     }
                     match slsk.search_collect(q, SEARCH_WINDOW, Some(song_cancel.clone())) {
                         Ok(answers) => {
-                            result.files = rank(&r, &answers);
-                            if !result.files.is_empty() {
-                                break;
-                            }
+                            all_answers.extend(answers);
+                            result.files = rank(&r, all_answers);
+                            true
                         }
                         Err(e) => {
                             result.error = Some(e);
-                            break;
+                            false
                         }
+                    }
+                };
+                for q in qs.iter().filter(|_| use_slsk) {
+                    if !try_query(q, &mut result, &mut all_answers) {
+                        break;
+                    }
+                    // Stop as soon as we have a FLAC; if only MP3s came back, try the broader
+                    // query too in case a lossless copy turns up.
+                    if result.files.iter().any(|f| f.format == "FLAC") {
+                        break;
                     }
                     if cancel.load(Ordering::Relaxed) {
                         break;
                     }
                     std::thread::sleep(BETWEEN_SEARCHES);
+                }
+                // If nothing turned up and the query had an apostrophe ("can't"), also try
+                // without apostrophes ("cant") for files named without punctuation.
+                if use_slsk && result.files.is_empty() && result.error.is_none() && !cancel.load(Ordering::Relaxed) {
+                    if let Some(alt) = qs.first().filter(|q| q.contains('\'')).map(|q| q.replace('\'', "")) {
+                        if alt.chars().count() >= 3 && !qs.contains(&alt) {
+                            let _ = try_query(&alt, &mut result, &mut all_answers);
+                        }
+                    }
                 }
                 // Not on Soulseek (or not looking there): YouTube, when it's on.
                 let yt = youtube.as_ref().filter(|y| y.ready());
@@ -781,5 +812,25 @@ mod tests {
             let answers = vec![user("u", true, 1_000_000, vec![file(bad, 30_000_000, &[(1, 252)])])];
             assert!(rank(&want, &answers).is_empty(), "should reject {bad}");
         }
+    }
+
+    #[test]
+    fn apostrophes_and_ampersands_stay_soulseek_friendly() {
+        let shakira = yt("Shakira - Can't Remember to Forget You (Official Video) ft. Rihanna", "Shakira", Some(206_000));
+        assert_eq!(
+            queries(&shakira),
+            vec!["shakira can't remember to forget you".to_string(), "can't remember to forget you".to_string()],
+            "apostrophe preserved so Soulseek matches 'Can't' instead of only 'Cant'"
+        );
+        let answers = vec![user("Doubledown", true, 15_600_000, vec![
+            file(r"Shakira\Shakira. (2014)\Shakira - Shakira. - 01 - Can't Remember to Forget You.flac", 25_900_000, &[(1, 206), (4, 44100), (5, 16)]),
+        ])];
+        let found = rank(&shakira, &answers);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].format, "FLAC");
+
+        // "&" splits rather than becoming literal "and" (which misses "Love & War.flac").
+        let amp = r("Love & War", &["Tamar Braxton"], None);
+        assert_eq!(queries(&amp), vec!["tamar braxton love war".to_string(), "love war".to_string()]);
     }
 }
