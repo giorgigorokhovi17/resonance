@@ -45,13 +45,15 @@ pub struct PhoneSyncSettings {
     pub port: u16,
     /// Secret part of the link; without it the server answers nothing. Made when first needed.
     pub key: String,
+    /// Lets the phone app add songs to the library. Off until turned on.
+    pub receive: bool,
 }
 
 pub const DEFAULT_PHONE_PORT: u16 = 8787;
 
 impl Default for PhoneSyncSettings {
     fn default() -> Self {
-        Self { enabled: false, port: DEFAULT_PHONE_PORT, key: String::new() }
+        Self { enabled: false, port: DEFAULT_PHONE_PORT, key: String::new(), receive: false }
     }
 }
 
@@ -584,9 +586,10 @@ mod tests {
     fn phone_sync_settings() {
         let s: Settings = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
         assert!(!s.phone_sync.enabled, "off until turned on");
+        assert!(!s.phone_sync.receive, "receiving songs too");
         assert_eq!(s.phone_sync.port, DEFAULT_PHONE_PORT);
 
-        let p = PhoneSyncSettings { enabled: true, port: 80, key: "short".into() }.normalized();
+        let p = PhoneSyncSettings { enabled: true, port: 80, key: "short".into(), receive: false }.normalized();
         assert_eq!(p.port, DEFAULT_PHONE_PORT, "no privileged ports");
         assert_eq!(p.key.len(), 32);
         assert!(p.key.chars().all(|c| c.is_ascii_hexdigit()));

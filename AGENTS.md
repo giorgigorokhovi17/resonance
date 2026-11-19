@@ -11,7 +11,8 @@ update check, pasted playlist links, lyrics searches the user clicks (LRCLIB,
 `src-tauri/src/sources/lyrics_search.rs`), online song suggestions the user clicks for (Deezer,
 `src-tauri/src/sources/similar.rs`), Soulseek after the user signs in, YouTube downloads
 after the user turns them on, and phone sync on the home network after the user turns it on. Music
-files are only ever read, never modified, except that the user may delete a song (see Rules). See `README.md` for features, architecture and data
+files are only ever read, never modified, except that the user may delete a song and the phone app
+may add new ones (see Rules). See `README.md` for features, architecture and data
 locations.
 
 ## Commands
@@ -68,8 +69,13 @@ hand, to run everything. Don't merge a pull request whose checks fail.
 - **Phone sync (owner's decision, 2026-10-24):** `src-tauri/src/phone.rs` serves the library and
   playlists to a phone's browser on the home network (`tiny_http`, page in `phone.html`). Off by
   default. Every request needs the secret key from the link; songs are reached by playlist and
-  position only, never by file path; nothing is uploaded anywhere. Keep it that way: no file paths
-  in URLs, no writes, no access without the key.
+  position only, never by file path; nothing is uploaded to the internet. Keep it that way: no file
+  paths in URLs, no access without the key.
+- **Phone app sync (owner's decision, 2026-11-01):** the phone app syncs both ways through the same
+  server (`docs/phone-file-sync.md`). Phone to PC is the server's only write, behind its own setting
+  (off by default): `/upload` only adds a new, checked audio file to the `Phone` folder in the
+  library, marked read-only. Never replace, change or delete a file through this server. Song
+  folders are shared only from the library folder's own name down, in the list, never in a URL.
 - **Deleting songs (owner's decision, 2026-10-25):** the user may delete a song's file with
   **Delete from disk…** (`src-tauri/src/library/recycle.rs`). It always goes to the Windows Recycle
   Bin, never a hard delete: drives without a Recycle Bin, a bin that's turned off, and files bigger
@@ -95,3 +101,4 @@ hand, to run everything. Don't merge a pull request whose checks fail.
 - `docs/playlist-interchange/phase0-findings.md`: playlist import/export and matcher plan,
   decisions and status. Update its status sections when that work changes.
 - `docs/soulseek-design.md`: Soulseek protocol choice, NAT/firewall behaviour, credentials.
+- `docs/phone-file-sync.md`: syncing files between the PC app and the phone app, status and plan.

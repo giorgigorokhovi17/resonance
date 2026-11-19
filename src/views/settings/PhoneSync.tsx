@@ -92,6 +92,18 @@ export function PhoneSyncSection({ settings }: { settings: Settings }) {
         )}
 
         {p.enabled && (
+          <div className="flex items-center justify-between gap-4">
+            <span className="min-w-0">
+              <span className="block text-[13px]">Receive songs from my phone</span>
+              <span className="block text-[11.5px] text-faint">
+                The Undertone phone app can add songs to a Phone folder in your library. It can't change or delete anything.
+              </span>
+            </span>
+            <Toggle label="Receive songs from my phone" checked={p.receive} onChange={(v) => save({ ...p, receive: v })} />
+          </div>
+        )}
+
+        {p.enabled && (
           <label className="flex items-center justify-between gap-4 text-[13px]">
             <span className="min-w-0">
               <span className="block">Port</span>
