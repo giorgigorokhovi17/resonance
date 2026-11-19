@@ -123,7 +123,7 @@ export function Sidebar() {
           icon={<ListMusic size={18} />}
           label="Playlists"
           view={{ kind: "playlists" }}
-          match={["playlists"]}
+          match={["playlists", "mix"]}
           trailing={
             <button
               aria-label="Create playlist"

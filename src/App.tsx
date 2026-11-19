@@ -32,6 +32,7 @@ import { SearchView } from "./views/SearchView";
 import { QueuePanel, QueueView } from "./views/QueueView";
 import { PlaylistsView } from "./views/PlaylistsView";
 import { PlaylistView } from "./views/PlaylistView";
+import { MixView } from "./views/MixView";
 import { ReviewView } from "./views/ReviewView";
 import { EqView } from "./views/EqView";
 import { SourcesView } from "./views/SourcesView";
@@ -110,6 +111,8 @@ function MainView() {
       return <PlaylistsView />;
     case "playlist":
       return <PlaylistView id={view.id} />;
+    case "mix":
+      return <MixView id={view.id} />;
     case "review":
       return <ReviewView id={view.id} />;
     case "eq":
