@@ -1149,6 +1149,18 @@ pub async fn get_stats(state: State<'_, AppState>, from: i64, to: i64, tz_offset
     .map_err(err)
 }
 
+/// Automatic mixes built from the local play history and library.
+#[tauri::command]
+pub async fn smart_mixes(state: State<'_, AppState>, tz_offset_min: i64) -> CmdResult<Vec<crate::library::mixes::SmartMix>> {
+    let library = state.library.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::library::mixes::smart_mixes(&library.db.lock(), tz_offset_min.clamp(-14 * 60, 14 * 60))
+    })
+    .await
+    .map_err(err)?
+    .map_err(err)
+}
+
 #[tauri::command]
 pub fn clear_play_history(state: State<'_, AppState>) -> CmdResult<()> {
     state.library.db.lock().execute("DELETE FROM plays", []).map_err(err)?;

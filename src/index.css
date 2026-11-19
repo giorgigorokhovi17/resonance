@@ -199,6 +199,20 @@ input[type="range"].slider:hover::-webkit-slider-runnable-track {
   animation: fade-in 0.18s ease-out;
 }
 
+@keyframes palette-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.animate-palette-in {
+  animation: palette-in 120ms ease-out;
+}
+
 /* Stats page: bars and charts grow in once, staggered with an inline animation-delay. */
 @keyframes grow-y {
   from {
@@ -242,6 +256,42 @@ input[type="range"].slider:hover::-webkit-slider-runnable-track {
 .ray-out {
   stroke-dasharray: 1;
   animation: ray-out 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Home page: staggered card entrance, spinning vinyl disc and playing equalizer bars. */
+@keyframes home-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes vinyl-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes eq-bar {
+  0%,
+  100% {
+    transform: scaleY(0.28);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+.home-in {
+  animation: home-in 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.vinyl-spin {
+  animation: vinyl-spin 6s linear infinite;
+}
+.eq-bar {
+  transform-origin: bottom;
+  animation: eq-bar 0.75s ease-in-out infinite;
 }
 
 /* Recap story slides: entrance motion, turned off under prefers-reduced-motion. */
@@ -294,6 +344,10 @@ input[type="range"].slider:hover::-webkit-slider-runnable-track {
 
 @media (prefers-reduced-motion: reduce) {
   .animate-in,
+  .animate-palette-in,
+  .home-in,
+  .vinyl-spin,
+  .eq-bar,
   .grow-y,
   .grow-x,
   .reveal-x,

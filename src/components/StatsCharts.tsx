@@ -49,23 +49,38 @@ export function Tile({
   format = (n) => Math.round(n).toLocaleString(),
   sub,
   tone,
+  onClick,
 }: {
   icon: ReactNode;
   label: string;
   value: number;
   format?: (n: number) => string;
-  sub?: string;
+  sub?: ReactNode;
   tone: string;
+  onClick?: () => void;
 }) {
   const shown = useCountUp(value);
-  return (
-    <div className="rounded-2xl p-4 ring-1 ring-line transition-transform duration-200 hover:-translate-y-0.5" style={{ background: tint(tone) }}>
+  const content = (
+    <>
       <span className="flex h-8 w-8 items-center justify-center rounded-xl text-white shadow-sm" style={{ background: tone }}>
         {icon}
       </span>
       <div className="mt-3 text-[12.5px] font-medium text-muted">{label}</div>
       <div className="font-display text-[28px] font-bold leading-tight tabular">{format(shown)}</div>
       {sub && <div className="mt-0.5 truncate text-[11.5px] text-muted">{sub}</div>}
+    </>
+  );
+  const cls = "rounded-2xl p-4 ring-1 ring-line transition-transform duration-200 hover:-translate-y-0.5";
+  if (onClick) {
+    return (
+      <button type="button" onClick={onClick} className={`${cls} w-full cursor-pointer text-left`} style={{ background: tint(tone) }}>
+        {content}
+      </button>
+    );
+  }
+  return (
+    <div className={cls} style={{ background: tint(tone) }}>
+      {content}
     </div>
   );
 }
