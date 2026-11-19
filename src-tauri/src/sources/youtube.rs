@@ -173,14 +173,14 @@ pub fn accepts(r: &TrackRef, d: &Details) -> bool {
     if !d.artist.is_empty() {
         file.extend(readings(&d.title, &[d.artist.clone()]));
     }
-    if !title_matches(&file, &wanted) {
+    let names = key(&format!("{} {} {}", d.artist, d.channel, d.title));
+    let matched = wanted.iter().any(|w| {
+        !w.title_key.is_empty()
+            && file.iter().any(|f| f.title_key == w.title_key && f.versions == w.versions)
+            && w.artists.first().is_none_or(|a| names.contains(a.as_str()))
+    });
+    if !matched {
         return false;
-    }
-    if let Some(a) = wanted.iter().find_map(|w| w.artists.first().cloned()) {
-        let names = key(&format!("{} {} {}", d.artist, d.channel, d.title));
-        if !names.contains(a.as_str()) {
-            return false;
-        }
     }
     !matches!((r.duration_ms, d.duration), (Some(ms), Some(len)) if (ms as f64 / 1000.0 - len as f64).abs() > LENGTH_TOLERANCE_S)
 }

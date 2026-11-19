@@ -17,7 +17,7 @@ use std::time::Duration;
 use parking_lot::Mutex;
 use serde::Serialize;
 
-use super::missing::{file_readings, quality, quality_text, Found};
+use super::missing::{file_readings, prefer_title_reading, quality, quality_text, Found};
 use super::soulseek::model::{format_of, split_remote, FileAttrs, RawResponse};
 use super::soulseek::{ConnState, Soulseek};
 use super::youtube::{self, Details, YouTube};
@@ -106,8 +106,8 @@ pub fn label(versions: &BTreeSet<String>) -> String {
 /// Search words without the version: (artist + title, title alone).
 pub fn queries(r: &TrackRef) -> Vec<String> {
     let rs = readings(&r.title, &r.artists);
-    let (title, artist) = match rs.iter().find(|x| x.from_title).filter(|_| r.artists.is_empty()) {
-        Some(b) => (b.title_tokens.clone(), tokens(parse_title(&r.title).main.split(" - ").next().unwrap_or(""))),
+    let (title, artist) = match prefer_title_reading(r, &rs) {
+        Some(i) => (rs[i].title_tokens.clone(), tokens(parse_title(&r.title).main.split(" - ").next().unwrap_or(""))),
         None => (rs[0].title_tokens.clone(), r.artists.first().map(|x| tokens(x.split([',', '&']).next().unwrap_or(x))).unwrap_or_default()),
     };
     let join = |parts: &[&Vec<String>]| {
@@ -137,10 +137,13 @@ pub fn queries(r: &TrackRef) -> Vec<String> {
 /// normal search) and its main artist.
 fn wanted(r: &TrackRef) -> (Vec<Reading>, Option<String>) {
     let mut w = readings(&r.title, &r.artists);
+    let preferred = prefer_title_reading(r, &w);
+    let artist = preferred
+        .and_then(|i| w[i].artists.first().cloned())
+        .or_else(|| w.iter().find_map(|x| x.artists.first().cloned()));
     if r.artists.is_empty() && parse_title(&r.title).main.contains(" - ") {
         w.retain(|x| x.from_title);
     }
-    let artist = w.iter().find_map(|x| x.artists.first().cloned());
     (w, artist)
 }
 
