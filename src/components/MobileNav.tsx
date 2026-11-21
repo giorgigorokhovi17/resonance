@@ -1,4 +1,4 @@
-import { ArrowDownToLine, BarChart3, ChevronLeft, ChevronRight, Download, FolderTree, Heart, ListMusic, ListOrdered, Menu, Music2, Pause, Play, Search, Settings2, SkipForward, SlidersHorizontal, X } from "lucide-react";
+import { ArrowDownToLine, BarChart3, ChevronLeft, ChevronRight, Download, FolderTree, Heart, ListMusic, ListOrdered, Menu, Music2, Pause, Play, RefreshCw, Search, Settings2, SkipForward, SlidersHorizontal, X } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api } from "../lib/api";
 import { displayArtist } from "../lib/format";
@@ -38,9 +38,9 @@ export function BottomTabs() {
             aria-current={on ? "page" : undefined}
             data-downloads-target={t.label === "Sources" || undefined}
             onClick={() => setView(t.view)}
-            className={`relative flex flex-1 flex-col items-center justify-center gap-0.5 text-[11px] font-medium ${on ? "text-accent" : "text-muted"}`}
+            className={`relative flex flex-1 flex-col items-center justify-center gap-0.5 text-[11px] font-medium transition-transform duration-150 active:scale-90 ${on ? "text-accent" : "text-muted"}`}
           >
-            <span className={`flex h-7 w-14 items-center justify-center rounded-full transition-colors ${on ? "bg-accent/15" : ""}`}>{t.icon}</span>
+            <span className={`flex h-7 w-14 items-center justify-center rounded-full transition-all duration-200 ${on ? "scale-105 bg-accent/15" : ""}`}>{t.icon}</span>
             {t.label}
             {t.label === "Sources" && badge > 0 && (
               <span className="absolute left-1/2 top-1.5 ml-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-bold text-on-accent">
@@ -68,7 +68,7 @@ function MiniProgress() {
   }, [duration]);
   return (
     <div className="absolute inset-x-3 bottom-0 h-0.5 overflow-hidden rounded-full bg-fg/15">
-      <div ref={bar} className="h-full bg-fg" />
+      <div ref={bar} className="h-full bg-gradient-to-r from-accent to-accent2" />
     </div>
   );
 }
@@ -83,9 +83,19 @@ export function MiniPlayer() {
   const showQuality = useListStyle((s) => s.playerQuality);
   if (!track) return null;
   return (
-    <div className="shrink-0 px-2 pb-2">
-      <div onClick={() => setNowPlaying(true)} className="glass-card relative flex h-14 items-center gap-3 overflow-hidden rounded-2xl pl-2 pr-1 ring-1 ring-line">
-        <Cover coverId={coverId} motionId={motionId} motion="tile" className="h-10 w-10" rounded="rounded-lg" iconSize={18} />
+    <div className="shrink-0 px-2 pb-2 animate-in">
+      <div
+        onClick={() => setNowPlaying(true)}
+        className="glass-card relative flex h-14 items-center gap-3 overflow-hidden rounded-2xl pl-2 pr-1 ring-1 ring-line transition-transform duration-150 active:scale-[0.98]"
+      >
+        <div className="relative h-10 w-10 shrink-0">
+          <Cover coverId={coverId} motionId={motionId} motion="tile" className="h-10 w-10" rounded="rounded-lg" iconSize={18} />
+          <span className="pointer-events-none absolute inset-0 flex items-end justify-center gap-[2.5px] rounded-lg bg-black/35 pb-2">
+            <i className={`eq-bar block h-3 w-[2.5px] rounded-full bg-accent ${playing ? "" : "paused"}`} />
+            <i className={`eq-bar block h-3 w-[2.5px] rounded-full bg-accent2 ${playing ? "" : "paused"}`} style={{ animationDelay: "0.22s" }} />
+            <i className={`eq-bar block h-3 w-[2.5px] rounded-full bg-accent ${playing ? "" : "paused"}`} style={{ animationDelay: "0.44s" }} />
+          </span>
+        </div>
         <div className="min-w-0 flex-1">
           <div className="truncate text-[14px] font-semibold">{track.title}</div>
           <div className="flex min-w-0 items-center gap-2">
@@ -99,7 +109,7 @@ export function MiniPlayer() {
             e.stopPropagation();
             api.togglePlay();
           }}
-          className="flex h-11 w-11 shrink-0 items-center justify-center"
+          className="flex h-11 w-11 shrink-0 items-center justify-center transition-transform active:scale-85"
         >
           {playing ? <Pause size={24} fill="currentColor" strokeWidth={0} /> : <Play size={24} fill="currentColor" strokeWidth={0} />}
         </button>
@@ -109,7 +119,7 @@ export function MiniPlayer() {
             e.stopPropagation();
             api.next();
           }}
-          className="flex h-11 w-11 shrink-0 items-center justify-center"
+          className="flex h-11 w-11 shrink-0 items-center justify-center transition-transform active:scale-85"
         >
           <SkipForward size={22} fill="currentColor" />
         </button>
@@ -181,6 +191,7 @@ export function MoreView() {
   return (
     <div className="h-full overflow-y-auto">
       <ViewHeader title="More" />
+      <MoreRow icon={<RefreshCw size={20} className="text-accent" />} label="Sync with PC" onClick={() => setView({ kind: "settings" })} />
       <MoreRow
         icon={<ArrowDownToLine size={20} />}
         label="Downloads"

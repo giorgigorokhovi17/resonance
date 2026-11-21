@@ -16,6 +16,7 @@ async function save(pcSync: PcSyncSettings) {
 }
 
 const songs = (n: number) => `${n} ${n === 1 ? "song" : "songs"}`;
+const fmtSize = (b: number) => (b >= 1e9 ? `${(b / 1e9).toFixed(2)} GB` : `${(b / 1e6).toFixed(b < 1e7 ? 1 : 0)} MB`);
 
 function result(s: PcSyncSummary) {
   const parts = [];
@@ -68,11 +69,25 @@ export function PcSyncSection({ settings }: { settings: Settings }) {
 
   const running = !!status?.running;
   const nothingPicked = !p.lists.length && !p.folders.length && !p.send;
+  const realLists = offer?.lists.filter((l) => l.id !== 0) ?? [];
+  const allRealPicked = realLists.length > 0 && realLists.every((l) => p.lists.includes(l.id));
+  const toggleAllLists = () => {
+    if (!offer) return;
+    if (allRealPicked) {
+      save({ ...p, lists: p.lists.filter((id) => id === 0) });
+    } else {
+      const next = Array.from(new Set([...p.lists, ...realLists.map((l) => l.id)]));
+      save({ ...p, lists: next });
+    }
+  };
+  const pickedNew = offer?.lists.filter((l) => p.lists.includes(l.id)).reduce((a, l) => a + l.newCount, 0) ?? 0;
+  const pickedNewBytes = offer?.lists.filter((l) => p.lists.includes(l.id)).reduce((a, l) => a + l.newBytes, 0) ?? 0;
+  const pct = status?.total ? Math.min(100, Math.round(((status.done + 1) / status.total) * 100)) : 0;
 
   return (
     <Section
       title="Sync with PC"
-      description="Keep playlists and music folders from your PC on this phone, and copy songs that are only on this phone to your PC. Works on your home Wi-Fi while Undertone is open on the PC."
+      description="Automatically checks what you already have on this phone, downloads only the songs you're missing from your PC, and puts them into the exact same playlists. Works on your home Wi-Fi while Undertone is open on the PC."
     >
       <div className="space-y-4">
         <label className="block text-[13px]">
@@ -94,12 +109,45 @@ export function PcSyncSection({ settings }: { settings: Settings }) {
         </label>
 
         {offer && (
+          <div className="rounded-xl bg-bg/70 p-3 ring-1 ring-line">
+            <div className="flex items-center justify-between gap-2 text-[13px] font-medium">
+              <span className="text-ok">Connected to PC</span>
+              <span className="text-[12px] text-muted">
+                {offer.totalOnPhone} of {offer.totalPcSongs} already on phone
+              </span>
+            </div>
+            {pickedNew > 0 ? (
+              <div className="mt-1 text-[12px] text-muted">
+                {songs(pickedNew)} to download ({fmtSize(pickedNewBytes)}) — existing songs are skipped and matched into playlists automatically.
+              </div>
+            ) : p.lists.length > 0 ? (
+              <div className="mt-1 text-[12px] text-ok">Picked playlists are already on this phone.</div>
+            ) : null}
+          </div>
+        )}
+
+        {offer && (
           <div className="space-y-2">
-            <div className="text-[13px]">Playlists to keep on this phone</div>
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-[13px]">Playlists to keep on this phone</div>
+              {realLists.length > 1 && (
+                <button
+                  type="button"
+                  onClick={toggleAllLists}
+                  className="rounded-full px-2.5 py-0.5 text-[11.5px] font-medium text-accent ring-1 ring-accent/40 active:scale-95"
+                >
+                  {allRealPicked ? "Unselect all" : "Select all"}
+                </button>
+              )}
+            </div>
             {offer.lists.map((l) => (
               <div key={l.id} className="flex items-center justify-between gap-4 text-[13px]">
                 <span className="min-w-0 truncate">
-                  {l.name} <span className="text-[11.5px] text-faint">({songs(l.count)})</span>
+                  {l.name}{" "}
+                  <span className="text-[11.5px] text-faint">
+                    ({songs(l.count)}
+                    {l.newCount > 0 ? ` · ${l.newCount} new` : l.count > 0 ? " · on phone ✓" : ""})
+                  </span>
                 </span>
                 <Toggle label={l.name} checked={p.lists.includes(l.id)} onChange={(v) => toggleList(l.id, v)} />
               </div>
@@ -147,10 +195,18 @@ export function PcSyncSection({ settings }: { settings: Settings }) {
         {!running && status?.error && <p className="rounded-lg bg-warn/10 p-3 text-[12.5px] text-warn ring-1 ring-warn/30">{status.error}</p>}
         {!running && status?.summary && <p className="text-[12.5px] text-muted">{result(status.summary)}</p>}
         {running && (
-          <p className="text-[12.5px] text-muted">
-            {status?.step || "Starting"}
-            {status?.total ? ` (${status.done + 1} of ${status.total})` : ""}
-          </p>
+          <div className="space-y-1.5">
+            <p className="text-[12.5px] text-muted">
+              {status?.step || "Starting"}
+              {status?.total ? ` (${status.done + 1} of ${status.total})` : ""}
+            </p>
+            <div className="h-1.5 overflow-hidden rounded-full bg-fg/10">
+              <div
+                className="h-full rounded-full bg-accent transition-[width] duration-300"
+                style={{ width: `${status?.total ? pct : 35}%` }}
+              />
+            </div>
+          </div>
         )}
 
         {offer &&

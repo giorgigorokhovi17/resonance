@@ -1,5 +1,5 @@
 ﻿import { ChevronDown, Disc3, EllipsisVertical, ListMusic, Mic2 } from "lucide-react";
-import { useMemo } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Backdrop } from "../components/Backdrop";
 import { openMenu } from "../components/ContextMenu";
 import { Cover, coverUrl } from "../components/Cover";
@@ -37,6 +37,10 @@ export function NowPlaying() {
   // "app": the app's background shows through; "nowPlaying": it's drawn here only.
   const custom = skin && skinReady ? scope : null;
 
+  const [vinyl, setVinyl] = useState(true);
+  const swipeY = useRef<number | null>(null);
+  const playing = status?.state === "playing";
+
   const upNext = useMemo(() => {
     const idx = queue.items.findIndex((i) => i.uid === queue.currentUid);
     return idx >= 0 ? queue.items.slice(idx + 1, idx + 6) : [];
@@ -48,17 +52,28 @@ export function NowPlaying() {
   if (isMobile) {
     return (
       <div
-        className={`fixed inset-0 z-40 overflow-hidden transition-colors duration-700 animate-in ${custom === "app" ? "" : "bg-bg"}`}
+        className={`fixed inset-0 z-40 overflow-hidden transition-colors duration-700 animate-np-sheet ${custom === "app" ? "" : "bg-bg"}`}
         style={{ backgroundColor: color && !custom ? `color-mix(in srgb, ${color} ${Math.round(38 * tint)}%, var(--c-bg))` : undefined }}
         role="dialog"
         aria-label="Now playing"
+        onTouchStart={(e) => {
+          swipeY.current = e.touches[0].clientY;
+        }}
+        onTouchEnd={(e) => {
+          if (swipeY.current !== null && e.changedTouches[0].clientY - swipeY.current > 90) close();
+          swipeY.current = null;
+        }}
       >
         {custom === "nowPlaying" && skin && <Backdrop backdrop={skin} place="nowPlaying" scrim="bg" />}
         {bg && !custom && (
-          <div className="absolute inset-0" style={{ opacity: tint }}>
+          <div className="absolute inset-0 transition-opacity duration-700" style={{ opacity: playing ? tint : tint * 0.72 }}>
             <div
-              className="absolute -inset-24 scale-110 bg-cover bg-center opacity-55"
-              style={{ backgroundImage: `url("${bg}")`, filter: "blur(var(--np-blur, 90px)) saturate(1.5)" }}
+              className="absolute -inset-24 scale-110 bg-cover bg-center opacity-55 transition-transform duration-1000"
+              style={{
+                backgroundImage: `url("${bg}")`,
+                filter: "blur(var(--np-blur, 90px)) saturate(1.55)",
+                transform: playing ? "scale(1.14)" : "scale(1.06)",
+              }}
             />
           </div>
         )}
@@ -66,15 +81,23 @@ export function NowPlaying() {
         {!custom && <div className="absolute inset-0 bg-gradient-to-b from-bg via-bg/50 to-bg" />}
         <div className="relative flex h-full flex-col px-6 pb-4 pt-[max(8px,env(safe-area-inset-top))]">
           <div className="flex h-12 shrink-0 items-center">
-            <button onClick={close} aria-label="Close now playing" className="-ml-3 flex h-12 w-12 items-center justify-center">
+            <button onClick={close} aria-label="Close now playing" className="-ml-3 flex h-12 w-12 items-center justify-center transition-transform active:scale-90">
               <ChevronDown size={28} />
             </button>
             <div className="min-w-0 flex-1 truncate text-center text-[13px] font-medium text-fg/75">{track?.album || "Now playing"}</div>
             <button
+              onClick={() => setVinyl((v) => !v)}
+              aria-label={vinyl ? "Show album art" : "Show spinning vinyl"}
+              title={vinyl ? "Switch to album art" : "Switch to spinning vinyl"}
+              className={`flex h-11 w-11 items-center justify-center transition-transform active:scale-90 ${vinyl ? "text-accent" : "text-fg/70"}`}
+            >
+              <Disc3 size={21} className={vinyl && playing ? "vinyl-spin" : ""} />
+            </button>
+            <button
               disabled={!track}
               onClick={(e) => track && openMenu(e, trackMenuItems([track]))}
               aria-label="Options for this song"
-              className="-mr-3 flex h-12 w-12 items-center justify-center disabled:opacity-30"
+              className="-mr-3 flex h-12 w-12 items-center justify-center transition-transform active:scale-90 disabled:opacity-30"
             >
               <EllipsisVertical size={22} />
             </button>
@@ -88,15 +111,52 @@ export function NowPlaying() {
             <>
               {/* The cover takes what's left, so short screens keep the controls in view. */}
               <div className="flex min-h-0 flex-1 items-center justify-center py-3">
-                <Cover
-                  coverId={coverId}
-                  motionId={motionId}
-                  motion="nowPlaying"
-                  size="full"
-                  className="aspect-square max-h-full w-full max-w-full shadow-[0_24px_60px_-20px_rgba(0,0,0,0.7)]"
-                  rounded="rounded-2xl"
-                  iconSize={96}
-                />
+                {vinyl && !motionId ? (
+                  <button
+                    type="button"
+                    onClick={() => setVinyl(false)}
+                    aria-label="Switch to square album art"
+                    className={`relative aspect-square max-h-full w-[min(78vw,310px)] rounded-full transition-transform duration-500 ${
+                      playing ? "scale-100" : "scale-[0.91]"
+                    }`}
+                  >
+                    <div
+                      className={`vinyl-spin flex h-full w-full items-center justify-center rounded-full shadow-[0_24px_60px_-14px_rgba(0,0,0,0.82)] ring-1 ring-white/10 ${
+                        playing ? "" : "paused"
+                      }`}
+                      style={{
+                        background:
+                          "repeating-radial-gradient(circle at center, #181820 0px, #101016 2.5px, #1d1d27 5px)",
+                      }}
+                    >
+                      <Cover
+                        coverId={coverId}
+                        size="full"
+                        className="h-[62%] w-[62%] shadow-[0_0_0_5px_rgba(0,0,0,0.45)]"
+                        rounded="rounded-full"
+                        iconSize={56}
+                      />
+                    </div>
+                    <span className="pointer-events-none absolute left-1/2 top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full bg-bg ring-2 ring-white/25" />
+                  </button>
+                ) : (
+                  <div
+                    onClick={() => !motionId && setVinyl(true)}
+                    className={`aspect-square max-h-full w-full max-w-[340px] transition-transform duration-500 ${
+                      playing ? "scale-100" : "scale-[0.92]"
+                    }`}
+                  >
+                    <Cover
+                      coverId={coverId}
+                      motionId={motionId}
+                      motion="nowPlaying"
+                      size="full"
+                      className="h-full w-full shadow-[0_24px_60px_-20px_rgba(0,0,0,0.75)]"
+                      rounded="rounded-2xl"
+                      iconSize={96}
+                    />
+                  </div>
+                )}
               </div>
               <div className="shrink-0">
                 <h1 className="truncate font-display text-[24px] font-bold leading-tight">{track.title}</h1>

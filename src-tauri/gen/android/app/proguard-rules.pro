@@ -1,4 +1,9 @@
-# Add project specific ProGuard rules here.
+# Keep NativeBridge classes and methods called from Rust via JNI.
+-keep class app.resonance.player.NativeBridge { *; }
+-keep class app.resonance.player.MainActivity { *; }
+-keep class app.resonance.player.PlaybackService { *; }
+-keep class app.resonance.player.SoulseekJobService { *; }
+-keep class app.resonance.player.PcSyncJobService { *; }
 # You can control the set of applied configuration files using the
 # proguardFiles setting in build.gradle.
 #

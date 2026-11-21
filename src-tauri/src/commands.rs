@@ -921,9 +921,10 @@ pub fn new_phone_link(app: AppHandle, state: State<'_, AppState>) -> Settings {
 
 /// What the PC behind this link offers, for picking playlists.
 #[tauri::command]
-pub async fn pc_sync_offer(link: String) -> CmdResult<undertone_core::pc_sync::Offer> {
+pub async fn pc_sync_offer(state: State<'_, AppState>, link: String) -> CmdResult<undertone_core::pc_sync::Offer> {
     let link = undertone_core::pc_sync::Link::parse(&link)?;
-    tauri::async_runtime::spawn_blocking(move || undertone_core::pc_sync::offer(link)).await.map_err(err)?
+    let lib = state.library.clone();
+    tauri::async_runtime::spawn_blocking(move || undertone_core::pc_sync::offer(&lib, link)).await.map_err(err)?
 }
 
 /// Syncs with the PC in the background; progress arrives as `pcsync:status`.
@@ -940,6 +941,12 @@ pub fn pc_sync_cancel() {
 #[tauri::command]
 pub fn pc_sync_status() -> undertone_core::pc_sync::Status {
     crate::pc_sync::status()
+}
+
+/// Returns and clears a PC sync link received from an `undertone://sync` QR scan.
+#[tauri::command]
+pub fn pc_sync_take_pending_link() -> Option<String> {
+    crate::pc_sync::take_pending_link()
 }
 
 /// Speed and reverb. Applied at once and kept for next time.
@@ -1460,34 +1467,57 @@ pub async fn delete_tracks_from_disk(app: AppHandle, state: State<'_, AppState>,
     let worker = app.clone();
     let (deleted, failed) = tauri::async_runtime::spawn_blocking(move || {
         let state = worker.state::<AppState>();
-        let mut failed = Vec::new();
-        // Only songs that can go to the Recycle Bin; the rest are reported and left alone.
-        let mut ok = Vec::new();
-        for t in tracks {
-            let checked = std::fs::metadata(&t.path)
-                .map_err(|_| "The file can no longer be found.".to_string())
-                .and_then(|m| recycle::check_can_recycle(Path::new(&t.path), m.len()));
-            match checked {
-                Ok(()) => ok.push(t),
-                Err(reason) => failed.push(DeleteFailure { title: t.title, reason }),
+        #[cfg(target_os = "android")]
+        {
+            if tracks.is_empty() {
+                return (HashSet::new(), Vec::new());
             }
-        }
-        step_off(&state, &ok.iter().map(|t| t.path.clone()).collect());
-        let mut deleted = HashSet::new();
-        for t in ok {
-            match recycle::send_to_bin(Path::new(&t.path)) {
-                Ok(was_readonly) => {
+            let paths: Vec<String> = tracks.iter().map(|t| t.path.clone()).collect();
+            step_off(&state, &paths.iter().cloned().collect());
+            return match crate::android_library::trash_audio_files(&paths) {
+                Ok(true) => {
+                    let del_ids: Vec<i64> = tracks.iter().map(|t| t.id).collect();
                     let mut conn = state.library.db.lock();
-                    let recorded = db::add_deleted(&conn, &t, was_readonly, db::now()).and_then(|_| db::delete_tracks(&mut conn, &[t.id]));
-                    if let Err(e) = recorded {
-                        log::error!("recording the deletion of {} failed: {e}", t.path);
+                    if let Err(e) = db::delete_tracks(&mut conn, &del_ids) {
+                        log::error!("removing trashed tracks from db failed: {e}");
                     }
-                    deleted.insert(t.path);
+                    (paths.into_iter().collect(), Vec::new())
                 }
-                Err(reason) => failed.push(DeleteFailure { title: t.title, reason }),
-            }
+                Ok(false) => (HashSet::new(), Vec::new()),
+                Err(reason) => (HashSet::new(), vec![DeleteFailure { title: tracks[0].title.clone(), reason }]),
+            };
         }
-        (deleted, failed)
+        #[cfg(not(target_os = "android"))]
+        {
+            let mut failed = Vec::new();
+            // Only songs that can go to the Recycle Bin; the rest are reported and left alone.
+            let mut ok = Vec::new();
+            for t in tracks {
+                let checked = std::fs::metadata(&t.path)
+                    .map_err(|_| "The file can no longer be found.".to_string())
+                    .and_then(|m| recycle::check_can_recycle(Path::new(&t.path), m.len()));
+                match checked {
+                    Ok(()) => ok.push(t),
+                    Err(reason) => failed.push(DeleteFailure { title: t.title, reason }),
+                }
+            }
+            step_off(&state, &ok.iter().map(|t| t.path.clone()).collect());
+            let mut deleted = HashSet::new();
+            for t in ok {
+                match recycle::send_to_bin(Path::new(&t.path)) {
+                    Ok(was_readonly) => {
+                        let mut conn = state.library.db.lock();
+                        let recorded = db::add_deleted(&conn, &t, was_readonly, db::now()).and_then(|_| db::delete_tracks(&mut conn, &[t.id]));
+                        if let Err(e) = recorded {
+                            log::error!("recording the deletion of {} failed: {e}", t.path);
+                        }
+                        deleted.insert(t.path);
+                    }
+                    Err(reason) => failed.push(DeleteFailure { title: t.title, reason }),
+                }
+            }
+            (deleted, failed)
+        }
     })
     .await
     .map_err(err)?;

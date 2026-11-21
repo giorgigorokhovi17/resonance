@@ -547,6 +547,7 @@ pub fn run() {
             commands::pc_sync_start,
             commands::pc_sync_cancel,
             commands::pc_sync_status,
+            commands::pc_sync_take_pending_link,
             commands::set_effects,
             commands::island_set_panel,
             commands::app_ready,

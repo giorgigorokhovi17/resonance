@@ -23,6 +23,18 @@ pub fn status() -> Status {
     STATUS.lock().clone().unwrap_or_default()
 }
 
+pub fn take_pending_link() -> Option<String> {
+    super::smtc::with_bridge(|env, class| {
+        let obj = env.call_static_method(class, "takePendingSyncLink", "()Ljava/lang/String;", &[])?.l()?;
+        if obj.is_null() {
+            return Ok(None);
+        }
+        let s: String = env.get_string(&JString::from(obj))?.into();
+        Ok(Some(s))
+    })
+    .flatten()
+}
+
 pub fn cancel() {
     CANCEL.store(true, Ordering::Relaxed);
 }

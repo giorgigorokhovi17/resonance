@@ -183,8 +183,10 @@ export interface PcSyncSettings {
 
 export interface PcSyncOffer {
   receive: boolean;
-  lists: { id: number; name: string; count: number }[];
+  lists: { id: number; name: string; count: number; onPhone: number; newCount: number; newBytes: number }[];
   folders: { path: string; count: number }[];
+  totalPcSongs: number;
+  totalOnPhone: number;
 }
 
 export interface PcSyncSummary {

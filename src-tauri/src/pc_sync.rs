@@ -7,6 +7,10 @@ pub fn status() -> Status {
     Status::default()
 }
 
+pub fn take_pending_link() -> Option<String> {
+    None
+}
+
 pub fn cancel() {}
 
 pub fn start(_app: &AppHandle) -> Result<(), String> {

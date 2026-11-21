@@ -14,9 +14,28 @@ val tauriProperties = Properties().apply {
     }
 }
 
+val keystoreProperties = Properties().apply {
+    val userProps = file("${System.getProperty("user.home")}/.tauri/undertone-android-keystore.properties")
+    val localProps = file("keystore.properties")
+    val chosen = if (localProps.exists()) localProps else userProps
+    if (chosen.exists()) {
+        chosen.inputStream().use { load(it) }
+    }
+}
+
 android {
     compileSdk = 37
     namespace = "app.resonance.player"
+    signingConfigs {
+        if (keystoreProperties.getProperty("storeFile") != null) {
+            create("release") {
+                storeFile = file(keystoreProperties.getProperty("storeFile"))
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+            }
+        }
+    }
     defaultConfig {
         manifestPlaceholders["usesCleartextTraffic"] = "false"
         applicationId = "app.resonance.player"
@@ -40,6 +59,7 @@ android {
             }
         }
         getByName("release") {
+            signingConfig = signingConfigs.findByName("release")
             optimization {
                enable = true
             }

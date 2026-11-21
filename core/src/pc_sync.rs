@@ -101,6 +101,8 @@ pub struct Offer {
     pub receive: bool,
     pub lists: Vec<OfferedList>,
     pub folders: Vec<OfferedFolder>,
+    pub total_pc_songs: usize,
+    pub total_on_phone: usize,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -111,10 +113,14 @@ pub struct OfferedFolder {
 }
 
 #[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
 pub struct OfferedList {
     pub id: i64,
     pub name: String,
     pub count: usize,
+    pub on_phone: usize,
+    pub new_count: usize,
+    pub new_bytes: u64,
 }
 
 #[derive(Serialize, Clone, Debug, Default, PartialEq)]
@@ -296,10 +302,35 @@ impl Client {
     }
 }
 
-/// What the PC has, for picking playlists.
-pub fn offer(link: Link) -> Result<Offer, String> {
+/// What the PC has, for picking playlists, compared against what is already on this phone.
+pub fn offer(lib: &Arc<Library>, link: Link) -> Result<Offer, String> {
     let client = Client::new(link)?;
     let m = block(client.manifest())?;
+    let synced_ids: HashSet<String> = {
+        let conn = lib.db.lock();
+        db::sync_files(&conn)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|r| Path::new(&r.path).exists())
+            .map(|r| r.id)
+            .collect()
+    };
+    let local_sig: HashSet<(u64, String)> = lib
+        .tracks()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|t| {
+            let name = Path::new(&t.path).file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
+            (t.file_size, name)
+        })
+        .collect();
+    let by_id: HashMap<&str, &RemoteFile> = m.files.iter().map(|f| (f.id.as_str(), f)).collect();
+    let has_file = |f: &RemoteFile| {
+        synced_ids.contains(&f.id) || local_sig.contains(&(f.size, f.name.to_lowercase()))
+    };
+    let total_pc_songs = m.files.len();
+    let total_on_phone = m.files.iter().filter(|f| has_file(f)).count();
+
     let mut folders: BTreeMap<String, usize> = BTreeMap::new();
     for f in m.files.iter().filter(|f| !f.dir.is_empty()) {
         let ends = f.dir.char_indices().filter(|(_, c)| *c == '/').map(|(i, _)| i).chain([f.dir.len()]);
@@ -308,8 +339,31 @@ pub fn offer(link: Link) -> Result<Offer, String> {
         }
     }
     let folders = folders.into_iter().map(|(path, count)| OfferedFolder { path, count }).collect();
-    let lists = m.lists.into_iter().map(|l| OfferedList { id: l.id, name: l.name, count: l.songs.len() }).collect();
-    Ok(Offer { receive: m.receive, lists, folders })
+    let lists = m
+        .lists
+        .into_iter()
+        .map(|l| {
+            let mut on_phone = 0usize;
+            let mut new_count = 0usize;
+            let mut new_bytes = 0u64;
+            let mut seen = HashSet::new();
+            for id in &l.songs {
+                if !seen.insert(id.as_str()) {
+                    continue;
+                }
+                if let Some(f) = by_id.get(id.as_str()) {
+                    if has_file(f) {
+                        on_phone += 1;
+                    } else {
+                        new_count += 1;
+                        new_bytes += f.size;
+                    }
+                }
+            }
+            OfferedList { id: l.id, name: l.name, count: l.songs.len(), on_phone, new_count, new_bytes }
+        })
+        .collect();
+    Ok(Offer { receive: m.receive, lists, folders, total_pc_songs, total_on_phone })
 }
 
 fn in_folder(dir: &str, folder: &str) -> bool {

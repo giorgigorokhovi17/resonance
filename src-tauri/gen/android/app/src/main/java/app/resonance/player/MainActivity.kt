@@ -2,10 +2,13 @@ package app.resonance.player
 
 import android.Manifest
 import android.content.ComponentName
+import android.content.ContentUris
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.database.ContentObserver
 import android.graphics.Color
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -15,6 +18,7 @@ import android.provider.OpenableColumns
 import android.view.View
 import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
@@ -80,6 +84,10 @@ class MainActivity : TauriActivity() {
   }
 
   private var pendingExportSrc: String? = null
+  private val trashMedia = registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { res ->
+    if (res.resultCode == RESULT_OK) NativeBridge.answer("ok", null)
+    else NativeBridge.answer(null, null)
+  }
   private val createDoc = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
     val uri = if (res.resultCode == RESULT_OK) res.data?.data else null
     val src = pendingExportSrc
@@ -129,7 +137,28 @@ class MainActivity : TauriActivity() {
       WindowInsetsCompat.CONSUMED
     }
     NativeBridge.activity = WeakReference(this)
+    handleSyncIntent(intent)
     NativeBridge.activityCreated()
+  }
+
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    setIntent(intent)
+    handleSyncIntent(intent)
+  }
+
+  private fun handleSyncIntent(intent: Intent?) {
+    val data = intent?.data ?: return
+    if (data.scheme == "undertone" && data.host == "sync") {
+      val url = data.getQueryParameter("u")
+        ?: run {
+          val h = data.getQueryParameter("h") ?: return
+          val p = data.getQueryParameter("p") ?: "8787"
+          val k = data.getQueryParameter("k") ?: return
+          "http://$h:$p/?k=$k"
+        }
+      NativeBridge.pendingSyncLink = url
+    }
   }
 
   override fun onStart() {
@@ -191,6 +220,39 @@ class MainActivity : TauriActivity() {
       putExtra(Intent.EXTRA_TITLE, name)
     }
     createDoc.launch(intent)
+  }
+
+  /** Moves the given audio files to Android's system Trash via MediaStore (recoverable for 30 days). */
+  fun trashAudioFiles(paths: Array<String>) {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+      NativeBridge.answer(null, "Moving songs to Trash requires Android 11 or newer.")
+      return
+    }
+    Thread {
+      runCatching {
+        val uris = ArrayList<Uri>()
+        for (p in paths) {
+          contentResolver.query(
+            MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+            arrayOf(MediaStore.Audio.Media._ID),
+            "${MediaStore.Audio.Media.DATA} = ?",
+            arrayOf(p),
+            null,
+          )?.use { c ->
+            if (c.moveToFirst()) {
+              uris.add(ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, c.getLong(0)))
+            }
+          }
+        }
+        if (uris.isEmpty()) error("Couldn't find those songs in Android's media library.")
+        val pi = MediaStore.createTrashRequest(contentResolver, uris, true)
+        handler.post {
+          trashMedia.launch(IntentSenderRequest.Builder(pi.intentSender).build())
+        }
+      }.onFailure { e ->
+        NativeBridge.answer(null, e.message ?: "Couldn't move songs to Trash.")
+      }
+    }.start()
   }
 
   private fun displayName(uri: android.net.Uri): String? {

@@ -151,7 +151,8 @@ pub fn status() -> PhoneStatus {
         Some(r) => {
             let host = lan_ip().unwrap_or_else(|| "localhost".into());
             let url = format!("http://{host}:{}/?k={}", r.port, r.key);
-            PhoneStatus { running: true, qr: Some(qr_svg(&url)), url: Some(url), error: None }
+            let app_link = format!("undertone://sync?h={host}&p={}&k={}", r.port, r.key);
+            PhoneStatus { running: true, qr: Some(qr_svg(&app_link)), url: Some(url), error: None }
         }
         None => PhoneStatus { error: ERROR.lock().clone(), ..PhoneStatus::default() },
     }
@@ -1156,7 +1157,7 @@ mod tests {
             names.iter().map(|n| Path::new(n).file_name().unwrap().to_string_lossy().to_string()).collect::<Vec<_>>()
         };
 
-        let offer = pc_sync::offer(Link::parse(&format!("http://127.0.0.1:{port}/?k={key}")).unwrap()).unwrap();
+        let offer = pc_sync::offer(&phone, Link::parse(&format!("http://127.0.0.1:{port}/?k={key}")).unwrap()).unwrap();
         assert!(offer.receive);
         assert_eq!(offer.lists[1].name, "Mix");
         assert_eq!(offer.lists[1].count, 3);
@@ -1204,7 +1205,7 @@ mod tests {
         std::fs::write(album.join("cover.png"), &png).unwrap();
         pc.request_scan(ScanRequest::All { force: false });
         wait(&pc, 5);
-        let offer = pc_sync::offer(Link::parse(&format!("http://127.0.0.1:{port}/?k={key}")).unwrap()).unwrap();
+        let offer = pc_sync::offer(&phone, Link::parse(&format!("http://127.0.0.1:{port}/?k={key}")).unwrap()).unwrap();
         assert!(offer.folders.iter().any(|f| f.path == "pc" && f.count == 5), "{:?}", offer.folders);
         assert!(offer.folders.iter().any(|f| f.path == "pc/Artist/Album" && f.count == 1));
         assert_eq!(sync_all(vec![], vec!["pc/Artist".to_string()]).fetched, 1);

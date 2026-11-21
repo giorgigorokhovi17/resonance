@@ -9,7 +9,7 @@ import { useRowHeight } from "../store/listStyle";
 import { usePlayer } from "../store/player";
 import { openMenu, type MenuItem } from "./ContextMenu";
 import { Quality, SelectionBar, TrackRow, useBackAction } from "./TrackRow";
-import { trackMenuItems } from "./trackMenu";
+import { deleteFromDisk, trackMenuItems } from "./trackMenu";
 
 export type Column = "index" | "title" | "artist" | "album" | "year" | "genre" | "quality" | "duration" | "added";
 
@@ -125,6 +125,10 @@ function TrackList({ tracks, defaultSort, header, mobileHeader, onPlay, extraMen
           total={sorted.length}
           onAll={(all) => setPicked(new Set(all ? sorted.map((t) => t.path) : []))}
           onClose={() => setPicked(null)}
+          onDelete={() => {
+            const lib = chosen.filter((t) => t.id > 0);
+            if (lib.length) deleteFromDisk(lib).then(() => setPicked(null));
+          }}
           onMenu={(e) => openMenu(e, trackMenuItems(chosen))}
         />
       )}

@@ -188,6 +188,7 @@ export const api = {
   pcSyncStart: () => invoke<void>("pc_sync_start"),
   pcSyncCancel: () => invoke<void>("pc_sync_cancel"),
   pcSyncStatus: () => invoke<PcSyncStatus>("pc_sync_status"),
+  pcSyncTakePendingLink: () => invoke<string | null>("pc_sync_take_pending_link"),
   setEffects: (effects: EffectSettings) => invoke<Settings>("set_effects", { effects }),
   updateSettings: (patch: Partial<Pick<Settings, "theme" | "closeToTray" | "watchFolders" | "island" | "islandOptions" | "hotkeys" | "phoneSync" | "pcSync" | "replayGain" | "replayGainPreamp" | "crossfade" | "appearance">>) =>
     invoke<Settings>("update_settings", { patch }),

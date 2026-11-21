@@ -20,6 +20,7 @@ import { Toasts } from "./components/Toasts";
 import { ContextMenuHost } from "./components/ContextMenu";
 import { NavSearch } from "./components/SearchBox";
 import { DialogHost } from "./components/Dialog";
+import { PcSyncPrompt } from "./components/PcSyncPrompt";
 import { DownloadsPanel } from "./components/DownloadsPanel";
 import { BottomTabs, MiniPlayer, MobileTopBar, MoreView, useBackButton } from "./components/MobileNav";
 import { LinkImportHost } from "./components/LinkImportDialog";
@@ -242,6 +243,7 @@ export default function App() {
       <Toasts />
       <ContextMenuHost />
       <DialogHost />
+      <PcSyncPrompt />
       <LinkImportHost />
       <PlaylistEditorHost />
       <LyricsDialog />

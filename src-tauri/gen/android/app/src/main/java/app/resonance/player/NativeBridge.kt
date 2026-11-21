@@ -98,6 +98,17 @@ object NativeBridge {
   fun removeSynced(path: String): Boolean =
     appContext?.let { PcSyncJobService.remove(it, path) } ?: false
 
+  /** Pending PC sync URL received from an `undertone://sync` QR code scan. */
+  @Volatile var pendingSyncLink: String? = null
+
+  /** Called by Rust: returns and clears any pending QR sync URL. */
+  @JvmStatic
+  fun takePendingSyncLink(): String? {
+    val link = pendingSyncLink
+    pendingSyncLink = null
+    return link
+  }
+
   /** Called by Rust when a sync with the PC starts or ends. */
   @JvmStatic
   fun onPcSync(running: Boolean) {
@@ -116,6 +127,12 @@ object NativeBridge {
   /** Called by Rust: the system "save as" screen for `name`, then copies `src` there. */
   @JvmStatic
   fun exportFile(src: String, name: String) = onScreen { it.exportFile(src, name) }
+
+  /** Called by Rust: asks Android to move newline-separated audio paths to system Trash. */
+  @JvmStatic
+  fun trashAudioFiles(paths: String) = onScreen {
+    it.trashAudioFiles(paths.split("\n").filter { s -> s.isNotEmpty() }.toTypedArray())
+  }
 
   private fun onScreen(open: (MainActivity) -> Unit) {
     main.post {

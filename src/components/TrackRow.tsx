@@ -1,4 +1,4 @@
-import { AudioLines, Check, EllipsisVertical, X } from "lucide-react";
+import { AudioLines, Check, EllipsisVertical, Trash2, X } from "lucide-react";
 import { useEffect, type ReactNode } from "react";
 import { displayArtist, isHiRes } from "../lib/format";
 import type { Track } from "../lib/types";
@@ -98,12 +98,14 @@ export function SelectionBar({
   total,
   onAll,
   onClose,
+  onDelete,
   onMenu,
 }: {
   count: number;
   total: number;
   onAll: (all: boolean) => void;
   onClose: () => void;
+  onDelete?: () => void;
   onMenu: (e: React.MouseEvent) => void;
 }) {
   const all = count === total;
@@ -116,6 +118,11 @@ export function SelectionBar({
       <button onClick={() => onAll(!all)} className="h-11 rounded-full px-3 text-[14px] font-medium text-accent">
         {all ? "Select none" : "Select all"}
       </button>
+      {onDelete && (
+        <button aria-label="Delete selected songs" disabled={!count} onClick={onDelete} className="flex h-11 w-10 items-center justify-center text-warn disabled:opacity-30">
+          <Trash2 size={19} />
+        </button>
+      )}
       <button aria-label="Options for the selected songs" disabled={!count} onClick={onMenu} className="flex h-11 w-10 items-center justify-center disabled:opacity-30">
         <EllipsisVertical size={20} />
       </button>

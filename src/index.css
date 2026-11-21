@@ -201,6 +201,53 @@ input[type="range"].slider:hover::-webkit-slider-runnable-track {
   animation: fade-in 0.18s ease-out;
 }
 
+@keyframes np-sheet-in {
+  from {
+    opacity: 0.4;
+    transform: translateY(36px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.animate-np-sheet {
+  animation: np-sheet-in 0.34s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes vinyl-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+.vinyl-spin {
+  animation: vinyl-spin 18s linear infinite;
+}
+.vinyl-spin.paused {
+  animation-play-state: paused;
+}
+
+@keyframes eq-bar {
+  0%,
+  100% {
+    transform: scaleY(0.28);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+.eq-bar {
+  transform-origin: bottom;
+  animation: eq-bar 0.85s ease-in-out infinite;
+}
+.eq-bar.paused {
+  animation-play-state: paused;
+  transform: scaleY(0.35);
+}
+
 /* The Android app: touch sizes, no scrollbars, and page margins that fit a phone. */
 .mobile {
   -webkit-tap-highlight-color: transparent;

@@ -81,6 +81,20 @@ pub fn export_file(src: &str, name: &str) -> Result<bool, String> {
     Ok(saved.is_some())
 }
 
+/// Asks Android (MediaStore.createTrashRequest) to move `paths` to system Trash. False when cancelled.
+pub fn trash_audio_files(paths: &[String]) -> Result<bool, String> {
+    if paths.is_empty() {
+        return Ok(false);
+    }
+    let joined = paths.join("\n");
+    let trashed = ask(|env, class| {
+        let s = env.new_string(&joined)?;
+        env.call_static_method(class, "trashAudioFiles", "(Ljava/lang/String;)V", &[JValue::Object(&s)])
+            .map(|_| ())
+    })?;
+    Ok(trashed.is_some())
+}
+
 fn rescan() {
     if let Some(library) = LIBRARY.get() {
         library.request_scan(ScanRequest::All { force: false });
